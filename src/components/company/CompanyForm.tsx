@@ -1,0 +1,524 @@
+import { useState, useEffect } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useToast } from "@/hooks/use-toast";
+import { Loader2 } from "lucide-react";
+
+const formSchema = z.object({
+  razao_social: z.string().min(1, "Razão social é obrigatória"),
+  nome_fantasia: z.string().optional(),
+  cnpj: z.string().min(14, "CNPJ inválido"),
+  responsavel: z.string().min(1, "Responsável é obrigatório"),
+  email: z.string().email("E-mail inválido"),
+  telefone: z.string().min(10, "Telefone inválido"),
+  cep: z.string().min(8, "CEP inválido"),
+  rua: z.string().min(1, "Rua é obrigatória"),
+  numero: z.string().min(1, "Número é obrigatório"),
+  bairro: z.string().min(1, "Bairro é obrigatório"),
+  cidade: z.string().min(1, "Cidade é obrigatória"),
+  estado: z.string().min(2, "Estado é obrigatório"),
+  cnae: z.string().optional(),
+  altura_tipo: z.string().min(1, "Altura da edificação é obrigatória"),
+  area_m2: z.coerce.number().min(0, "Área deve ser maior que 0"),
+  numero_ocupantes: z.coerce.number().int().min(0, "Número de ocupantes inválido"),
+});
+
+type FormData = z.infer<typeof formSchema>;
+
+interface CNAEData {
+  grupo: string;
+  ocupacao_uso: string;
+  divisao: string;
+  descricao: string;
+  carga_incendio_mj_m2: number;
+}
+
+interface AlturaRef {
+  tipo: string;
+  denominacao: string;
+}
+
+export function CompanyForm() {
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+  const [loadingCEP, setLoadingCEP] = useState(false);
+  const [loadingCNAE, setLoadingCNAE] = useState(false);
+  const [cnaeData, setCnaeData] = useState<CNAEData | null>(null);
+  const [grauRisco, setGrauRisco] = useState<string>("");
+  const [alturaOptions, setAlturaOptions] = useState<AlturaRef[]>([]);
+  const [alturaDenominacao, setAlturaDenominacao] = useState<string>("");
+
+  const form = useForm<FormData>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      razao_social: "",
+      nome_fantasia: "",
+      cnpj: "",
+      responsavel: "",
+      email: "",
+      telefone: "",
+      cep: "",
+      rua: "",
+      numero: "",
+      bairro: "",
+      cidade: "",
+      estado: "",
+      cnae: "",
+      altura_tipo: "",
+      area_m2: 0,
+      numero_ocupantes: 0,
+    },
+  });
+
+  // Load altura options
+  useEffect(() => {
+    loadAlturaOptions();
+  }, []);
+
+  const loadAlturaOptions = async () => {
+    const { data, error } = await supabase
+      .from("altura_ref")
+      .select("*")
+      .order("tipo");
+    
+    if (error) {
+      console.error("Error loading altura options:", error);
+      return;
+    }
+    
+    setAlturaOptions(data || []);
+  };
+
+  // Fetch CEP data from ViaCEP
+  const handleCEPBlur = async () => {
+    const cep = form.getValues("cep").replace(/\D/g, "");
+    if (cep.length !== 8) return;
+
+    setLoadingCEP(true);
+    try {
+      const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+      const data = await response.json();
+
+      if (data.erro) {
+        toast({
+          title: "CEP não encontrado",
+          description: "Verifique o CEP informado.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      form.setValue("rua", data.logradouro || "");
+      form.setValue("bairro", data.bairro || "");
+      form.setValue("cidade", data.localidade || "");
+      form.setValue("estado", data.uf || "");
+    } catch (error) {
+      toast({
+        title: "Erro ao buscar CEP",
+        description: "Não foi possível buscar os dados do CEP.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingCEP(false);
+    }
+  };
+
+  // Fetch CNAE data and calculate risk
+  const handleCNAEBlur = async () => {
+    const cnae = form.getValues("cnae");
+    if (!cnae) return;
+
+    setLoadingCNAE(true);
+    try {
+      const { data, error } = await supabase
+        .from("cnae_catalogo")
+        .select("*")
+        .eq("cnae", cnae)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (!data) {
+        toast({
+          title: "CNAE não encontrado",
+          description: "CNAE não encontrado no catálogo.",
+          variant: "destructive",
+        });
+        setCnaeData(null);
+        setGrauRisco("");
+        return;
+      }
+
+      setCnaeData({
+        grupo: data.grupo,
+        ocupacao_uso: data.ocupacao_uso,
+        divisao: data.divisao,
+        descricao: data.descricao,
+        carga_incendio_mj_m2: data.carga_incendio_mj_m2,
+      });
+
+      // Calculate risk grade
+      calculateRiskGrade(data.carga_incendio_mj_m2, form.getValues("numero_ocupantes"));
+    } catch (error) {
+      console.error("Error loading CNAE:", error);
+      toast({
+        title: "Erro ao buscar CNAE",
+        description: "Não foi possível buscar os dados do CNAE.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingCNAE(false);
+    }
+  };
+
+  // Calculate risk grade based on Table 3 (IT-01)
+  const calculateRiskGrade = (carga: number, ocupantes: number) => {
+    let risco = "baixo";
+
+    // Simplified logic based on IT-01 Table 3
+    // Matrix: occupants x fire load
+    if (ocupantes <= 100) {
+      if (carga > 1200) risco = "alto";
+      else if (carga > 300) risco = "medio";
+    } else if (ocupantes <= 500) {
+      if (carga > 1200) risco = "alto";
+      else if (carga > 300) risco = "medio";
+    } else if (ocupantes <= 1000) {
+      if (carga > 800) risco = "alto";
+      else if (carga > 200) risco = "medio";
+    } else if (ocupantes <= 5000) {
+      if (carga > 600) risco = "alto";
+      else if (carga > 150) risco = "medio";
+    } else {
+      if (carga > 400) risco = "alto";
+      else if (carga > 100) risco = "medio";
+    }
+
+    setGrauRisco(risco);
+  };
+
+  // Handle occupants change
+  const handleOcupantesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseInt(e.target.value) || 0;
+    form.setValue("numero_ocupantes", value);
+    
+    if (cnaeData) {
+      calculateRiskGrade(cnaeData.carga_incendio_mj_m2, value);
+    }
+  };
+
+  // Handle altura selection
+  const handleAlturaChange = (tipo: string) => {
+    form.setValue("altura_tipo", tipo);
+    const selected = alturaOptions.find(a => a.tipo === tipo);
+    setAlturaDenominacao(selected?.denominacao || "");
+  };
+
+  // Submit form
+  const onSubmit = async (data: FormData) => {
+    if (!cnaeData) {
+      toast({
+        title: "Dados incompletos",
+        description: "Por favor, preencha um CNAE válido.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const empresaData = {
+        razao_social: data.razao_social,
+        nome_fantasia: data.nome_fantasia,
+        cnpj: data.cnpj,
+        responsavel: data.responsavel,
+        email: data.email,
+        telefone: data.telefone,
+        cep: data.cep,
+        rua: data.rua,
+        numero: data.numero,
+        bairro: data.bairro,
+        cidade: data.cidade,
+        estado: data.estado,
+        cnae: data.cnae,
+        grupo: cnaeData.grupo,
+        ocupacao_uso: cnaeData.ocupacao_uso,
+        divisao: cnaeData.divisao,
+        descricao: cnaeData.descricao,
+        carga_incendio_mj_m2: cnaeData.carga_incendio_mj_m2,
+        altura_tipo: data.altura_tipo,
+        altura_denominacao: alturaDenominacao,
+        area_m2: data.area_m2,
+        numero_ocupantes: data.numero_ocupantes,
+        grau_risco: grauRisco,
+      };
+
+      const { error } = await supabase.from("empresa").insert(empresaData);
+
+      if (error) throw error;
+
+      toast({
+        title: "Empresa cadastrada com sucesso!",
+        description: "Os dados foram salvos no sistema.",
+      });
+
+      form.reset();
+      setCnaeData(null);
+      setGrauRisco("");
+      setAlturaDenominacao("");
+    } catch (error) {
+      console.error("Error saving company:", error);
+      toast({
+        title: "Erro ao salvar empresa",
+        description: "Não foi possível salvar os dados.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      {/* Company Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Empresa</CardTitle>
+          <CardDescription>Informações básicas da empresa</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="razao_social">Razão Social *</Label>
+              <Input id="razao_social" {...form.register("razao_social")} />
+              {form.formState.errors.razao_social && (
+                <p className="text-sm text-destructive">{form.formState.errors.razao_social.message}</p>
+              )}
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="nome_fantasia">Nome Fantasia</Label>
+              <Input id="nome_fantasia" {...form.register("nome_fantasia")} />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="cnpj">CNPJ *</Label>
+              <Input id="cnpj" {...form.register("cnpj")} placeholder="00.000.000/0000-00" />
+              {form.formState.errors.cnpj && (
+                <p className="text-sm text-destructive">{form.formState.errors.cnpj.message}</p>
+              )}
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="responsavel">Responsável *</Label>
+              <Input id="responsavel" {...form.register("responsavel")} />
+              {form.formState.errors.responsavel && (
+                <p className="text-sm text-destructive">{form.formState.errors.responsavel.message}</p>
+              )}
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="email">E-mail *</Label>
+              <Input id="email" type="email" {...form.register("email")} />
+              {form.formState.errors.email && (
+                <p className="text-sm text-destructive">{form.formState.errors.email.message}</p>
+              )}
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="telefone">Telefone *</Label>
+              <Input id="telefone" {...form.register("telefone")} placeholder="(00) 00000-0000" />
+              {form.formState.errors.telefone && (
+                <p className="text-sm text-destructive">{form.formState.errors.telefone.message}</p>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Address Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Endereço</CardTitle>
+          <CardDescription>Localização da empresa</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="cep">CEP *</Label>
+              <div className="flex gap-2">
+                <Input 
+                  id="cep" 
+                  {...form.register("cep")} 
+                  onBlur={handleCEPBlur}
+                  placeholder="00000-000"
+                />
+                {loadingCEP && <Loader2 className="h-5 w-5 animate-spin" />}
+              </div>
+              {form.formState.errors.cep && (
+                <p className="text-sm text-destructive">{form.formState.errors.cep.message}</p>
+              )}
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="rua">Rua/Logradouro *</Label>
+              <Input id="rua" {...form.register("rua")} />
+              {form.formState.errors.rua && (
+                <p className="text-sm text-destructive">{form.formState.errors.rua.message}</p>
+              )}
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="numero">Número *</Label>
+              <Input id="numero" {...form.register("numero")} />
+              {form.formState.errors.numero && (
+                <p className="text-sm text-destructive">{form.formState.errors.numero.message}</p>
+              )}
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="bairro">Bairro *</Label>
+              <Input id="bairro" {...form.register("bairro")} />
+              {form.formState.errors.bairro && (
+                <p className="text-sm text-destructive">{form.formState.errors.bairro.message}</p>
+              )}
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="cidade">Cidade *</Label>
+              <Input id="cidade" {...form.register("cidade")} />
+              {form.formState.errors.cidade && (
+                <p className="text-sm text-destructive">{form.formState.errors.cidade.message}</p>
+              )}
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="estado">Estado (UF) *</Label>
+              <Input id="estado" {...form.register("estado")} maxLength={2} />
+              {form.formState.errors.estado && (
+                <p className="text-sm text-destructive">{form.formState.errors.estado.message}</p>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Other Data Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Outros Dados</CardTitle>
+          <CardDescription>Classificação e informações técnicas</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="cnae">CNAE</Label>
+              <div className="flex gap-2">
+                <Input 
+                  id="cnae" 
+                  {...form.register("cnae")} 
+                  onBlur={handleCNAEBlur}
+                />
+                {loadingCNAE && <Loader2 className="h-5 w-5 animate-spin" />}
+              </div>
+            </div>
+            
+            {cnaeData && (
+              <>
+                <div className="space-y-2">
+                  <Label>Grupo</Label>
+                  <Input value={cnaeData.grupo} disabled className="bg-muted" />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label>Ocupação/Uso</Label>
+                  <Input value={cnaeData.ocupacao_uso} disabled className="bg-muted" />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label>Divisão</Label>
+                  <Input value={cnaeData.divisao} disabled className="bg-muted" />
+                </div>
+                
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Descrição</Label>
+                  <Input value={cnaeData.descricao} disabled className="bg-muted" />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label>Carga de Incêndio (MJ/m²)</Label>
+                  <Input value={cnaeData.carga_incendio_mj_m2} disabled className="bg-muted" />
+                </div>
+              </>
+            )}
+            
+            <div className="space-y-2">
+              <Label htmlFor="altura_tipo">Altura da Edificação *</Label>
+              <Select onValueChange={handleAlturaChange} value={form.watch("altura_tipo")}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a altura" />
+                </SelectTrigger>
+                <SelectContent>
+                  {alturaOptions.map((altura) => (
+                    <SelectItem key={altura.tipo} value={altura.tipo}>
+                      {altura.tipo} — {altura.denominacao}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {form.formState.errors.altura_tipo && (
+                <p className="text-sm text-destructive">{form.formState.errors.altura_tipo.message}</p>
+              )}
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="area_m2">Área da Edificação (m²) *</Label>
+              <Input id="area_m2" type="number" step="0.01" {...form.register("area_m2")} />
+              {form.formState.errors.area_m2 && (
+                <p className="text-sm text-destructive">{form.formState.errors.area_m2.message}</p>
+              )}
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="numero_ocupantes">Número de Ocupantes *</Label>
+              <Input 
+                id="numero_ocupantes" 
+                type="number" 
+                {...form.register("numero_ocupantes")}
+                onChange={handleOcupantesChange}
+              />
+              {form.formState.errors.numero_ocupantes && (
+                <p className="text-sm text-destructive">{form.formState.errors.numero_ocupantes.message}</p>
+              )}
+            </div>
+            
+            {grauRisco && (
+              <div className="space-y-2">
+                <Label>Grau de Risco</Label>
+                <Input 
+                  value={grauRisco.charAt(0).toUpperCase() + grauRisco.slice(1)} 
+                  disabled 
+                  className="bg-muted font-semibold" 
+                />
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="flex justify-end">
+        <Button type="submit" disabled={loading} size="lg">
+          {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          Salvar Empresa
+        </Button>
+      </div>
+    </form>
+  );
+}
