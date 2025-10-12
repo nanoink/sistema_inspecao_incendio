@@ -9,7 +9,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2 } from "lucide-react";
+import { Loader2, Check, ChevronsUpDown } from "lucide-react";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 const formSchema = z.object({
   razao_social: z.string().min(1, "Razão social é obrigatória"),
@@ -33,6 +36,7 @@ const formSchema = z.object({
 type FormData = z.infer<typeof formSchema>;
 
 interface CNAEData {
+  cnae: string;
   grupo: string;
   ocupacao_uso: string;
   divisao: string;
@@ -49,11 +53,12 @@ export function CompanyForm() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [loadingCEP, setLoadingCEP] = useState(false);
-  const [loadingCNAE, setLoadingCNAE] = useState(false);
   const [cnaeData, setCnaeData] = useState<CNAEData | null>(null);
   const [grauRisco, setGrauRisco] = useState<string>("");
   const [alturaOptions, setAlturaOptions] = useState<AlturaRef[]>([]);
   const [alturaDenominacao, setAlturaDenominacao] = useState<string>("");
+  const [cnaeOptions, setCnaeOptions] = useState<CNAEData[]>([]);
+  const [cnaeOpen, setCnaeOpen] = useState(false);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -77,9 +82,10 @@ export function CompanyForm() {
     },
   });
 
-  // Load altura options
+  // Load altura options and CNAE catalog
   useEffect(() => {
     loadAlturaOptions();
+    loadCnaeOptions();
   }, []);
 
   const loadAlturaOptions = async () => {
@@ -94,6 +100,20 @@ export function CompanyForm() {
     }
     
     setAlturaOptions(data || []);
+  };
+
+  const loadCnaeOptions = async () => {
+    const { data, error } = await supabase
+      .from("cnae_catalogo")
+      .select("*")
+      .order("cnae");
+    
+    if (error) {
+      console.error("Error loading CNAE options:", error);
+      return;
+    }
+    
+    setCnaeOptions(data || []);
   };
 
   // Fetch CEP data from ViaCEP
@@ -130,52 +150,26 @@ export function CompanyForm() {
     }
   };
 
-  // Fetch CNAE data and calculate risk
-  const handleCNAEBlur = async () => {
-    const cnae = form.getValues("cnae");
-    if (!cnae) return;
-
-    setLoadingCNAE(true);
-    try {
-      const { data, error } = await supabase
-        .from("cnae_catalogo")
-        .select("*")
-        .eq("cnae", cnae)
-        .maybeSingle();
-
-      if (error) throw error;
-
-      if (!data) {
-        toast({
-          title: "CNAE não encontrado",
-          description: "CNAE não encontrado no catálogo.",
-          variant: "destructive",
-        });
-        setCnaeData(null);
-        setGrauRisco("");
-        return;
-      }
-
+  // Handle CNAE selection
+  const handleCNAESelect = (selectedCnae: string) => {
+    form.setValue("cnae", selectedCnae);
+    const selected = cnaeOptions.find(c => c.cnae === selectedCnae);
+    
+    if (selected) {
       setCnaeData({
-        grupo: data.grupo,
-        ocupacao_uso: data.ocupacao_uso,
-        divisao: data.divisao,
-        descricao: data.descricao,
-        carga_incendio_mj_m2: data.carga_incendio_mj_m2,
+        cnae: selected.cnae,
+        grupo: selected.grupo,
+        ocupacao_uso: selected.ocupacao_uso,
+        divisao: selected.divisao,
+        descricao: selected.descricao,
+        carga_incendio_mj_m2: selected.carga_incendio_mj_m2,
       });
 
       // Calculate risk grade
-      calculateRiskGrade(data.carga_incendio_mj_m2, form.getValues("numero_ocupantes"));
-    } catch (error) {
-      console.error("Error loading CNAE:", error);
-      toast({
-        title: "Erro ao buscar CNAE",
-        description: "Não foi possível buscar os dados do CNAE.",
-        variant: "destructive",
-      });
-    } finally {
-      setLoadingCNAE(false);
+      calculateRiskGrade(selected.carga_incendio_mj_m2, form.getValues("numero_ocupantes"));
     }
+    
+    setCnaeOpen(false);
   };
 
   // Calculate risk grade based on Table 3 (IT-01)
@@ -417,53 +411,95 @@ export function CompanyForm() {
           <CardDescription>Classificação e informações técnicas</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* First Row: CNAE, Grupo, Ocupação */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="cnae">CNAE</Label>
-              <div className="flex gap-2">
-                <Input 
-                  id="cnae" 
-                  {...form.register("cnae")} 
-                  onBlur={handleCNAEBlur}
-                />
-                {loadingCNAE && <Loader2 className="h-5 w-5 animate-spin" />}
-              </div>
+              <Label>CNAE</Label>
+              <Popover open={cnaeOpen} onOpenChange={setCnaeOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={cnaeOpen}
+                    className="w-full justify-between"
+                  >
+                    {form.watch("cnae") || "Selecione o CNAE..."}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[400px] p-0">
+                  <Command>
+                    <CommandInput placeholder="Buscar CNAE..." />
+                    <CommandList>
+                      <CommandEmpty>Nenhum CNAE encontrado.</CommandEmpty>
+                      <CommandGroup>
+                        {cnaeOptions.map((cnae) => (
+                          <CommandItem
+                            key={cnae.cnae}
+                            value={cnae.cnae}
+                            onSelect={() => handleCNAESelect(cnae.cnae)}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                form.watch("cnae") === cnae.cnae ? "opacity-100" : "opacity-0"
+                              )}
+                            />
+                            {cnae.cnae} - {cnae.descricao}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
             
-            {cnaeData && (
-              <>
-                <div className="space-y-2">
-                  <Label>Grupo</Label>
-                  <Input value={cnaeData.grupo} disabled className="bg-muted" />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label>Ocupação/Uso</Label>
-                  <Input value={cnaeData.ocupacao_uso} disabled className="bg-muted" />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label>Divisão</Label>
-                  <Input value={cnaeData.divisao} disabled className="bg-muted" />
-                </div>
-                
-                <div className="space-y-2 md:col-span-2">
-                  <Label>Descrição</Label>
-                  <Input value={cnaeData.descricao} disabled className="bg-muted" />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label>Carga de Incêndio (MJ/m²)</Label>
-                  <Input value={cnaeData.carga_incendio_mj_m2} disabled className="bg-muted" />
-                </div>
-              </>
-            )}
+            <div className="space-y-2">
+              <Label>Grupo</Label>
+              <Input value={cnaeData?.grupo || ""} disabled className="bg-muted" />
+            </div>
             
             <div className="space-y-2">
-              <Label htmlFor="altura_tipo">Altura da Edificação *</Label>
+              <Label>Ocupação</Label>
+              <Input value={cnaeData?.ocupacao_uso || ""} disabled className="bg-muted" />
+            </div>
+          </div>
+
+          {/* Second Row: Divisão, Descrição, Carga de Incêndio */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Divisão</Label>
+              <Input value={cnaeData?.divisao || ""} disabled className="bg-muted" />
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Descrição</Label>
+              <Input value={cnaeData?.descricao || ""} disabled className="bg-muted" />
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Carga de Icêndio (MJ/m2)</Label>
+              <Input value={cnaeData?.carga_incendio_mj_m2 || ""} disabled className="bg-muted" />
+            </div>
+          </div>
+
+          {/* Third Row: Grau de Risco, Altura, Área */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Grau de risco por carga de incendio</Label>
+              <Input 
+                value={grauRisco ? grauRisco.charAt(0).toUpperCase() + grauRisco.slice(1) : ""} 
+                disabled 
+                className="bg-muted" 
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="altura_tipo">Altura da edificação *</Label>
               <Select onValueChange={handleAlturaChange} value={form.watch("altura_tipo")}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione a altura" />
+                  <SelectValue placeholder="Altura em (m)" />
                 </SelectTrigger>
                 <SelectContent>
                   {alturaOptions.map((altura) => (
@@ -479,13 +515,22 @@ export function CompanyForm() {
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="area_m2">Área da Edificação (m²) *</Label>
-              <Input id="area_m2" type="number" step="0.01" {...form.register("area_m2")} />
+              <Label htmlFor="area_m2">Área da edificação *</Label>
+              <Input 
+                id="area_m2" 
+                type="number" 
+                step="0.01" 
+                placeholder="Área em (m²)"
+                {...form.register("area_m2")} 
+              />
               {form.formState.errors.area_m2 && (
                 <p className="text-sm text-destructive">{form.formState.errors.area_m2.message}</p>
               )}
             </div>
-            
+          </div>
+
+          {/* Fourth Row: Número de Ocupantes */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="numero_ocupantes">Número de Ocupantes *</Label>
               <Input 
@@ -498,17 +543,6 @@ export function CompanyForm() {
                 <p className="text-sm text-destructive">{form.formState.errors.numero_ocupantes.message}</p>
               )}
             </div>
-            
-            {grauRisco && (
-              <div className="space-y-2">
-                <Label>Grau de Risco</Label>
-                <Input 
-                  value={grauRisco.charAt(0).toUpperCase() + grauRisco.slice(1)} 
-                  disabled 
-                  className="bg-muted font-semibold" 
-                />
-              </div>
-            )}
           </div>
         </CardContent>
       </Card>
