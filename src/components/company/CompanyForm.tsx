@@ -135,10 +135,16 @@ export function CompanyForm() {
         return;
       }
 
-      form.setValue("rua", data.logradouro || "");
-      form.setValue("bairro", data.bairro || "");
-      form.setValue("cidade", data.localidade || "");
-      form.setValue("estado", data.uf || "");
+      form.setValue("rua", data.logradouro || "", { shouldValidate: true });
+      form.setValue("bairro", data.bairro || "", { shouldValidate: true });
+      form.setValue("cidade", data.localidade || "", { shouldValidate: true });
+      form.setValue("estado", data.uf || "", { shouldValidate: true });
+      
+      // Clear errors for filled fields
+      if (data.logradouro) form.clearErrors("rua");
+      if (data.bairro) form.clearErrors("bairro");
+      if (data.localidade) form.clearErrors("cidade");
+      if (data.uf) form.clearErrors("estado");
     } catch (error) {
       toast({
         title: "Erro ao buscar CEP",
@@ -352,6 +358,12 @@ export function CompanyForm() {
                   id="cep" 
                   {...form.register("cep")} 
                   onBlur={handleCEPBlur}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleCEPBlur();
+                    }
+                  }}
                   placeholder="00000-000"
                 />
                 {loadingCEP && <Loader2 className="h-5 w-5 animate-spin" />}
