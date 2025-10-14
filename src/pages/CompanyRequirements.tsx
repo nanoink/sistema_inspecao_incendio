@@ -210,8 +210,8 @@ const CompanyRequirements = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="container mx-auto py-8 px-4">
-        <div className="mb-8">
+      <div className="container mx-auto py-4 md:py-8 px-4">
+        <div className="mb-6 md:mb-8">
           <Button
             variant="ghost"
             onClick={() => navigate("/")}
@@ -221,24 +221,24 @@ const CompanyRequirements = () => {
             Voltar ao Dashboard
           </Button>
           
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <Shield className="h-12 w-12 text-primary mr-3" />
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div className="flex items-start md:items-center">
+              <Shield className="h-8 w-8 md:h-12 md:w-12 text-primary mr-2 md:mr-3 flex-shrink-0 mt-1 md:mt-0" />
               <div>
-                <h1 className="text-4xl font-bold text-foreground">
+                <h1 className="text-2xl md:text-4xl font-bold text-foreground">
                   Exigências de Segurança
                 </h1>
-                <p className="text-lg text-muted-foreground mt-1">
+                <p className="text-sm md:text-lg text-muted-foreground mt-1">
                   {company.razao_social}
                 </p>
                 {company.altura_denominacao && (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-xs md:text-sm text-muted-foreground">
                     Classificação: {company.altura_denominacao} (Tipo {company.altura_tipo})
                   </p>
                 )}
               </div>
             </div>
-            <Button onClick={handleSave} disabled={saving} size="lg">
+            <Button onClick={handleSave} disabled={saving} size="lg" className="w-full md:w-auto">
               {saving ? (
                 <Loader2 className="mr-2 h-5 w-5 animate-spin" />
               ) : (
@@ -249,21 +249,21 @@ const CompanyRequirements = () => {
           </div>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-4 md:space-y-6">
           {Object.entries(groupedExigencias).map(([categoria, items]) => (
             <Card key={categoria}>
               <CardHeader>
-                <CardTitle>{categoria}</CardTitle>
+                <CardTitle className="text-base md:text-lg">{categoria}</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="rounded-md border">
+              <CardContent className="p-0 md:p-6">
+                <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-24">Código</TableHead>
-                        <TableHead>Medida de Segurança</TableHead>
-                        <TableHead className="w-32 text-center">Atende</TableHead>
-                        <TableHead className="w-[300px]">Observações</TableHead>
+                        <TableHead className="w-16 md:w-24 whitespace-nowrap">Código</TableHead>
+                        <TableHead className="whitespace-nowrap">Medida de Segurança</TableHead>
+                        <TableHead className="w-20 md:w-32 text-center whitespace-nowrap">Atende</TableHead>
+                        <TableHead className="w-32 md:w-[300px] whitespace-nowrap">Observações</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -271,10 +271,10 @@ const CompanyRequirements = () => {
                         const req = requirements.get(exigencia.id);
                         return (
                           <TableRow key={exigencia.id}>
-                            <TableCell className="font-medium">
+                            <TableCell className="font-medium whitespace-nowrap text-xs md:text-sm">
                               {exigencia.codigo}
                             </TableCell>
-                            <TableCell>{exigencia.nome}</TableCell>
+                            <TableCell className="text-xs md:text-sm">{exigencia.nome}</TableCell>
                             <TableCell className="text-center">
                               <div className="flex justify-center">
                                 <Checkbox
@@ -293,6 +293,7 @@ const CompanyRequirements = () => {
                                   handleObservationChange(exigencia.id, e.target.value)
                                 }
                                 rows={2}
+                                className="text-xs md:text-sm min-w-[200px]"
                               />
                             </TableCell>
                           </TableRow>

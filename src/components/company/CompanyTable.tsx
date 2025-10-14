@@ -118,33 +118,33 @@ export const CompanyTable = () => {
     <>
       <Card>
         <CardHeader>
-          <CardTitle>Empresas Cadastradas ({companies.length})</CardTitle>
+          <CardTitle className="text-lg md:text-xl">Empresas Cadastradas ({companies.length})</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="rounded-md border">
+        <CardContent className="p-0 md:p-6">
+          <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Razão Social</TableHead>
-                  <TableHead>Nome Fantasia</TableHead>
-                  <TableHead>CNPJ</TableHead>
-                  <TableHead>Responsável</TableHead>
-                  <TableHead>Telefone</TableHead>
-                  <TableHead>Grau de Risco</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
+                  <TableHead className="whitespace-nowrap">Razão Social</TableHead>
+                  <TableHead className="whitespace-nowrap">Nome Fantasia</TableHead>
+                  <TableHead className="whitespace-nowrap">CNPJ</TableHead>
+                  <TableHead className="whitespace-nowrap hidden md:table-cell">Responsável</TableHead>
+                  <TableHead className="whitespace-nowrap hidden lg:table-cell">Telefone</TableHead>
+                  <TableHead className="whitespace-nowrap hidden lg:table-cell">Grau de Risco</TableHead>
+                  <TableHead className="text-right whitespace-nowrap sticky right-0 bg-background">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {companies.map((company) => (
                   <TableRow key={company.id}>
-                    <TableCell className="font-medium">{company.razao_social}</TableCell>
-                    <TableCell>{company.nome_fantasia || "-"}</TableCell>
-                    <TableCell>{company.cnpj}</TableCell>
-                    <TableCell>{company.responsavel}</TableCell>
-                    <TableCell>{company.telefone}</TableCell>
-                    <TableCell>{company.grau_risco || "-"}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
+                    <TableCell className="font-medium whitespace-nowrap">{company.razao_social}</TableCell>
+                    <TableCell className="whitespace-nowrap">{company.nome_fantasia || "-"}</TableCell>
+                    <TableCell className="whitespace-nowrap">{company.cnpj}</TableCell>
+                    <TableCell className="whitespace-nowrap hidden md:table-cell">{company.responsavel}</TableCell>
+                    <TableCell className="whitespace-nowrap hidden lg:table-cell">{company.telefone}</TableCell>
+                    <TableCell className="whitespace-nowrap hidden lg:table-cell">{company.grau_risco || "-"}</TableCell>
+                    <TableCell className="text-right sticky right-0 bg-background">
+                      <div className="flex justify-end gap-1 md:gap-2">
                         <Button
                           variant="outline"
                           size="sm"
