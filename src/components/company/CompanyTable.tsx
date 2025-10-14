@@ -11,7 +11,8 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Pencil, Trash2, Loader2 } from "lucide-react";
+import { Pencil, Trash2, Loader2, ClipboardCheck } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { EditCompanyDialog } from "./EditCompanyDialog";
 import {
   AlertDialog,
@@ -38,6 +39,7 @@ interface Company {
 }
 
 export const CompanyTable = () => {
+  const navigate = useNavigate();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
@@ -143,6 +145,14 @@ export const CompanyTable = () => {
                     <TableCell>{company.grau_risco || "-"}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => navigate(`/exigencias/${company.id}`)}
+                          title="Exigências de Segurança"
+                        >
+                          <ClipboardCheck className="h-4 w-4" />
+                        </Button>
                         <Button
                           variant="outline"
                           size="sm"

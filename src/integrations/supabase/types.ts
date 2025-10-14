@@ -157,6 +157,75 @@ export type Database = {
           },
         ]
       }
+      empresa_exigencias: {
+        Row: {
+          atende: boolean
+          created_at: string
+          empresa_id: string
+          exigencia_id: string
+          id: string
+          observacoes: string | null
+          updated_at: string
+        }
+        Insert: {
+          atende?: boolean
+          created_at?: string
+          empresa_id: string
+          exigencia_id: string
+          id?: string
+          observacoes?: string | null
+          updated_at?: string
+        }
+        Update: {
+          atende?: boolean
+          created_at?: string
+          empresa_id?: string
+          exigencia_id?: string
+          id?: string
+          observacoes?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_exigencias_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresa"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "empresa_exigencias_exigencia_id_fkey"
+            columns: ["exigencia_id"]
+            isOneToOne: false
+            referencedRelation: "exigencias_seguranca"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      exigencias_seguranca: {
+        Row: {
+          categoria: string
+          codigo: string
+          id: string
+          nome: string
+          ordem: number
+        }
+        Insert: {
+          categoria: string
+          codigo: string
+          id?: string
+          nome: string
+          ordem: number
+        }
+        Update: {
+          categoria?: string
+          codigo?: string
+          id?: string
+          nome?: string
+          ordem?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
