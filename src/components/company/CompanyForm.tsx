@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,6 +52,7 @@ interface AlturaRef {
 
 export function CompanyForm() {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [loadingCEP, setLoadingCEP] = useState(false);
   const [cnaeData, setCnaeData] = useState<CNAEData | null>(null);
@@ -260,14 +262,23 @@ export function CompanyForm() {
         grau_risco: grauRisco,
       };
 
-      const { error } = await supabase.from("empresa").insert(empresaData);
+      const { data: insertedData, error } = await supabase
+        .from("empresa")
+        .insert(empresaData)
+        .select()
+        .single();
 
       if (error) throw error;
 
       toast({
         title: "Empresa cadastrada com sucesso!",
-        description: "Os dados foram salvos no sistema.",
+        description: "Redirecionando para exigências...",
       });
+
+      // Navigate to requirements page
+      if (insertedData?.id) {
+        navigate(`/exigencias/${insertedData.id}`);
+      }
 
       form.reset();
       setCnaeData(null);
