@@ -276,7 +276,7 @@ const CompanyChecklists = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-8">
+        <div className="flex flex-wrap gap-2 mb-8 justify-center md:justify-start">
           {inspecoes.map((inspecao) => {
             const Icon = getInspectionIcon(inspecao.nome);
             const isOpen = openInspection === inspecao.id;
@@ -288,15 +288,10 @@ const CompanyChecklists = () => {
                   isOpen ? 'ring-2 ring-primary' : ''
                 }`}
                 onClick={() => setOpenInspection(isOpen ? null : inspecao.id)}
+                title={`${inspecao.codigo} - ${inspecao.nome}`}
               >
-                <CardContent className="p-4 flex flex-col items-center text-center">
-                  <Icon className={`h-8 w-8 md:h-12 md:w-12 mb-2 ${isOpen ? 'text-primary' : 'text-muted-foreground'}`} />
-                  <p className="text-xs md:text-sm font-medium line-clamp-2">
-                    {inspecao.codigo}
-                  </p>
-                  <p className="text-[10px] md:text-xs text-muted-foreground mt-1 line-clamp-2">
-                    {inspecao.nome}
-                  </p>
+                <CardContent className="p-3">
+                  <Icon className={`h-6 w-6 ${isOpen ? 'text-primary' : 'text-muted-foreground'}`} />
                 </CardContent>
               </Card>
             );
