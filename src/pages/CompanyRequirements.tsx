@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Loader2, Shield, Save } from "lucide-react";
+import { ArrowLeft, Loader2, Shield, Save, ClipboardCheck } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -305,6 +305,17 @@ const CompanyRequirements = () => {
               </CardContent>
             </Card>
           ))}
+        </div>
+
+        <div className="mt-8 flex justify-center">
+          <Button
+            onClick={() => navigate(`/checklists/${id}`)}
+            size="lg"
+            className="w-full md:w-auto"
+          >
+            <ClipboardCheck className="mr-2 h-5 w-5" />
+            Ir para Check Lists de Renovação
+          </Button>
         </div>
       </div>
     </div>

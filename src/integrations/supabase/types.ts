@@ -35,6 +35,41 @@ export type Database = {
         }
         Relationships: []
       }
+      checklist_itens: {
+        Row: {
+          created_at: string
+          descricao: string
+          id: string
+          inspecao_id: string
+          item_numero: string
+          ordem: number
+        }
+        Insert: {
+          created_at?: string
+          descricao: string
+          id?: string
+          inspecao_id: string
+          item_numero: string
+          ordem: number
+        }
+        Update: {
+          created_at?: string
+          descricao?: string
+          id?: string
+          inspecao_id?: string
+          item_numero?: string
+          ordem?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checklist_itens_inspecao_id_fkey"
+            columns: ["inspecao_id"]
+            isOneToOne: false
+            referencedRelation: "inspecoes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cnae_catalogo: {
         Row: {
           carga_incendio_mj_m2: number
@@ -157,6 +192,51 @@ export type Database = {
           },
         ]
       }
+      empresa_checklist: {
+        Row: {
+          checklist_item_id: string
+          created_at: string
+          empresa_id: string
+          id: string
+          observacoes: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          checklist_item_id: string
+          created_at?: string
+          empresa_id: string
+          id?: string
+          observacoes?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          checklist_item_id?: string
+          created_at?: string
+          empresa_id?: string
+          id?: string
+          observacoes?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_checklist_checklist_item_id_fkey"
+            columns: ["checklist_item_id"]
+            isOneToOne: false
+            referencedRelation: "checklist_itens"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "empresa_checklist_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresa"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       empresa_exigencias: {
         Row: {
           atende: boolean
@@ -223,6 +303,33 @@ export type Database = {
           id?: string
           nome?: string
           ordem?: number
+        }
+        Relationships: []
+      }
+      inspecoes: {
+        Row: {
+          codigo: string
+          created_at: string
+          id: string
+          nome: string
+          ordem: number
+          tipo: string
+        }
+        Insert: {
+          codigo: string
+          created_at?: string
+          id?: string
+          nome: string
+          ordem: number
+          tipo: string
+        }
+        Update: {
+          codigo?: string
+          created_at?: string
+          id?: string
+          nome?: string
+          ordem?: number
+          tipo?: string
         }
         Relationships: []
       }
