@@ -119,7 +119,12 @@ export function CompanyForm() {
         carga_incendio_mj_m2: Number(item['CARGA DE INCÊNDIO (MJ/m2)'] || item.carga_incendio_mj_m2 || 0),
       }));
       
-      setCnaeOptions(mappedData);
+      // Remove duplicates based on CNAE code
+      const uniqueCnaes = mappedData.filter((item: CNAEData, index: number, self: CNAEData[]) => 
+        index === self.findIndex((t) => t.cnae === item.cnae)
+      );
+      
+      setCnaeOptions(uniqueCnaes);
     } catch (error) {
       console.error("Error loading CNAE options from API:", error);
       toast({
