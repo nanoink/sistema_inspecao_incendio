@@ -181,9 +181,12 @@ export function CompanyForm() {
     const selected = cnaeOptions.find(c => c.cnae === selectedCnae);
     
     if (selected) {
+      // Extract first letter from divisão for grupo
+      const grupoLetra = selected.divisao?.charAt(0).toUpperCase() || '';
+      
       setCnaeData({
         cnae: selected.cnae,
-        grupo: selected.grupo,
+        grupo: grupoLetra,
         ocupacao_uso: selected.ocupacao_uso,
         divisao: selected.divisao,
         descricao: selected.descricao,
