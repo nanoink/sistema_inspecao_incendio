@@ -105,17 +105,29 @@ export function CompanyForm() {
   };
 
   const loadCnaeOptions = async () => {
-    const { data, error } = await supabase
-      .from("cnae_catalogo")
-      .select("*")
-      .order("cnae");
-    
-    if (error) {
-      console.error("Error loading CNAE options:", error);
-      return;
+    try {
+      const response = await fetch('https://script.google.com/macros/s/AKfycbwFuTToILsB-y5kbSkSI7u04jIoOlCOogPzUp6VSJbElZ-8u3pra5TtFRKR4J5aGvbX/exec');
+      const data = await response.json();
+      
+      // Map API response to expected format
+      const mappedData = data.map((item: any) => ({
+        cnae: item.CNAE || item.cnae,
+        grupo: item.GRUPO || item.grupo || '',
+        ocupacao_uso: item['OCUPAÇÃO/USO'] || item.ocupacao_uso || '',
+        divisao: item['DIVISÃO'] || item.divisao || '',
+        descricao: item['DESCRIÇÃO'] || item.descricao || '',
+        carga_incendio_mj_m2: Number(item['CARGA DE INCÊNDIO (MJ/m2)'] || item.carga_incendio_mj_m2 || 0),
+      }));
+      
+      setCnaeOptions(mappedData);
+    } catch (error) {
+      console.error("Error loading CNAE options from API:", error);
+      toast({
+        title: "Erro ao carregar CNAEs",
+        description: "Não foi possível carregar a lista de CNAEs.",
+        variant: "destructive",
+      });
     }
-    
-    setCnaeOptions(data || []);
   };
 
   // Fetch CEP data from ViaCEP
