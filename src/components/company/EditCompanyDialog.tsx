@@ -327,6 +327,7 @@ export const EditCompanyDialog = ({
               `https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec?divisao=${encodeURIComponent(cnaeData.grupo)}`
             );
             const apiData = await response.json();
+            console.log("API Data:", apiData);
             
             // Get all requirements from database with their criteria
             const { data: allExigencias } = await supabase
@@ -336,12 +337,15 @@ export const EditCompanyDialog = ({
                 exigencias_criterios(*)
               `);
 
+            console.log("All Exigencias:", allExigencias?.length);
+
             if (allExigencias) {
               // Filter requirements based on API response
-              const apiCodigos = new Set(apiData.map((item: any) => item.CÓDIGO));
+              const apiCodigos = new Set(apiData.map((item: any) => item.CÓDIGO || item.codigo));
+              console.log("API Codigos:", Array.from(apiCodigos));
               
-              // Get altura value from altura_tipo
-              let alturaValue: number | null = null;
+              // Get altura value in meters from altura_tipo
+              let alturaMetros: number | null = null;
               if (data.altura_tipo) {
                 const { data: alturaRef } = await supabase
                   .from("altura_ref")
@@ -350,9 +354,12 @@ export const EditCompanyDialog = ({
                   .single();
                 
                 if (alturaRef?.h_min_m) {
-                  alturaValue = Number(alturaRef.h_min_m);
+                  alturaMetros = Number(alturaRef.h_min_m);
                 }
               }
+              console.log("Altura (metros):", alturaMetros);
+              console.log("Area:", data.area_m2);
+              console.log("Divisao:", cnaeData.divisao);
 
               const filteredExigencias = allExigencias.filter(exig => {
                 // Must be in API response
@@ -360,40 +367,40 @@ export const EditCompanyDialog = ({
 
                 // Check criteria if exists
                 const criterios = (exig as any).exigencias_criterios;
-                if (!criterios || criterios.length === 0) return true;
+                
+                // If no criteria, include it
+                if (!criterios || criterios.length === 0) {
+                  console.log(`✓ ${exig.codigo} - No criteria, including`);
+                  return true;
+                }
 
-                // Check if any criteria matches
-                return criterios.some((criterio: any) => {
-                  // Check divisao (group)
-                  if (criterio.divisao && criterio.divisao !== cnaeData.divisao) {
-                    return false;
-                  }
+                // Check if any criteria matches for this divisao
+                const matchingCriterio = criterios.find((criterio: any) => {
+                  // Must match divisao
+                  if (criterio.divisao !== cnaeData.divisao) return false;
 
                   // Check area criteria
                   const area = Number(data.area_m2);
-                  if (criterio.area_min !== null && area < Number(criterio.area_min)) {
-                    return false;
-                  }
-                  if (criterio.area_max !== null && area > Number(criterio.area_max)) {
-                    return false;
-                  }
+                  if (criterio.area_min !== null && area < Number(criterio.area_min)) return false;
+                  if (criterio.area_max !== null && area > Number(criterio.area_max)) return false;
 
-                  // Check altura criteria
-                  if (alturaValue !== null) {
-                    if (criterio.altura_tipo && criterio.altura_tipo !== data.altura_tipo) {
-                      return false;
-                    }
-                    if (criterio.altura_min !== null && alturaValue < Number(criterio.altura_min)) {
-                      return false;
-                    }
-                    if (criterio.altura_max !== null && alturaValue > Number(criterio.altura_max)) {
-                      return false;
-                    }
-                  }
+                  // Check altura criteria in meters
+                  if (alturaMetros !== null && criterio.altura_min !== null && alturaMetros < Number(criterio.altura_min)) return false;
+                  if (alturaMetros !== null && criterio.altura_max !== null && alturaMetros > Number(criterio.altura_max)) return false;
 
                   return true;
                 });
+
+                if (matchingCriterio) {
+                  console.log(`✓ ${exig.codigo} - Matched criteria`);
+                  return true;
+                } else {
+                  console.log(`✗ ${exig.codigo} - No matching criteria for divisao ${cnaeData.divisao}`);
+                  return false;
+                }
               });
+
+              console.log("Filtered Exigencias:", filteredExigencias.length);
 
               // Insert new requirements with default values
               const newRequirements = filteredExigencias.map(exig => ({
@@ -403,10 +410,18 @@ export const EditCompanyDialog = ({
                 observacoes: null
               }));
 
+              console.log("Inserting requirements:", newRequirements.length);
+
               if (newRequirements.length > 0) {
-                await supabase
+                const { error: insertError } = await supabase
                   .from("empresa_exigencias")
                   .insert(newRequirements);
+                
+                if (insertError) {
+                  console.error("Error inserting requirements:", insertError);
+                } else {
+                  console.log("Requirements inserted successfully");
+                }
               }
             }
           } catch (error) {
