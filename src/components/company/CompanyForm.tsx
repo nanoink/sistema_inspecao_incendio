@@ -48,6 +48,8 @@ interface CNAEData {
 interface AlturaRef {
   tipo: string;
   denominacao: string;
+  h_min_m: number | null;
+  h_max_m: number | null;
 }
 
 export function CompanyForm() {
@@ -59,6 +61,7 @@ export function CompanyForm() {
   const [grauRisco, setGrauRisco] = useState<string>("");
   const [alturaOptions, setAlturaOptions] = useState<AlturaRef[]>([]);
   const [alturaDenominacao, setAlturaDenominacao] = useState<string>("");
+  const [alturaDescricao, setAlturaDescricao] = useState<string>("");
   const [cnaeOptions, setCnaeOptions] = useState<CNAEData[]>([]);
   const [cnaeOpen, setCnaeOpen] = useState(false);
 
@@ -277,6 +280,21 @@ export function CompanyForm() {
     form.setValue("altura_tipo", tipo);
     const selected = alturaOptions.find(a => a.tipo === tipo);
     setAlturaDenominacao(selected?.denominacao || "");
+    
+    // Calculate altura description based on h_min_m and h_max_m
+    if (selected) {
+      let descricao = "";
+      if (selected.h_min_m === null && selected.h_max_m === null) {
+        descricao = "Um pavimento";
+      } else if (selected.h_min_m === null && selected.h_max_m !== null) {
+        descricao = `H < ${selected.h_max_m} m`;
+      } else if (selected.h_min_m !== null && selected.h_max_m === null) {
+        descricao = `Acima de ${selected.h_min_m} m`;
+      } else if (selected.h_min_m !== null && selected.h_max_m !== null) {
+        descricao = `${selected.h_min_m} < H < ${selected.h_max_m} m`;
+      }
+      setAlturaDescricao(descricao);
+    }
   };
 
   // Submit form
@@ -313,6 +331,7 @@ export function CompanyForm() {
         carga_incendio_mj_m2: cnaeData.carga_incendio_mj_m2,
         altura_tipo: data.altura_tipo,
         altura_denominacao: alturaDenominacao,
+        altura_descricao: alturaDescricao,
         area_m2: data.area_m2,
         numero_ocupantes: data.numero_ocupantes,
         grau_risco: grauRisco,
@@ -325,6 +344,45 @@ export function CompanyForm() {
         .single();
 
       if (error) throw error;
+
+      // Create company requirements based on division
+      if (insertedData?.id && cnaeData.divisao) {
+        try {
+          const response = await fetch(
+            `https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec?divisao=${encodeURIComponent(cnaeData.divisao)}`
+          );
+          const apiData = await response.json();
+          
+          // Get all requirements from database
+          const { data: allExigencias } = await supabase
+            .from("exigencias_seguranca")
+            .select("*");
+
+          if (allExigencias) {
+            // Filter requirements based on API response
+            const apiCodigos = new Set(apiData.map((item: any) => item.CÓDIGO));
+            const filteredExigencias = allExigencias.filter(exig => 
+              apiCodigos.has(exig.codigo)
+            );
+
+            // Insert new requirements with default values
+            const newRequirements = filteredExigencias.map(exig => ({
+              empresa_id: insertedData.id,
+              exigencia_id: exig.id,
+              atende: false,
+              observacoes: null
+            }));
+
+            if (newRequirements.length > 0) {
+              await supabase
+                .from("empresa_exigencias")
+                .insert(newRequirements);
+            }
+          }
+        } catch (error) {
+          console.error("Error creating requirements:", error);
+        }
+      }
 
       toast({
         title: "Empresa cadastrada com sucesso!",
