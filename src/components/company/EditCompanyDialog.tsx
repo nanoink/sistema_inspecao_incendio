@@ -327,7 +327,7 @@ export const EditCompanyDialog = ({
               `https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec?divisao=${encodeURIComponent(cnaeData.grupo)}`
             );
             const apiData = await response.json();
-            console.log("API Data:", apiData);
+            console.log("API Response Raw:", JSON.stringify(apiData.slice(0, 2), null, 2));
             
             // Get all requirements from database with their criteria
             const { data: allExigencias } = await supabase
@@ -341,8 +341,13 @@ export const EditCompanyDialog = ({
 
             if (allExigencias) {
               // Filter requirements based on API response
-              const apiCodigos = new Set(apiData.map((item: any) => item.CÓDIGO || item.codigo));
-              console.log("API Codigos:", Array.from(apiCodigos));
+              // Try multiple possible field names from the API
+              const apiCodigos = new Set(apiData.map((item: any) => {
+                const codigo = item['CÓDIGO'] || item['CODIGO'] || item.codigo || item.Codigo || item.code;
+                console.log("Item keys:", Object.keys(item).join(", "));
+                return codigo;
+              }).filter((c: any) => c !== undefined));
+              console.log("API Codigos extracted:", Array.from(apiCodigos));
               
               // Get altura value in meters from altura_tipo
               let alturaMetros: number | null = null;
