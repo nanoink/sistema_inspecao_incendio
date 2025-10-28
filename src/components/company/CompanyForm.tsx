@@ -226,6 +226,42 @@ export function CompanyForm() {
     setGrauRisco(risco);
   };
 
+  // Format CNPJ
+  const formatCNPJ = (value: string) => {
+    const numbers = value.replace(/\D/g, '');
+    if (numbers.length <= 14) {
+      return numbers
+        .replace(/^(\d{2})(\d)/, '$1.$2')
+        .replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+        .replace(/\.(\d{3})(\d)/, '.$1/$2')
+        .replace(/(\d{4})(\d)/, '$1-$2');
+    }
+    return value;
+  };
+
+  // Format telefone
+  const formatTelefone = (value: string) => {
+    const numbers = value.replace(/\D/g, '');
+    if (numbers.length <= 11) {
+      return numbers
+        .replace(/^(\d{2})(\d)/, '($1) $2')
+        .replace(/(\d{5})(\d)/, '$1-$2');
+    }
+    return value;
+  };
+
+  // Handle CNPJ change
+  const handleCNPJChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatted = formatCNPJ(e.target.value);
+    form.setValue("cnpj", formatted);
+  };
+
+  // Handle telefone change
+  const handleTelefoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatted = formatTelefone(e.target.value);
+    form.setValue("telefone", formatted);
+  };
+
   // Handle occupants change
   const handleOcupantesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseInt(e.target.value) || 0;
@@ -341,7 +377,13 @@ export function CompanyForm() {
             
             <div className="space-y-2">
               <Label htmlFor="cnpj">CNPJ *</Label>
-              <Input id="cnpj" {...form.register("cnpj")} placeholder="00.000.000/0000-00" />
+              <Input 
+                id="cnpj" 
+                value={form.watch("cnpj")}
+                onChange={handleCNPJChange}
+                placeholder="00.000.000/0000-00" 
+                maxLength={18}
+              />
               {form.formState.errors.cnpj && (
                 <p className="text-sm text-destructive">{form.formState.errors.cnpj.message}</p>
               )}
@@ -365,7 +407,13 @@ export function CompanyForm() {
             
             <div className="space-y-2">
               <Label htmlFor="telefone">Telefone *</Label>
-              <Input id="telefone" {...form.register("telefone")} placeholder="(00) 00000-0000" />
+              <Input 
+                id="telefone" 
+                value={form.watch("telefone")}
+                onChange={handleTelefoneChange}
+                placeholder="(00) 00000-0000" 
+                maxLength={15}
+              />
               {form.formState.errors.telefone && (
                 <p className="text-sm text-destructive">{form.formState.errors.telefone.message}</p>
               )}
