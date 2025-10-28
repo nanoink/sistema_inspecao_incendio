@@ -244,6 +244,47 @@ export const EditCompanyDialog = ({
               />
             </div>
 
+            {/* CNAE Information - Read Only */}
+            <div className="border-t pt-4 mt-4">
+              <h3 className="text-sm font-semibold mb-3 text-muted-foreground">
+                Informações de CNAE (Somente Leitura)
+              </h3>
+              
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <FormLabel>CNAE</FormLabel>
+                  <Input value={company?.cnae || ""} disabled className="bg-muted" />
+                </div>
+                
+                <div className="space-y-2">
+                  <FormLabel>Grupo</FormLabel>
+                  <Input value={company?.grupo || ""} disabled className="bg-muted" />
+                </div>
+                
+                <div className="space-y-2">
+                  <FormLabel>Ocupação/Uso</FormLabel>
+                  <Input value={company?.ocupacao_uso || ""} disabled className="bg-muted" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4 mt-4">
+                <div className="space-y-2">
+                  <FormLabel>Divisão</FormLabel>
+                  <Input value={company?.divisao || ""} disabled className="bg-muted" />
+                </div>
+                
+                <div className="space-y-2">
+                  <FormLabel>Descrição</FormLabel>
+                  <Input value={company?.descricao || ""} disabled className="bg-muted" />
+                </div>
+                
+                <div className="space-y-2">
+                  <FormLabel>Carga de Incêndio (MJ/m²)</FormLabel>
+                  <Input value={company?.carga_incendio_mj_m2 || ""} disabled className="bg-muted" />
+                </div>
+              </div>
+            </div>
+
             <div className="flex justify-end gap-4 pt-4">
               <Button
                 type="button"
