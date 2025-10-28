@@ -206,7 +206,7 @@ const CompanyRequirements = () => {
       }
 
       toast.success("Exigências salvas com sucesso!");
-      navigate("/dashboard");
+      navigate("/");
     } catch (error) {
       console.error("Error saving requirements:", error);
       toast.error("Não foi possível salvar as exigências.");
@@ -291,7 +291,7 @@ const CompanyRequirements = () => {
       <div className="mb-6 flex items-center gap-4">
         <Button
           variant="outline"
-          onClick={() => navigate("/dashboard")}
+          onClick={() => navigate("/")}
           className="flex items-center gap-2"
         >
           <ArrowLeft className="h-4 w-4" />
