@@ -21,7 +21,7 @@ interface Company {
   razao_social: string;
   altura_tipo: string | null;
   altura_denominacao: string | null;
-  divisao: string | null;
+  grupo: string | null;
 }
 
 interface Exigencia {
@@ -61,19 +61,19 @@ const CompanyRequirements = () => {
       // Fetch company data
       const { data: companyData, error: companyError } = await supabase
         .from("empresa")
-        .select("id, razao_social, altura_tipo, altura_denominacao, divisao")
+        .select("id, razao_social, altura_tipo, altura_denominacao, grupo")
         .eq("id", id)
         .single();
 
       if (companyError) throw companyError;
       setCompany(companyData);
 
-      // Fetch requirements by division from external API
+      // Fetch requirements by group from external API
       let filteredExigencias: Exigencia[] = [];
-      if (companyData.divisao) {
+      if (companyData.grupo) {
         try {
           const response = await fetch(
-            `https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec?divisao=${encodeURIComponent(companyData.divisao)}`
+            `https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec?divisao=${encodeURIComponent(companyData.grupo)}`
           );
           const apiData = await response.json();
           
@@ -105,7 +105,7 @@ const CompanyRequirements = () => {
           filteredExigencias = allExigencias || [];
         }
       } else {
-        // No division, show all requirements
+        // No group, show all requirements
         const { data: allExigencias } = await supabase
           .from("exigencias_seguranca")
           .select("*")

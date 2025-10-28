@@ -270,8 +270,8 @@ export const EditCompanyDialog = ({
     }
 
     try {
-      // Check if division changed
-      const divisaoChanged = company.divisao !== cnaeData.divisao;
+      // Check if group changed
+      const grupoChanged = company.grupo !== cnaeData.grupo;
 
       const { error } = await supabase
         .from("empresa")
@@ -299,8 +299,8 @@ export const EditCompanyDialog = ({
 
       if (error) throw error;
 
-      // Check if company has requirements and if division exists
-      if (cnaeData.divisao) {
+      // Check if company has requirements and if group exists
+      if (cnaeData.grupo) {
         // Check existing requirements
         const { data: existingRequirements } = await supabase
           .from("empresa_exigencias")
@@ -309,8 +309,8 @@ export const EditCompanyDialog = ({
 
         const hasRequirements = existingRequirements && existingRequirements.length > 0;
 
-        // If division changed OR no requirements exist, update requirements
-        if (divisaoChanged || !hasRequirements) {
+        // If group changed OR no requirements exist, update requirements
+        if (grupoChanged || !hasRequirements) {
           // Delete existing requirements if any
           if (hasRequirements) {
             await supabase
@@ -319,10 +319,10 @@ export const EditCompanyDialog = ({
               .eq("empresa_id", company.id);
           }
 
-          // Fetch new requirements from API based on division
+          // Fetch new requirements from API based on group
           try {
             const response = await fetch(
-              `https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec?divisao=${encodeURIComponent(cnaeData.divisao)}`
+              `https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec?divisao=${encodeURIComponent(cnaeData.grupo)}`
             );
             const apiData = await response.json();
             

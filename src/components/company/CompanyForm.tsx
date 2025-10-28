@@ -345,11 +345,11 @@ export function CompanyForm() {
 
       if (error) throw error;
 
-      // Create company requirements based on division
-      if (insertedData?.id && cnaeData.divisao) {
+      // Create company requirements based on group
+      if (insertedData?.id && cnaeData.grupo) {
         try {
           const response = await fetch(
-            `https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec?divisao=${encodeURIComponent(cnaeData.divisao)}`
+            `https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec?divisao=${encodeURIComponent(cnaeData.grupo)}`
           );
           const apiData = await response.json();
           
