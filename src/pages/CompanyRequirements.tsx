@@ -12,6 +12,8 @@ interface Company {
   divisao: string | null;
   area_m2: number;
   altura_tipo: string | null;
+  altura_denominacao: string | null;
+  altura_descricao: string | null;
 }
 
 interface Exigencia {
@@ -51,7 +53,7 @@ const CompanyRequirements = () => {
       // Fetch company data
       const { data: companyData, error: companyError } = await supabase
         .from("empresa")
-        .select("id, razao_social, divisao, area_m2, altura_tipo")
+        .select("id, razao_social, divisao, area_m2, altura_tipo, altura_denominacao, altura_descricao")
         .eq("id", id)
         .maybeSingle();
 
@@ -281,7 +283,7 @@ const CompanyRequirements = () => {
           <div className="text-sm text-muted-foreground">
             <p>Divisão: {company.divisao}</p>
             <p>Área: {company.area_m2}m²</p>
-            <p>Altura: {company.altura_tipo}</p>
+            <p>Altura: {company.altura_denominacao || company.altura_descricao || company.altura_tipo}</p>
           </div>
         </div>
       )}
