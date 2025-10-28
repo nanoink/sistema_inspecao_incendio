@@ -299,49 +299,62 @@ export const EditCompanyDialog = ({
 
       if (error) throw error;
 
-      // If division changed, reset company requirements
-      if (divisaoChanged && cnaeData.divisao) {
-        // Delete existing requirements
-        await supabase
+      // Check if company has requirements and if division exists
+      if (cnaeData.divisao) {
+        // Check existing requirements
+        const { data: existingRequirements } = await supabase
           .from("empresa_exigencias")
-          .delete()
+          .select("id")
           .eq("empresa_id", company.id);
 
-        // Fetch new requirements from API based on new division
-        try {
-          const response = await fetch(
-            `https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec?divisao=${encodeURIComponent(cnaeData.divisao)}`
-          );
-          const apiData = await response.json();
-          
-          // Get all requirements from database
-          const { data: allExigencias } = await supabase
-            .from("exigencias_seguranca")
-            .select("*");
+        const hasRequirements = existingRequirements && existingRequirements.length > 0;
 
-          if (allExigencias) {
-            // Filter requirements based on API response
-            const apiCodigos = new Set(apiData.map((item: any) => item.CÓDIGO));
-            const filteredExigencias = allExigencias.filter(exig => 
-              apiCodigos.has(exig.codigo)
-            );
-
-            // Insert new requirements with default values
-            const newRequirements = filteredExigencias.map(exig => ({
-              empresa_id: company.id,
-              exigencia_id: exig.id,
-              atende: false,
-              observacoes: null
-            }));
-
-            if (newRequirements.length > 0) {
-              await supabase
-                .from("empresa_exigencias")
-                .insert(newRequirements);
-            }
+        // If division changed OR no requirements exist, update requirements
+        if (divisaoChanged || !hasRequirements) {
+          // Delete existing requirements if any
+          if (hasRequirements) {
+            await supabase
+              .from("empresa_exigencias")
+              .delete()
+              .eq("empresa_id", company.id);
           }
-        } catch (error) {
-          console.error("Error updating requirements:", error);
+
+          // Fetch new requirements from API based on division
+          try {
+            const response = await fetch(
+              `https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec?divisao=${encodeURIComponent(cnaeData.divisao)}`
+            );
+            const apiData = await response.json();
+            
+            // Get all requirements from database
+            const { data: allExigencias } = await supabase
+              .from("exigencias_seguranca")
+              .select("*");
+
+            if (allExigencias) {
+              // Filter requirements based on API response
+              const apiCodigos = new Set(apiData.map((item: any) => item.CÓDIGO));
+              const filteredExigencias = allExigencias.filter(exig => 
+                apiCodigos.has(exig.codigo)
+              );
+
+              // Insert new requirements with default values
+              const newRequirements = filteredExigencias.map(exig => ({
+                empresa_id: company.id,
+                exigencia_id: exig.id,
+                atende: false,
+                observacoes: null
+              }));
+
+              if (newRequirements.length > 0) {
+                await supabase
+                  .from("empresa_exigencias")
+                  .insert(newRequirements);
+              }
+            }
+          } catch (error) {
+            console.error("Error updating requirements:", error);
+          }
         }
       }
 
