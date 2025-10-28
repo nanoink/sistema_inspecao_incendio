@@ -283,7 +283,7 @@ const CompanyRequirements = () => {
           <div className="text-sm text-muted-foreground">
             <p>Divisão: {company.divisao}</p>
             <p>Área: {company.area_m2}m²</p>
-            <p>Altura: {company.altura_denominacao || company.altura_descricao || company.altura_tipo}</p>
+            <p>Altura: {company.altura_descricao || company.altura_tipo}</p>
           </div>
         </div>
       )}
