@@ -283,6 +283,27 @@ export const EditCompanyDialog = ({
                   <Input value={company?.carga_incendio_mj_m2 || ""} disabled className="bg-muted" />
                 </div>
               </div>
+
+              <div className="grid grid-cols-3 gap-4 mt-4">
+                <div className="space-y-2">
+                  <FormLabel>Altura da Edificação (Tipo)</FormLabel>
+                  <Input value={company?.altura_tipo || ""} disabled className="bg-muted" />
+                </div>
+                
+                <div className="space-y-2">
+                  <FormLabel>Denominação da Altura</FormLabel>
+                  <Input value={company?.altura_denominacao || ""} disabled className="bg-muted" />
+                </div>
+                
+                <div className="space-y-2">
+                  <FormLabel>Grau de Risco</FormLabel>
+                  <Input 
+                    value={company?.grau_risco ? company.grau_risco.charAt(0).toUpperCase() + company.grau_risco.slice(1) : ""} 
+                    disabled 
+                    className="bg-muted" 
+                  />
+                </div>
+              </div>
             </div>
 
             <div className="flex justify-end gap-4 pt-4">
