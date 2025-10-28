@@ -53,6 +53,8 @@ interface CNAEData {
 interface AlturaRef {
   tipo: string;
   denominacao: string;
+  h_min_m: number | null;
+  h_max_m: number | null;
 }
 
 interface EditCompanyDialogProps {
@@ -74,6 +76,7 @@ export const EditCompanyDialog = ({
   const [grauRisco, setGrauRisco] = useState<string>("");
   const [alturaOptions, setAlturaOptions] = useState<AlturaRef[]>([]);
   const [alturaDenominacao, setAlturaDenominacao] = useState<string>("");
+  const [alturaDescricao, setAlturaDescricao] = useState<string>("");
   const [cnaeOptions, setCnaeOptions] = useState<CNAEData[]>([]);
 
   const form = useForm<FormData>({
@@ -188,6 +191,21 @@ export const EditCompanyDialog = ({
     form.setValue("altura_tipo", tipo);
     const selected = alturaOptions.find(a => a.tipo === tipo);
     setAlturaDenominacao(selected?.denominacao || "");
+    
+    // Calculate altura description based on h_min_m and h_max_m
+    if (selected) {
+      let descricao = "";
+      if (selected.h_min_m === null && selected.h_max_m === null) {
+        descricao = "Um pavimento";
+      } else if (selected.h_min_m === null && selected.h_max_m !== null) {
+        descricao = `H < ${selected.h_max_m} m`;
+      } else if (selected.h_min_m !== null && selected.h_max_m === null) {
+        descricao = `Acima de ${selected.h_min_m} m`;
+      } else if (selected.h_min_m !== null && selected.h_max_m !== null) {
+        descricao = `${selected.h_min_m} < H < ${selected.h_max_m} m`;
+      }
+      setAlturaDescricao(descricao);
+    }
   };
 
   // Handle occupants change
@@ -230,6 +248,9 @@ export const EditCompanyDialog = ({
       if (company.altura_denominacao) {
         setAlturaDenominacao(company.altura_denominacao);
       }
+      if (company.altura_descricao) {
+        setAlturaDescricao(company.altura_descricao);
+      }
 
       // Set existing grau risco
       if (company.grau_risco) {
@@ -268,6 +289,7 @@ export const EditCompanyDialog = ({
           carga_incendio_mj_m2: cnaeData.carga_incendio_mj_m2,
           altura_tipo: data.altura_tipo,
           altura_denominacao: alturaDenominacao,
+          altura_descricao: alturaDescricao,
           grau_risco: grauRisco,
         })
         .eq("id", company.id);

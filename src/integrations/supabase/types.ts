@@ -100,6 +100,7 @@ export type Database = {
       empresa: {
         Row: {
           altura_denominacao: string | null
+          altura_descricao: string | null
           altura_tipo: string | null
           area_m2: number
           bairro: string
@@ -128,6 +129,7 @@ export type Database = {
         }
         Insert: {
           altura_denominacao?: string | null
+          altura_descricao?: string | null
           altura_tipo?: string | null
           area_m2: number
           bairro: string
@@ -156,6 +158,7 @@ export type Database = {
         }
         Update: {
           altura_denominacao?: string | null
+          altura_descricao?: string | null
           altura_tipo?: string | null
           area_m2?: number
           bairro?: string
