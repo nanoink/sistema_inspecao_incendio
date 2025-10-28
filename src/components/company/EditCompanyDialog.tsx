@@ -327,8 +327,67 @@ export const EditCompanyDialog = ({
               `https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec?divisao=${encodeURIComponent(cnaeData.grupo)}`
             );
             const apiData = await response.json();
-            console.log("API Response Raw:", JSON.stringify(apiData.slice(0, 2), null, 2));
+            console.log("API Data rows:", apiData.length);
             
+            // API column name to requirement code mapping
+            const columnToRequirementMap: Record<string, string> = {
+              'COMPARTIMENTAÇÃO_HORIZONTAL': '1.1',
+              'COMPARTIMENTAÇÃO_VERTICAL': '1.2',
+              'CONTROLE_DE_MATERIAIS_DE ACABAMENTO_E_REVESTIMENTO_CMAR': '1.3',
+              'SISTEMA_DE_PROTEÇÃO_CONTRA_DESCARGAS_ATMOSFÉRICAS_SPDA': '1.4',
+              'SISTEMAS_DE_EXTINTORES_DE_INCÊNDIO': '2.1',
+              'SISTEMA_DE_HIDRANTES_E_MANGOTINHOS': '2.2',
+              'SISTEMA_DE_CHUVEIROS_AUTOMÁTICOS': '2.3',
+              'SISTEMA_DE_SUPRESSÃO_DE_INCÊNDIO': '2.4',
+              'SISTEMA_DE_ESPUMA': '2.5',
+              'SISTEMA_DE_DETECÇÃO_DE_INCÊNDIO': '3.1',
+              'SISTEMA_DE_ALARME_DE_INCÊNDIO': '3.2',
+              'SAÍDAS_DE_EMERGÊNCIA': '4.1',
+              'ILUMINAÇÃO_DE_EMERGÊNCIA': '4.2',
+              'SINALIZAÇÃO_DE_EMERGÊNCIA': '4.3',
+              'ACESSO_DE_VIATURA_NA_EDIFICAÇÃO': '5.1',
+              'HIDRANTE_PÚBLICO': '5.2',
+              'SEGURANÇA_ESTRUTURAL_CONTRA_INCÊNDIO': '6.1',
+              'BRIGADA_DE_INCÊNDIO': '7.1',
+              'BRIGADA_PROFISSIONAL': '7.2',
+              'PROGRAMA_DE_SEGURANÇA_CONTRA_INCÊNDIO_E_EMERGÊNCIAS_PSIE': '7.3',
+              'PLANO_DE_EMERGÊNCIA_CONTRA_INCÊNDIO': '7.4',
+              'SISTEMA_DE_CONTROLE_DE_FUMAÇA': '8.1'
+            };
+            
+            // Get altura value in meters from altura_tipo
+            let alturaMetros: number | null = null;
+            if (data.altura_tipo) {
+              const { data: alturaRef } = await supabase
+                .from("altura_ref")
+                .select("h_min_m")
+                .eq("tipo", data.altura_tipo)
+                .single();
+              
+              if (alturaRef?.h_min_m) {
+                alturaMetros = Number(alturaRef.h_min_m);
+              }
+            }
+            const area = Number(data.area_m2);
+            
+            console.log("Company info:", { divisao: cnaeData.divisao, altura: alturaMetros, area });
+
+            // Find matching row in API data based on divisao, area, and altura
+            const matchingRow = apiData.find((row: any) => {
+              const rowDivisao = row['DIVISÃO'] || row['DIVISAO'] || row.divisao;
+              if (rowDivisao !== cnaeData.divisao) return false;
+              
+              // You could add more criteria checks here if the API provides area/altura ranges
+              return true;
+            });
+
+            if (!matchingRow) {
+              console.log("No matching row in API for divisao:", cnaeData.divisao);
+              return;
+            }
+
+            console.log("Matching row found");
+
             // Get all requirements from database with their criteria
             const { data: allExigencias } = await supabase
               .from("exigencias_seguranca")
@@ -337,96 +396,78 @@ export const EditCompanyDialog = ({
                 exigencias_criterios(*)
               `);
 
-            console.log("All Exigencias:", allExigencias?.length);
+            if (!allExigencias) return;
 
-            if (allExigencias) {
-              // Filter requirements based on API response
-              // Try multiple possible field names from the API
-              const apiCodigos = new Set(apiData.map((item: any) => {
-                const codigo = item['CÓDIGO'] || item['CODIGO'] || item.codigo || item.Codigo || item.code;
-                console.log("Item keys:", Object.keys(item).join(", "));
-                return codigo;
-              }).filter((c: any) => c !== undefined));
-              console.log("API Codigos extracted:", Array.from(apiCodigos));
+            // Filter requirements based on API columns that have 'X' value
+            const applicableExigencias = allExigencias.filter(exig => {
+              // Find the API column name for this requirement
+              const columnName = Object.keys(columnToRequirementMap).find(
+                key => columnToRequirementMap[key] === exig.codigo
+              );
               
-              // Get altura value in meters from altura_tipo
-              let alturaMetros: number | null = null;
-              if (data.altura_tipo) {
-                const { data: alturaRef } = await supabase
-                  .from("altura_ref")
-                  .select("h_min_m")
-                  .eq("tipo", data.altura_tipo)
-                  .single();
-                
-                if (alturaRef?.h_min_m) {
-                  alturaMetros = Number(alturaRef.h_min_m);
-                }
+              if (!columnName) {
+                console.log(`No column mapping for ${exig.codigo}`);
+                return false;
               }
-              console.log("Altura (metros):", alturaMetros);
-              console.log("Area:", data.area_m2);
-              console.log("Divisao:", cnaeData.divisao);
 
-              const filteredExigencias = allExigencias.filter(exig => {
-                // Must be in API response
-                if (!apiCodigos.has(exig.codigo)) return false;
+              // Check if this requirement is marked in the API row
+              const hasRequirement = matchingRow[columnName] === 'X' || matchingRow[columnName] === 'x';
+              
+              if (!hasRequirement) return false;
 
-                // Check criteria if exists
-                const criterios = (exig as any).exigencias_criterios;
-                
-                // If no criteria, include it
-                if (!criterios || criterios.length === 0) {
-                  console.log(`✓ ${exig.codigo} - No criteria, including`);
-                  return true;
-                }
+              // Check criteria if exists
+              const criterios = (exig as any).exigencias_criterios;
+              
+              // If no criteria, include it
+              if (!criterios || criterios.length === 0) {
+                console.log(`✓ ${exig.codigo} - ${exig.nome}`);
+                return true;
+              }
 
-                // Check if any criteria matches for this divisao
-                const matchingCriterio = criterios.find((criterio: any) => {
-                  // Must match divisao
-                  if (criterio.divisao !== cnaeData.divisao) return false;
+              // Check if any criteria matches
+              const matchingCriterio = criterios.find((criterio: any) => {
+                // Must match divisao
+                if (criterio.divisao !== cnaeData.divisao) return false;
 
-                  // Check area criteria
-                  const area = Number(data.area_m2);
-                  if (criterio.area_min !== null && area < Number(criterio.area_min)) return false;
-                  if (criterio.area_max !== null && area > Number(criterio.area_max)) return false;
+                // Check area criteria
+                if (criterio.area_min !== null && area < Number(criterio.area_min)) return false;
+                if (criterio.area_max !== null && area > Number(criterio.area_max)) return false;
 
-                  // Check altura criteria in meters
-                  if (alturaMetros !== null && criterio.altura_min !== null && alturaMetros < Number(criterio.altura_min)) return false;
-                  if (alturaMetros !== null && criterio.altura_max !== null && alturaMetros > Number(criterio.altura_max)) return false;
+                // Check altura criteria in meters
+                if (alturaMetros !== null && criterio.altura_min !== null && alturaMetros < Number(criterio.altura_min)) return false;
+                if (alturaMetros !== null && criterio.altura_max !== null && alturaMetros > Number(criterio.altura_max)) return false;
 
-                  return true;
-                });
-
-                if (matchingCriterio) {
-                  console.log(`✓ ${exig.codigo} - Matched criteria`);
-                  return true;
-                } else {
-                  console.log(`✗ ${exig.codigo} - No matching criteria for divisao ${cnaeData.divisao}`);
-                  return false;
-                }
+                return true;
               });
 
-              console.log("Filtered Exigencias:", filteredExigencias.length);
+              if (matchingCriterio) {
+                console.log(`✓ ${exig.codigo} - ${exig.nome} (matched criteria)`);
+                return true;
+              }
+              
+              console.log(`✗ ${exig.codigo} - ${exig.nome} (criteria not met)`);
+              return false;
+            });
 
-              // Insert new requirements with default values
-              const newRequirements = filteredExigencias.map(exig => ({
+            console.log("Applicable requirements:", applicableExigencias.length);
+
+            // Insert new requirements
+            if (applicableExigencias.length > 0) {
+              const newRequirements = applicableExigencias.map(exig => ({
                 empresa_id: company.id,
                 exigencia_id: exig.id,
                 atende: false,
                 observacoes: null
               }));
 
-              console.log("Inserting requirements:", newRequirements.length);
-
-              if (newRequirements.length > 0) {
-                const { error: insertError } = await supabase
-                  .from("empresa_exigencias")
-                  .insert(newRequirements);
-                
-                if (insertError) {
-                  console.error("Error inserting requirements:", insertError);
-                } else {
-                  console.log("Requirements inserted successfully");
-                }
+              const { error: insertError } = await supabase
+                .from("empresa_exigencias")
+                .insert(newRequirements);
+              
+              if (insertError) {
+                console.error("Error inserting requirements:", insertError);
+              } else {
+                console.log("✅ Requirements inserted successfully!");
               }
             }
           } catch (error) {
