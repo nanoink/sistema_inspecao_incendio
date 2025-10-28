@@ -21,6 +21,7 @@ interface Company {
   razao_social: string;
   altura_tipo: string | null;
   altura_denominacao: string | null;
+  divisao: string | null;
 }
 
 interface Exigencia {
@@ -60,21 +61,59 @@ const CompanyRequirements = () => {
       // Fetch company data
       const { data: companyData, error: companyError } = await supabase
         .from("empresa")
-        .select("id, razao_social, altura_tipo, altura_denominacao")
+        .select("id, razao_social, altura_tipo, altura_denominacao, divisao")
         .eq("id", id)
         .single();
 
       if (companyError) throw companyError;
       setCompany(companyData);
 
-      // Fetch all requirements
-      const { data: exigenciasData, error: exigenciasError } = await supabase
-        .from("exigencias_seguranca")
-        .select("*")
-        .order("ordem");
+      // Fetch requirements by division from external API
+      let filteredExigencias: Exigencia[] = [];
+      if (companyData.divisao) {
+        try {
+          const response = await fetch(
+            `https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec?divisao=${encodeURIComponent(companyData.divisao)}`
+          );
+          const apiData = await response.json();
+          
+          // Get all requirements from database
+          const { data: allExigencias, error: exigenciasError } = await supabase
+            .from("exigencias_seguranca")
+            .select("*")
+            .order("ordem");
 
-      if (exigenciasError) throw exigenciasError;
-      setExigencias(exigenciasData || []);
+          if (exigenciasError) throw exigenciasError;
+
+          // Filter requirements based on API response
+          const apiCodigos = new Set(apiData.map((item: any) => item.CÓDIGO));
+          filteredExigencias = (allExigencias || []).filter(exig => 
+            apiCodigos.has(exig.codigo)
+          );
+        } catch (error) {
+          console.error("Error fetching requirements from API:", error);
+          toast({
+            title: "Aviso",
+            description: "Não foi possível carregar exigências da API. Mostrando todas.",
+            variant: "default",
+          });
+          // Fallback to all requirements
+          const { data: allExigencias } = await supabase
+            .from("exigencias_seguranca")
+            .select("*")
+            .order("ordem");
+          filteredExigencias = allExigencias || [];
+        }
+      } else {
+        // No division, show all requirements
+        const { data: allExigencias } = await supabase
+          .from("exigencias_seguranca")
+          .select("*")
+          .order("ordem");
+        filteredExigencias = allExigencias || [];
+      }
+      
+      setExigencias(filteredExigencias);
 
       // Fetch existing company requirements
       const { data: companyReqData, error: companyReqError } = await supabase
