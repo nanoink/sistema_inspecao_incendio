@@ -345,7 +345,7 @@ export function CompanyForm() {
 
       if (error) throw error;
 
-      // Create company requirements based on group
+      // Create company requirements based on group, area, and height
       if (insertedData?.id && cnaeData.grupo) {
         try {
           const response = await fetch(
@@ -353,17 +353,72 @@ export function CompanyForm() {
           );
           const apiData = await response.json();
           
-          // Get all requirements from database
+          // Get all requirements from database with their criteria
           const { data: allExigencias } = await supabase
             .from("exigencias_seguranca")
-            .select("*");
+            .select(`
+              *,
+              exigencias_criterios(*)
+            `);
 
           if (allExigencias) {
             // Filter requirements based on API response
             const apiCodigos = new Set(apiData.map((item: any) => item.CÓDIGO));
-            const filteredExigencias = allExigencias.filter(exig => 
-              apiCodigos.has(exig.codigo)
-            );
+            
+            // Get altura value from altura_tipo
+            let alturaValue: number | null = null;
+            if (data.altura_tipo) {
+              const { data: alturaRef } = await supabase
+                .from("altura_ref")
+                .select("h_min_m")
+                .eq("tipo", data.altura_tipo)
+                .single();
+              
+              if (alturaRef?.h_min_m) {
+                alturaValue = Number(alturaRef.h_min_m);
+              }
+            }
+
+            const filteredExigencias = allExigencias.filter(exig => {
+              // Must be in API response
+              if (!apiCodigos.has(exig.codigo)) return false;
+
+              // Check criteria if exists
+              const criterios = (exig as any).exigencias_criterios;
+              if (!criterios || criterios.length === 0) return true;
+
+              // Check if any criteria matches
+              return criterios.some((criterio: any) => {
+                // Check divisao (group)
+                if (criterio.divisao && criterio.divisao !== cnaeData.divisao) {
+                  return false;
+                }
+
+                // Check area criteria
+                const area = Number(data.area_m2);
+                if (criterio.area_min !== null && area < Number(criterio.area_min)) {
+                  return false;
+                }
+                if (criterio.area_max !== null && area > Number(criterio.area_max)) {
+                  return false;
+                }
+
+                // Check altura criteria
+                if (alturaValue !== null) {
+                  if (criterio.altura_tipo && criterio.altura_tipo !== data.altura_tipo) {
+                    return false;
+                  }
+                  if (criterio.altura_min !== null && alturaValue < Number(criterio.altura_min)) {
+                    return false;
+                  }
+                  if (criterio.altura_max !== null && alturaValue > Number(criterio.altura_max)) {
+                    return false;
+                  }
+                }
+
+                return true;
+              });
+            });
 
             // Insert new requirements with default values
             const newRequirements = filteredExigencias.map(exig => ({
