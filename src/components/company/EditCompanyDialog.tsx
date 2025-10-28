@@ -284,15 +284,16 @@ export const EditCompanyDialog = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4 mt-4">
+              <div className="grid grid-cols-2 gap-4 mt-4">
                 <div className="space-y-2">
-                  <FormLabel>Altura da Edificação (Tipo)</FormLabel>
-                  <Input value={company?.altura_tipo || ""} disabled className="bg-muted" />
-                </div>
-                
-                <div className="space-y-2">
-                  <FormLabel>Denominação da Altura</FormLabel>
-                  <Input value={company?.altura_denominacao || ""} disabled className="bg-muted" />
+                  <FormLabel>Altura da Edificação</FormLabel>
+                  <Input 
+                    value={company?.altura_tipo && company?.altura_denominacao 
+                      ? `${company.altura_tipo} — ${company.altura_denominacao}` 
+                      : ""} 
+                    disabled 
+                    className="bg-muted" 
+                  />
                 </div>
                 
                 <div className="space-y-2">
