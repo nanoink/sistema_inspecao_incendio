@@ -285,27 +285,80 @@ export type Database = {
           },
         ]
       }
+      exigencias_criterios: {
+        Row: {
+          altura_max: number | null
+          altura_min: number | null
+          altura_tipo: string | null
+          area_max: number | null
+          area_min: number | null
+          created_at: string
+          divisao: string | null
+          exigencia_id: string
+          id: string
+          observacao: string | null
+        }
+        Insert: {
+          altura_max?: number | null
+          altura_min?: number | null
+          altura_tipo?: string | null
+          area_max?: number | null
+          area_min?: number | null
+          created_at?: string
+          divisao?: string | null
+          exigencia_id: string
+          id?: string
+          observacao?: string | null
+        }
+        Update: {
+          altura_max?: number | null
+          altura_min?: number | null
+          altura_tipo?: string | null
+          area_max?: number | null
+          area_min?: number | null
+          created_at?: string
+          divisao?: string | null
+          exigencia_id?: string
+          id?: string
+          observacao?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exigencias_criterios_exigencia_id_fkey"
+            columns: ["exigencia_id"]
+            isOneToOne: false
+            referencedRelation: "exigencias_seguranca"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       exigencias_seguranca: {
         Row: {
           categoria: string
           codigo: string
+          created_at: string
           id: string
           nome: string
           ordem: number
+          subcategoria: string | null
         }
         Insert: {
           categoria: string
           codigo: string
+          created_at?: string
           id?: string
           nome: string
           ordem: number
+          subcategoria?: string | null
         }
         Update: {
           categoria?: string
           codigo?: string
+          created_at?: string
           id?: string
           nome?: string
           ordem?: number
+          subcategoria?: string | null
         }
         Relationships: []
       }
