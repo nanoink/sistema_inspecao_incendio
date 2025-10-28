@@ -1,27 +1,17 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Loader2, Shield, Save, ClipboardCheck } from "lucide-react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { toast } from "sonner";
+import { ArrowLeft, ClipboardList, Check, X, Loader2 } from "lucide-react";
 
 interface Company {
   id: string;
   razao_social: string;
+  divisao: string | null;
+  area_m2: number;
   altura_tipo: string | null;
-  altura_denominacao: string | null;
-  grupo: string | null;
 }
 
 interface Exigencia {
@@ -30,10 +20,11 @@ interface Exigencia {
   nome: string;
   categoria: string;
   ordem: number;
+  observacao?: string;
 }
 
 interface CompanyRequirement {
-  exigencia_id: string;
+  exigenciaId: string;
   atende: boolean;
   observacoes: string | null;
 }
@@ -41,10 +32,9 @@ interface CompanyRequirement {
 const CompanyRequirements = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const [company, setCompany] = useState<Company | null>(null);
   const [exigencias, setExigencias] = useState<Exigencia[]>([]);
-  const [requirements, setRequirements] = useState<Map<string, CompanyRequirement>>(new Map());
+  const [requirements, setRequirements] = useState<CompanyRequirement[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -61,58 +51,55 @@ const CompanyRequirements = () => {
       // Fetch company data
       const { data: companyData, error: companyError } = await supabase
         .from("empresa")
-        .select("id, razao_social, altura_tipo, altura_denominacao, grupo")
+        .select("id, razao_social, divisao, area_m2, altura_tipo")
         .eq("id", id)
-        .single();
+        .maybeSingle();
 
       if (companyError) throw companyError;
+      
+      if (!companyData) {
+        toast.error("Empresa não encontrada");
+        setLoading(false);
+        return;
+      }
+
       setCompany(companyData);
 
-      // Fetch requirements by group from external API
-      let filteredExigencias: Exigencia[] = [];
-      if (companyData.grupo) {
-        try {
-          const response = await fetch(
-            `https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec?divisao=${encodeURIComponent(companyData.grupo)}`
-          );
-          const apiData = await response.json();
-          
-          // Get all requirements from database
-          const { data: allExigencias, error: exigenciasError } = await supabase
-            .from("exigencias_seguranca")
-            .select("*")
-            .order("ordem");
+      // Fetch requirements based on company characteristics
+      const { data: criteriaData, error: criteriaError} = await supabase
+        .from("exigencias_criterios")
+        .select(`
+          exigencia_id,
+          observacao,
+          exigencias_seguranca!inner (
+            id,
+            codigo,
+            nome,
+            categoria,
+            ordem
+          )
+        `)
+        .eq("divisao", companyData.divisao || "")
+        .lte("area_min", companyData.area_m2)
+        .gte("area_max", companyData.area_m2);
 
-          if (exigenciasError) throw exigenciasError;
-
-          // Filter requirements based on API response
-          const apiCodigos = new Set(apiData.map((item: any) => item.CÓDIGO));
-          filteredExigencias = (allExigencias || []).filter(exig => 
-            apiCodigos.has(exig.codigo)
-          );
-        } catch (error) {
-          console.error("Error fetching requirements from API:", error);
-          toast({
-            title: "Aviso",
-            description: "Não foi possível carregar exigências da API. Mostrando todas.",
-            variant: "default",
-          });
-          // Fallback to all requirements
-          const { data: allExigencias } = await supabase
-            .from("exigencias_seguranca")
-            .select("*")
-            .order("ordem");
-          filteredExigencias = allExigencias || [];
-        }
-      } else {
-        // No group, show all requirements
-        const { data: allExigencias } = await supabase
-          .from("exigencias_seguranca")
-          .select("*")
-          .order("ordem");
-        filteredExigencias = allExigencias || [];
+      if (criteriaError) {
+        console.error("Error fetching criteria:", criteriaError);
       }
-      
+
+      // Extract unique requirements
+      const uniqueReqs = new Map();
+      criteriaData?.forEach((item: any) => {
+        const req = item.exigencias_seguranca;
+        if (!uniqueReqs.has(req.id)) {
+          uniqueReqs.set(req.id, {
+            ...req,
+            observacao: item.observacao
+          });
+        }
+      });
+
+      const filteredExigencias = Array.from(uniqueReqs.values()).sort((a: any, b: any) => a.ordem - b.ordem);
       setExigencias(filteredExigencias);
 
       // Fetch existing company requirements
@@ -123,50 +110,47 @@ const CompanyRequirements = () => {
 
       if (companyReqError) throw companyReqError;
 
-      const reqMap = new Map<string, CompanyRequirement>();
-      companyReqData?.forEach((req) => {
-        reqMap.set(req.exigencia_id, {
-          exigencia_id: req.exigencia_id,
-          atende: req.atende,
-          observacoes: req.observacoes,
-        });
-      });
-      setRequirements(reqMap);
+      const reqArray = (companyReqData || []).map(req => ({
+        exigenciaId: req.exigencia_id,
+        atende: req.atende,
+        observacoes: req.observacoes,
+      }));
+      setRequirements(reqArray);
     } catch (error) {
       console.error("Error fetching data:", error);
-      toast({
-        title: "Erro ao carregar dados",
-        description: "Não foi possível carregar os dados da empresa.",
-        variant: "destructive",
-      });
+      toast.error("Não foi possível carregar os dados da empresa.");
     } finally {
       setLoading(false);
     }
   };
 
   const handleCheckChange = (exigenciaId: string, checked: boolean) => {
-    setRequirements((prev) => {
-      const newMap = new Map(prev);
-      const existing = newMap.get(exigenciaId);
-      newMap.set(exigenciaId, {
-        exigencia_id: exigenciaId,
-        atende: checked,
-        observacoes: existing?.observacoes || null,
-      });
-      return newMap;
+    setRequirements(prev => {
+      const existing = prev.find(r => r.exigenciaId === exigenciaId);
+      if (existing) {
+        return prev.map(r => 
+          r.exigenciaId === exigenciaId 
+            ? { ...r, atende: checked }
+            : r
+        );
+      } else {
+        return [...prev, { exigenciaId, atende: checked, observacoes: null }];
+      }
     });
   };
 
   const handleObservationChange = (exigenciaId: string, value: string) => {
-    setRequirements((prev) => {
-      const newMap = new Map(prev);
-      const existing = newMap.get(exigenciaId);
-      newMap.set(exigenciaId, {
-        exigencia_id: exigenciaId,
-        atende: existing?.atende || false,
-        observacoes: value || null,
-      });
-      return newMap;
+    setRequirements(prev => {
+      const existing = prev.find(r => r.exigenciaId === exigenciaId);
+      if (existing) {
+        return prev.map(r => 
+          r.exigenciaId === exigenciaId 
+            ? { ...r, observacoes: value || null }
+            : r
+        );
+      } else {
+        return [...prev, { exigenciaId, atende: false, observacoes: value || null }];
+      }
     });
   };
 
@@ -181,14 +165,12 @@ const CompanyRequirements = () => {
         .eq("empresa_id", id);
 
       // Insert new requirements
-      const requirementsToInsert = Array.from(requirements.entries()).map(
-        ([exigenciaId, req]) => ({
-          empresa_id: id,
-          exigencia_id: exigenciaId,
-          atende: req.atende,
-          observacoes: req.observacoes,
-        })
-      );
+      const requirementsToInsert = requirements.map(req => ({
+        empresa_id: id,
+        exigencia_id: req.exigenciaId,
+        atende: req.atende,
+        observacoes: req.observacoes,
+      }));
 
       if (requirementsToInsert.length > 0) {
         const { error } = await supabase
@@ -198,26 +180,18 @@ const CompanyRequirements = () => {
         if (error) throw error;
       }
 
-      toast({
-        title: "Exigências salvas",
-        description: "As exigências foram salvas com sucesso.",
-      });
-
-      navigate("/");
+      toast.success("Exigências salvas com sucesso!");
+      navigate("/dashboard");
     } catch (error) {
       console.error("Error saving requirements:", error);
-      toast({
-        title: "Erro ao salvar",
-        description: "Não foi possível salvar as exigências.",
-        variant: "destructive",
-      });
+      toast.error("Não foi possível salvar as exigências.");
     } finally {
       setSaving(false);
     }
   };
 
   // Group requirements by category
-  const groupedExigencias = exigencias.reduce((acc, exigencia) => {
+  const groupedRequirements = exigencias.reduce((acc, exigencia) => {
     if (!acc[exigencia.categoria]) {
       acc[exigencia.categoria] = [];
     }
@@ -225,137 +199,169 @@ const CompanyRequirements = () => {
     return acc;
   }, {} as Record<string, Exigencia[]>);
 
+  const getCategoryColor = (categoria: string) => {
+    switch (categoria) {
+      case "Restrição ao Surgimento e à Propagação de Incêndio":
+        return "bg-yellow-100 border-yellow-400";
+      case "Controle de Crescimento e Supressão de Incêndio":
+        return "bg-red-100 border-red-400";
+      case "Meios de Aviso":
+        return "bg-blue-100 border-blue-400";
+      case "Facilidades no Abandono":
+        return "bg-green-100 border-green-400";
+      case "Acesso e Facilidades para Operações de Socorro":
+        return "bg-orange-100 border-orange-400";
+      case "Proteção Estrutural em Situações de Incêndio":
+        return "bg-gray-100 border-gray-400";
+      case "Gerenciamento de Risco de Incêndio":
+        return "bg-amber-100 border-amber-400";
+      case "Controle de Fumaça e Gases":
+        return "bg-cyan-100 border-cyan-400";
+      default:
+        return "bg-slate-100 border-slate-400";
+    }
+  };
+
+  const getCategoryTextColor = (categoria: string) => {
+    switch (categoria) {
+      case "Restrição ao Surgimento e à Propagação de Incêndio":
+        return "text-yellow-900";
+      case "Controle de Crescimento e Supressão de Incêndio":
+        return "text-red-900";
+      case "Meios de Aviso":
+        return "text-blue-900";
+      case "Facilidades no Abandono":
+        return "text-green-900";
+      case "Acesso e Facilidades para Operações de Socorro":
+        return "text-orange-900";
+      case "Proteção Estrutural em Situações de Incêndio":
+        return "text-gray-900";
+      case "Gerenciamento de Risco de Incêndio":
+        return "text-amber-900";
+      case "Controle de Fumaça e Gases":
+        return "text-cyan-900";
+      default:
+        return "text-slate-900";
+    }
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="container mx-auto py-8 px-4 flex justify-center items-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin" />
       </div>
     );
   }
 
   if (!company) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Card>
-          <CardContent className="py-12">
-            <p className="text-center text-muted-foreground">
-              Empresa não encontrada.
-            </p>
-          </CardContent>
-        </Card>
+      <div className="container mx-auto py-8 px-4">
+        <p className="text-center">Empresa não encontrada.</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto py-4 md:py-8 px-4">
-        <div className="mb-6 md:mb-8">
-          <Button
-            variant="ghost"
-            onClick={() => navigate("/")}
-            className="mb-4"
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Voltar ao Dashboard
-          </Button>
-          
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div className="flex items-start md:items-center">
-              <Shield className="h-8 w-8 md:h-12 md:w-12 text-primary mr-2 md:mr-3 flex-shrink-0 mt-1 md:mt-0" />
-              <div>
-                <h1 className="text-2xl md:text-4xl font-bold text-foreground">
-                  Exigências de Segurança
-                </h1>
-                <p className="text-sm md:text-lg text-muted-foreground mt-1">
-                  {company.razao_social}
-                </p>
-                {company.altura_denominacao && (
-                  <p className="text-xs md:text-sm text-muted-foreground">
-                    Classificação: {company.altura_denominacao} (Tipo {company.altura_tipo})
-                  </p>
-                )}
-              </div>
-            </div>
-            <Button onClick={handleSave} disabled={saving} size="lg" className="w-full md:w-auto">
-              {saving ? (
-                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              ) : (
-                <Save className="mr-2 h-5 w-5" />
-              )}
-              Salvar Exigências
-            </Button>
+    <div className="container mx-auto py-8 px-4">
+      <div className="mb-6 flex items-center gap-4">
+        <Button
+          variant="outline"
+          onClick={() => navigate("/dashboard")}
+          className="flex items-center gap-2"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Voltar
+        </Button>
+        <h1 className="text-3xl font-bold">Exigências de Segurança</h1>
+      </div>
+
+      {company && (
+        <div className="mb-6 p-4 bg-card rounded-lg border">
+          <h2 className="text-xl font-semibold mb-2">{company.razao_social}</h2>
+          <div className="text-sm text-muted-foreground">
+            <p>Divisão: {company.divisao}</p>
+            <p>Área: {company.area_m2}m²</p>
+            <p>Altura: {company.altura_tipo}</p>
           </div>
         </div>
+      )}
 
-        <div className="space-y-4 md:space-y-6">
-          {Object.entries(groupedExigencias).map(([categoria, items]) => (
-            <Card key={categoria}>
-              <CardHeader>
-                <CardTitle className="text-base md:text-lg">{categoria}</CardTitle>
-              </CardHeader>
-              <CardContent className="p-0 md:p-6">
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-16 md:w-24 whitespace-nowrap">Código</TableHead>
-                        <TableHead className="whitespace-nowrap">Medida de Segurança</TableHead>
-                        <TableHead className="w-20 md:w-32 text-center whitespace-nowrap">Atende</TableHead>
-                        <TableHead className="w-32 md:w-[300px] whitespace-nowrap">Observações</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {items.map((exigencia) => {
-                        const req = requirements.get(exigencia.id);
-                        return (
-                          <TableRow key={exigencia.id}>
-                            <TableCell className="font-medium whitespace-nowrap text-xs md:text-sm">
-                              {exigencia.codigo}
-                            </TableCell>
-                            <TableCell className="text-xs md:text-sm">{exigencia.nome}</TableCell>
-                            <TableCell className="text-center">
-                              <div className="flex justify-center">
-                                <Checkbox
-                                  checked={req?.atende || false}
-                                  onCheckedChange={(checked) =>
-                                    handleCheckChange(exigencia.id, checked as boolean)
-                                  }
-                                />
+      <div className="space-y-6">
+        {Object.entries(groupedRequirements).map(([categoria, exigs]) => (
+          <div key={categoria} className={`border-2 rounded-lg overflow-hidden ${getCategoryColor(categoria)}`}>
+            <div className={`p-4 font-bold text-center ${getCategoryTextColor(categoria)} border-b-2 ${getCategoryColor(categoria).replace('bg-', 'border-')}`}>
+              {categoria}
+            </div>
+            <div className="bg-white">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className="p-3 text-left font-semibold text-sm w-32">Código</th>
+                    <th className="p-3 text-left font-semibold text-sm">Exigência</th>
+                    <th className="p-3 text-center font-semibold text-sm w-24">Atende</th>
+                    <th className="p-3 text-left font-semibold text-sm w-96">Observações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {exigs.map((exigencia, index) => {
+                    const req = requirements.find((r) => r.exigenciaId === exigencia.id);
+                    return (
+                      <tr key={exigencia.id} className={index % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                        <td className="p-3 font-medium text-sm">{exigencia.codigo}</td>
+                        <td className="p-3 text-sm">
+                          <div>{exigencia.nome}</div>
+                          {exigencia.observacao && (
+                            <div className="text-xs text-muted-foreground mt-1 italic">
+                              {exigencia.observacao}
+                            </div>
+                          )}
+                        </td>
+                        <td className="p-3 text-center">
+                          <div className="flex items-center justify-center">
+                            {req?.atende ? (
+                              <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center cursor-pointer" onClick={() => handleCheckChange(exigencia.id, false)}>
+                                <Check className="h-5 w-5 text-white" />
                               </div>
-                            </TableCell>
-                            <TableCell>
-                              <Textarea
-                                placeholder="Observações..."
-                                value={req?.observacoes || ""}
-                                onChange={(e) =>
-                                  handleObservationChange(exigencia.id, e.target.value)
-                                }
-                                rows={2}
-                                className="text-xs md:text-sm min-w-[200px]"
-                              />
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-red-500 flex items-center justify-center cursor-pointer" onClick={() => handleCheckChange(exigencia.id, true)}>
+                                <X className="h-5 w-5 text-white" />
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <Textarea
+                            value={req?.observacoes || ""}
+                            onChange={(e) =>
+                              handleObservationChange(exigencia.id, e.target.value)
+                            }
+                            placeholder="Adicione observações..."
+                            className="min-h-[60px] text-sm"
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+      </div>
 
-        <div className="mt-8 flex justify-center">
-          <Button
-            onClick={() => navigate(`/checklists/${id}`)}
-            size="lg"
-            className="w-full md:w-auto"
-          >
-            <ClipboardCheck className="mr-2 h-5 w-5" />
-            Ir para Check Lists de Renovação
-          </Button>
-        </div>
+      <div className="mt-8 flex gap-4 justify-between">
+        <Button
+          onClick={() => navigate(`/company/${id}/checklists`)}
+          variant="outline"
+          className="flex items-center gap-2"
+        >
+          <ClipboardList className="h-4 w-4" />
+          Check Lists de Renovação
+        </Button>
+        
+        <Button onClick={handleSave} disabled={saving}>
+          {saving ? "Salvando..." : "Salvar Exigências"}
+        </Button>
       </div>
     </div>
   );
