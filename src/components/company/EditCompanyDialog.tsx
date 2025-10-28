@@ -384,48 +384,6 @@ export const EditCompanyDialog = ({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="area_m2"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Área (m²) *</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        {...field}
-                        onChange={(e) => field.onChange(parseFloat(e.target.value))}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="numero_ocupantes"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Nº de Ocupantes *</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        {...field}
-                        onChange={(e) => {
-                          const value = parseInt(e.target.value);
-                          field.onChange(value);
-                          handleOcupantesChange(value);
-                        }}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
             {/* CNAE Section */}
             <div className="border-t pt-4 mt-4">
               <h3 className="text-sm font-semibold mb-3">
@@ -546,6 +504,55 @@ export const EditCompanyDialog = ({
                     className="bg-muted" 
                   />
                 </div>
+              </div>
+            </div>
+
+            {/* Área e Ocupantes Section */}
+            <div className="border-t pt-4 mt-4">
+              <h3 className="text-sm font-semibold mb-3">
+                Área e Ocupação
+              </h3>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="area_m2"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Área (m²) *</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          {...field}
+                          onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="numero_ocupantes"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Nº de Ocupantes *</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          {...field}
+                          onChange={(e) => {
+                            const value = parseInt(e.target.value);
+                            field.onChange(value);
+                            handleOcupantesChange(value);
+                          }}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
             </div>
 
