@@ -65,6 +65,29 @@ const CompanyRequirements = () => {
         return;
       }
 
+      // Fetch altura_ref if altura_descricao is empty
+      if (!companyData.altura_descricao && companyData.altura_tipo) {
+        const { data: alturaRef } = await supabase
+          .from("altura_ref")
+          .select("h_min_m, h_max_m")
+          .eq("tipo", companyData.altura_tipo)
+          .single();
+
+        if (alturaRef) {
+          let descricao = "";
+          if (alturaRef.h_min_m === null && alturaRef.h_max_m === null) {
+            descricao = "Um pavimento";
+          } else if (alturaRef.h_min_m === null && alturaRef.h_max_m !== null) {
+            descricao = `H < ${alturaRef.h_max_m} m`;
+          } else if (alturaRef.h_min_m !== null && alturaRef.h_max_m === null) {
+            descricao = `Acima de ${alturaRef.h_min_m} m`;
+          } else if (alturaRef.h_min_m !== null && alturaRef.h_max_m !== null) {
+            descricao = `${alturaRef.h_min_m} < H < ${alturaRef.h_max_m} m`;
+          }
+          companyData.altura_descricao = descricao;
+        }
+      }
+
       setCompany(companyData);
 
       // Fetch requirements based on company characteristics
