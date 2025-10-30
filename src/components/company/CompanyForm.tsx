@@ -530,13 +530,23 @@ export function CompanyForm() {
       setCnaeData(null);
       setGrauRisco("");
       setAlturaDenominacao("");
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error saving company:", error);
-      toast({
-        title: "Erro ao salvar empresa",
-        description: "Não foi possível salvar os dados.",
-        variant: "destructive",
-      });
+      
+      // Check if it's a duplicate CNPJ error
+      if (error.code === '23505' && error.message.includes('empresa_cnpj_key')) {
+        toast({
+          title: "CNPJ duplicado",
+          description: "Já existe uma empresa cadastrada com este CNPJ. Por favor, use um CNPJ diferente ou edite a empresa existente.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Erro ao salvar empresa",
+          description: error.message || "Não foi possível salvar os dados.",
+          variant: "destructive",
+        });
+      }
     } finally {
       setLoading(false);
     }
