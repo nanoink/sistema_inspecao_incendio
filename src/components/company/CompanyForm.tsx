@@ -412,6 +412,13 @@ export function CompanyForm() {
           }
 
           console.log("Matching row found");
+          console.log("Matching row columns:", Object.keys(matchingRow).join(", "));
+          console.log("First few columns with values:", 
+            Object.entries(matchingRow)
+              .slice(0, 10)
+              .map(([key, val]) => `${key}=${val}`)
+              .join(", ")
+          );
 
           // Get all requirements from database with their criteria
           const { data: allExigencias } = await supabase
