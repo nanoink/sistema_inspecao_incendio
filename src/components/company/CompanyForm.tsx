@@ -442,8 +442,8 @@ export function CompanyForm() {
               return false;
             }
 
-            // Check if this requirement is marked in the API row
-            const hasRequirement = matchingRow[columnName] === 'X' || matchingRow[columnName] === 'x';
+            // Check if this requirement is marked in the API row (API returns "Sim" when applicable)
+            const hasRequirement = matchingRow[columnName] === 'Sim' || matchingRow[columnName] === 'sim';
             
             if (!hasRequirement) return false;
 
