@@ -326,6 +326,11 @@ export const EditCompanyDialog = ({
             const response = await fetch(
               `https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec?divisao=${encodeURIComponent(cnaeData.grupo)}`
             );
+            
+            if (!response.ok) {
+              throw new Error('API de exigências indisponível');
+            }
+            
             const apiData = await response.json();
             console.log("API Data rows:", apiData.length);
             
@@ -387,13 +392,6 @@ export const EditCompanyDialog = ({
             }
 
             console.log("Matching row found");
-            console.log("Matching row columns:", Object.keys(matchingRow).join(", "));
-            console.log("First few columns with values:", 
-              Object.entries(matchingRow)
-                .slice(0, 10)
-                .map(([key, val]) => `${key}=${val}`)
-                .join(", ")
-            );
 
             // Get all requirements from database with their criteria
             const { data: allExigencias } = await supabase
@@ -479,6 +477,11 @@ export const EditCompanyDialog = ({
             }
           } catch (error) {
             console.error("Error updating requirements:", error);
+            toast({
+              title: "Aviso",
+              description: "Empresa atualizada, mas não foi possível atualizar as exigências. A API externa está temporariamente indisponível.",
+              variant: "default",
+            });
           }
         }
       }

@@ -351,6 +351,11 @@ export function CompanyForm() {
           const response = await fetch(
             `https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec?divisao=${encodeURIComponent(cnaeData.grupo)}`
           );
+          
+          if (!response.ok) {
+            throw new Error('API de exigências indisponível');
+          }
+          
           const apiData = await response.json();
           console.log("API Data rows:", apiData.length);
           
@@ -411,17 +416,10 @@ export function CompanyForm() {
             return;
           }
 
-          console.log("Matching row found");
-          console.log("Matching row columns:", Object.keys(matchingRow).join(", "));
-          console.log("First few columns with values:", 
-            Object.entries(matchingRow)
-              .slice(0, 10)
-              .map(([key, val]) => `${key}=${val}`)
-              .join(", ")
-          );
+            console.log("Matching row found");
 
-          // Get all requirements from database with their criteria
-          const { data: allExigencias } = await supabase
+            // Get all requirements from database with their criteria
+            const { data: allExigencias } = await supabase
             .from("exigencias_seguranca")
             .select(`
               *,
@@ -504,6 +502,17 @@ export function CompanyForm() {
           }
         } catch (error) {
           console.error("Error creating requirements:", error);
+          toast({
+            title: "Empresa cadastrada com aviso",
+            description: "Empresa criada, mas não foi possível gerar as exigências. A API externa está temporariamente indisponível.",
+            variant: "default",
+          });
+          
+          // Navigate to requirements page even if API failed
+          if (insertedData?.id) {
+            navigate(`/exigencias/${insertedData.id}`);
+          }
+          return;
         }
       }
 
