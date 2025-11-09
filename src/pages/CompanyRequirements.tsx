@@ -105,7 +105,7 @@ const CompanyRequirements = () => {
           )
         `)
         .eq("divisao", companyData.divisao || "")
-        .eq("altura_tipo", companyData.altura_tipo || "")
+        .or(`altura_tipo.eq.${companyData.altura_tipo},altura_tipo.is.null`)
         .lte("area_min", companyData.area_m2)
         .or(`area_max.is.null,area_max.gte.${companyData.area_m2}`);
 
