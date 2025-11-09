@@ -105,8 +105,9 @@ const CompanyRequirements = () => {
           )
         `)
         .eq("divisao", companyData.divisao || "")
+        .eq("altura_tipo", companyData.altura_tipo || "")
         .lte("area_min", companyData.area_m2)
-        .gte("area_max", companyData.area_m2);
+        .or(`area_max.is.null,area_max.gte.${companyData.area_m2}`);
 
       if (criteriaError) {
         console.error("Error fetching criteria:", criteriaError);
