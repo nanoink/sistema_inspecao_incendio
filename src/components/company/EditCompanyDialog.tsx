@@ -359,8 +359,10 @@ export const EditCompanyDialog = ({
                 // Must match divisao
                 if (criterio.divisao !== cnaeData.divisao) return false;
 
-                // Must match altura_tipo
-                if (criterio.altura_tipo !== data.altura_tipo) return false;
+                // Check altura_tipo criteria
+                // If criterio has altura_tipo specified, it must match the company's altura_tipo
+                // If criterio.altura_tipo is null, it applies to all heights
+                if (criterio.altura_tipo !== null && criterio.altura_tipo !== data.altura_tipo) return false;
 
                 // Check area criteria
                 if (criterio.area_min !== null && area < Number(criterio.area_min)) return false;
