@@ -359,12 +359,12 @@ export const EditCompanyDialog = ({
                 // Must match divisao
                 if (criterio.divisao !== cnaeData.divisao) return false;
 
+                // Must match altura_tipo
+                if (criterio.altura_tipo !== data.altura_tipo) return false;
+
                 // Check area criteria
                 if (criterio.area_min !== null && area < Number(criterio.area_min)) return false;
                 if (criterio.area_max !== null && area > Number(criterio.area_max)) return false;
-
-                // Check altura_tipo criteria
-                if (criterio.altura_tipo && criterio.altura_tipo !== data.altura_tipo) return false;
 
                 return true;
               });
