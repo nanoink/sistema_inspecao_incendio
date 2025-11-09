@@ -270,8 +270,8 @@ export const EditCompanyDialog = ({
     }
 
     try {
-      // Check if group, area, or height changed
-      const grupoChanged = company.grupo !== cnaeData.grupo;
+      // Check if divisao, area, or height changed
+      const divisaoChanged = company.divisao !== cnaeData.divisao;
       const areaChanged = Number(company.area_m2) !== Number(data.area_m2);
       const alturaChanged = company.altura_tipo !== data.altura_tipo;
 
@@ -301,8 +301,8 @@ export const EditCompanyDialog = ({
 
       if (error) throw error;
 
-      // Check if company has requirements and if group exists
-      if (cnaeData.grupo) {
+      // Check if divisao, area, or height changed - recalculate requirements if so
+      if (cnaeData.divisao) {
         // Check existing requirements
         const { data: existingRequirements } = await supabase
           .from("empresa_exigencias")
@@ -310,9 +310,10 @@ export const EditCompanyDialog = ({
           .eq("empresa_id", company.id);
 
         const hasRequirements = existingRequirements && existingRequirements.length > 0;
+        const divisaoChanged = company.divisao !== cnaeData.divisao;
 
-        // If group, area, or height changed OR no requirements exist, update requirements
-        if (grupoChanged || areaChanged || alturaChanged || !hasRequirements) {
+        // If divisao, area, or height changed OR no requirements exist, update requirements
+        if (divisaoChanged || areaChanged || alturaChanged || !hasRequirements) {
           // Delete existing requirements if any
           if (hasRequirements) {
             await supabase
@@ -321,79 +322,17 @@ export const EditCompanyDialog = ({
               .eq("empresa_id", company.id);
           }
 
-          // Fetch new requirements from API based on group
+          // Recalculate requirements based on criteria
           try {
-            const response = await fetch(
-              `https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec?divisao=${encodeURIComponent(cnaeData.grupo)}`
-            );
-            
-            if (!response.ok) {
-              throw new Error('API de exigências indisponível');
-            }
-            
-            const apiData = await response.json();
-            console.log("API Data rows:", apiData.length);
-            
-            // API column name to requirement code mapping
-            const columnToRequirementMap: Record<string, string> = {
-              'COMPARTIMENTAÇÃO_HORIZONTAL': '1.1',
-              'COMPARTIMENTAÇÃO_VERTICAL': '1.2',
-              'CONTROLE_DE_MATERIAIS_DE ACABAMENTO_E_REVESTIMENTO_CMAR': '1.3',
-              'SISTEMA_DE_PROTEÇÃO_CONTRA_DESCARGAS_ATMOSFÉRICAS_SPDA': '1.4',
-              'SISTEMAS_DE_EXTINTORES_DE_INCÊNDIO': '2.1',
-              'SISTEMA_DE_HIDRANTES_E_MANGOTINHOS': '2.2',
-              'SISTEMA_DE_CHUVEIROS_AUTOMÁTICOS': '2.3',
-              'SISTEMA_DE_SUPRESSÃO_DE_INCÊNDIO': '2.4',
-              'SISTEMA_DE_ESPUMA': '2.5',
-              'SISTEMA_DE_DETECÇÃO_DE_INCÊNDIO': '3.1',
-              'SISTEMA_DE_ALARME_DE_INCÊNDIO': '3.2',
-              'SAÍDAS_DE_EMERGÊNCIA': '4.1',
-              'ILUMINAÇÃO_DE_EMERGÊNCIA': '4.2',
-              'SINALIZAÇÃO_DE_EMERGÊNCIA': '4.3',
-              'ACESSO_DE_VIATURA_NA_EDIFICAÇÃO': '5.1',
-              'HIDRANTE_PÚBLICO': '5.2',
-              'SEGURANÇA_ESTRUTURAL_CONTRA_INCÊNDIO': '6.1',
-              'BRIGADA_DE_INCÊNDIO': '7.1',
-              'BRIGADA_PROFISSIONAL': '7.2',
-              'PROGRAMA_DE_SEGURANÇA_CONTRA_INCÊNDIO_E_EMERGÊNCIAS_PSIE': '7.3',
-              'PLANO_DE_EMERGÊNCIA_CONTRA_INCÊNDIO': '7.4',
-              'SISTEMA_DE_CONTROLE_DE_FUMAÇA': '8.1'
-            };
-            
-            // Get altura value in meters from altura_tipo
-            let alturaMetros: number | null = null;
-            if (data.altura_tipo) {
-              const { data: alturaRef } = await supabase
-                .from("altura_ref")
-                .select("h_min_m")
-                .eq("tipo", data.altura_tipo)
-                .single();
-              
-              if (alturaRef?.h_min_m) {
-                alturaMetros = Number(alturaRef.h_min_m);
-              }
-            }
             const area = Number(data.area_m2);
             
-            console.log("Company info:", { divisao: cnaeData.divisao, altura: alturaMetros, area });
-
-            // Find matching row in API data based on divisao, area, and altura
-            const matchingRow = apiData.find((row: any) => {
-              const rowDivisao = row['DIVISÃO'] || row['DIVISAO'] || row.divisao;
-              if (rowDivisao !== cnaeData.divisao) return false;
-              
-              // You could add more criteria checks here if the API provides area/altura ranges
-              return true;
+            console.log("Recalculating requirements for:", { 
+              divisao: cnaeData.divisao, 
+              altura_tipo: data.altura_tipo,
+              area 
             });
 
-            if (!matchingRow) {
-              console.log("No matching row in API for divisao:", cnaeData.divisao);
-              return;
-            }
-
-            console.log("Matching row found");
-
-            // Get all requirements from database with their criteria
+            // Get all requirements with their criteria
             const { data: allExigencias } = await supabase
               .from("exigencias_seguranca")
               .select(`
@@ -401,35 +340,21 @@ export const EditCompanyDialog = ({
                 exigencias_criterios(*)
               `);
 
-            if (!allExigencias) return;
+            if (!allExigencias) {
+              console.log("No requirements found in database");
+              return;
+            }
 
-            // Filter requirements based on API columns that have 'X' value
+            // Filter requirements based on criteria matching
             const applicableExigencias = allExigencias.filter(exig => {
-              // Find the API column name for this requirement
-              const columnName = Object.keys(columnToRequirementMap).find(
-                key => columnToRequirementMap[key] === exig.codigo
-              );
+              const criterios = (exig as any).exigencias_criterios;
               
-              if (!columnName) {
-                console.log(`No column mapping for ${exig.codigo}`);
+              // If no criteria exists, skip this requirement
+              if (!criterios || criterios.length === 0) {
                 return false;
               }
 
-              // Check if this requirement is marked in the API row (API returns "Sim" when applicable)
-              const hasRequirement = matchingRow[columnName] === 'Sim' || matchingRow[columnName] === 'sim';
-              
-              if (!hasRequirement) return false;
-
-              // Check criteria if exists
-              const criterios = (exig as any).exigencias_criterios;
-              
-              // If no criteria, include it
-              if (!criterios || criterios.length === 0) {
-                console.log(`✓ ${exig.codigo} - ${exig.nome}`);
-                return true;
-              }
-
-              // Check if any criteria matches
+              // Check if any criteria matches the company's divisao, area, and altura
               const matchingCriterio = criterios.find((criterio: any) => {
                 // Must match divisao
                 if (criterio.divisao !== cnaeData.divisao) return false;
@@ -438,9 +363,8 @@ export const EditCompanyDialog = ({
                 if (criterio.area_min !== null && area < Number(criterio.area_min)) return false;
                 if (criterio.area_max !== null && area > Number(criterio.area_max)) return false;
 
-                // Check altura criteria in meters
-                if (alturaMetros !== null && criterio.altura_min !== null && alturaMetros < Number(criterio.altura_min)) return false;
-                if (alturaMetros !== null && criterio.altura_max !== null && alturaMetros > Number(criterio.altura_max)) return false;
+                // Check altura_tipo criteria
+                if (criterio.altura_tipo && criterio.altura_tipo !== data.altura_tipo) return false;
 
                 return true;
               });
@@ -450,11 +374,10 @@ export const EditCompanyDialog = ({
                 return true;
               }
               
-              console.log(`✗ ${exig.codigo} - ${exig.nome} (criteria not met)`);
               return false;
             });
 
-            console.log("Applicable requirements:", applicableExigencias.length);
+            console.log("Applicable requirements after update:", applicableExigencias.length);
 
             // Insert new requirements
             if (applicableExigencias.length > 0) {
@@ -472,14 +395,14 @@ export const EditCompanyDialog = ({
               if (insertError) {
                 console.error("Error inserting requirements:", insertError);
               } else {
-                console.log("✅ Requirements inserted successfully!");
+                console.log("✅ Requirements updated successfully!");
               }
             }
           } catch (error) {
             console.error("Error updating requirements:", error);
             toast({
               title: "Aviso",
-              description: "Empresa atualizada, mas não foi possível atualizar as exigências. A API externa está temporariamente indisponível.",
+              description: "Empresa atualizada, mas não foi possível atualizar as exigências.",
               variant: "default",
             });
           }
