@@ -440,6 +440,62 @@ export function CompanyForm() {
         }
       } else {
         console.log("ℹ️ Using database criteria (area <= 750 OR height <= 12m)");
+        
+        // Fetch from database criteria
+        const { data: alturaRefData } = await supabase
+          .from("altura_ref")
+          .select("tipo")
+          .eq("denominacao", alturaDenom)
+          .maybeSingle();
+        
+        const alturaTipo = alturaRefData?.tipo;
+        console.log("📋 Fetching from database criteria with:", { divisao, alturaTipo, area });
+        
+        if (alturaTipo) {
+          // Query exigencias_criterios to find matching requirements
+          const { data: criterios, error: criteriosError } = await supabase
+            .from("exigencias_criterios")
+            .select("exigencia_id")
+            .eq("divisao", divisao)
+            .eq("altura_tipo", alturaTipo)
+            .or(`area_min.is.null,area_min.lte.${area}`)
+            .or(`area_max.is.null,area_max.gte.${area}`);
+          
+          if (criteriosError) {
+            console.error("❌ Error fetching criteria:", criteriosError);
+            return;
+          }
+          
+          console.log("📋 Found criteria:", criterios);
+          
+          if (criterios && criterios.length > 0) {
+            // Delete existing requirements
+            await supabase
+              .from("empresa_exigencias")
+              .delete()
+              .eq("empresa_id", empresaId);
+            
+            // Insert new requirements
+            const requirementsToInsert = criterios.map(crit => ({
+              empresa_id: empresaId,
+              exigencia_id: crit.exigencia_id,
+              atende: false,
+              observacoes: null,
+            }));
+            
+            const { error: insertError } = await supabase
+              .from("empresa_exigencias")
+              .insert(requirementsToInsert);
+            
+            if (insertError) {
+              console.error("❌ Error inserting requirements from DB:", insertError);
+            } else {
+              console.log("✅ Inserted", requirementsToInsert.length, "requirements from database");
+            }
+          } else {
+            console.log("⚠️ No matching criteria found in database");
+          }
+        }
       }
     } catch (error) {
       console.error("❌ Error in fetchAndInsertRequirements:", error);
