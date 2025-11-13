@@ -219,6 +219,8 @@ export const EditCompanyDialog = ({
 
   // Function to fetch and insert requirements from API
   const fetchAndInsertRequirements = async (empresaId: string, divisao: string, alturaDenom: string, area: number) => {
+    console.log("🚀 Edit - fetchAndInsertRequirements called with:", { empresaId, divisao, alturaDenom, area });
+    
     try {
       // Mapping from API keys to requirement codes
       const apiKeyToCode: Record<string, string> = {
@@ -425,9 +427,20 @@ export const EditCompanyDialog = ({
 
     try {
       // Check if divisao, area, or height changed
+      console.log("🔄 Edit - Checking for changes:");
+      console.log("  Original divisao:", company.divisao, "New divisao:", cnaeData.divisao);
+      console.log("  Original area:", company.area_m2, "New area:", data.area_m2);
+      console.log("  Original altura_tipo:", company.altura_tipo, "New altura_tipo:", data.altura_tipo);
+      console.log("  Original altura_denominacao:", company.altura_denominacao, "New alturaDenominacao:", alturaDenominacao);
+      
       const divisaoChanged = company.divisao !== cnaeData.divisao;
       const areaChanged = Number(company.area_m2) !== Number(data.area_m2);
       const alturaChanged = company.altura_tipo !== data.altura_tipo;
+      
+      console.log("📊 Edit - Changes detected:");
+      console.log("  divisaoChanged:", divisaoChanged);
+      console.log("  areaChanged:", areaChanged);
+      console.log("  alturaChanged:", alturaChanged);
 
       const { error } = await supabase
         .from("empresa")
@@ -455,14 +468,31 @@ export const EditCompanyDialog = ({
 
       if (error) throw error;
 
+      console.log("✅ Edit - Company updated successfully in database");
+
       // Check if divisao, area, or height changed - recalculate requirements if so
-      if (cnaeData.divisao && (divisaoChanged || areaChanged || alturaChanged)) {
+      const shouldRecalculate = cnaeData.divisao && (divisaoChanged || areaChanged || alturaChanged);
+      console.log("🔍 Edit - Should recalculate requirements?", shouldRecalculate);
+      console.log("  cnaeData.divisao exists:", !!cnaeData.divisao);
+      console.log("  Any changes:", divisaoChanged || areaChanged || alturaChanged);
+      
+      if (shouldRecalculate) {
+        console.log("🔄 Edit - Calling fetchAndInsertRequirements with:");
+        console.log("  empresaId:", company.id);
+        console.log("  divisao:", cnaeData.divisao);
+        console.log("  alturaDenominacao:", alturaDenominacao);
+        console.log("  area:", Number(data.area_m2));
+        
         await fetchAndInsertRequirements(
           company.id,
           cnaeData.divisao,
           alturaDenominacao,
           Number(data.area_m2)
         );
+        
+        console.log("✅ Edit - fetchAndInsertRequirements completed");
+      } else {
+        console.log("⏭️ Edit - Skipping requirements recalculation - no relevant changes");
       }
 
       toast({
