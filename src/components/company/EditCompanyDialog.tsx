@@ -284,11 +284,33 @@ export const EditCompanyDialog = ({
         console.log("📡 Edit - Fetching from API:", apiUrl);
         const response = await fetch(apiUrl);
         const apiData = await response.json();
-        console.log("📦 Edit - API Response:", apiData);
+        
+        console.log("📦 Edit - API Response type:", Array.isArray(apiData) ? "Array" : "Object");
+        console.log("📦 Edit - API returned", Array.isArray(apiData) ? apiData.length : 1, "object(s)");
+        console.log("🔍 Edit - Looking for: divisao =", divisao, "altura =", alturaForApi);
+
+        // If API returns an array, find the matching object
+        let matchingData = apiData;
+        if (Array.isArray(apiData)) {
+          console.log("📋 Edit - Available combinations:", apiData.map((d: any) => `${d.DIVISÃO || d.divisao} / ${d.ALTURA || d.altura}`));
+          
+          matchingData = apiData.find((item: any) => 
+            (item.DIVISÃO === divisao || item.divisao === divisao) && 
+            (item.ALTURA === alturaForApi || item.altura === alturaForApi)
+          );
+          
+          if (!matchingData) {
+            console.error("❌ Edit - No matching data found for divisao:", divisao, "altura:", alturaForApi);
+            console.log("⚠️ Edit - No requirements will be saved - no match in API response");
+            return;
+          }
+          
+          console.log("✓ Edit - Found matching object:", matchingData);
+        }
 
         // Filter requirements where value starts with "Sim" (case-insensitive)
         const requiredCodes: string[] = [];
-        Object.entries(apiData).forEach(([key, value]) => {
+        Object.entries(matchingData).forEach(([key, value]) => {
           const code = apiKeyToCode[key];
           const valueStr = String(value || "").trim();
           
