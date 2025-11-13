@@ -217,6 +217,93 @@ export const EditCompanyDialog = ({
     }
   };
 
+  // Function to fetch and insert requirements from API
+  const fetchAndInsertRequirements = async (empresaId: string, divisao: string, alturaDenom: string, area: number) => {
+    try {
+      // Check if area > 750 AND look for h_min_m > 12
+      const { data: alturaRef } = await supabase
+        .from("altura_ref")
+        .select("h_min_m")
+        .eq("denominacao", alturaDenom)
+        .maybeSingle();
+
+      const heightAbove12 = alturaRef?.h_min_m && alturaRef.h_min_m > 12;
+      const areaAbove750 = area > 750;
+
+      console.log("🔍 Edit - Check requirements conditions:", {
+        area,
+        areaAbove750,
+        alturaDenom,
+        h_min_m: alturaRef?.h_min_m,
+        heightAbove12,
+        shouldUseAPI: heightAbove12 && areaAbove750
+      });
+
+      if (heightAbove12 && areaAbove750) {
+        // Fetch from API
+        const apiUrl = `https://script.google.com/macros/s/AKfycbwhODbivOcTkHNmzXDGyag6IStJW0hSuXUsFyvlLlStSpNo2t8aMDCsr3kJZhySlBjd/exec?divisao=${encodeURIComponent(divisao)}&altura=${encodeURIComponent(alturaDenom)}`;
+        
+        console.log("📡 Edit - Fetching from API:", apiUrl);
+        const response = await fetch(apiUrl);
+        const apiData = await response.json();
+        console.log("📦 Edit - API Response:", apiData);
+
+        // Filter requirements where value is "sim"
+        const requiredCodes = Object.entries(apiData)
+          .filter(([key, value]) => value === "sim")
+          .map(([key]) => key);
+
+        console.log("✅ Edit - Required codes from API:", requiredCodes);
+
+        if (requiredCodes.length > 0) {
+          // Fetch requirement details
+          const { data: exigencias, error: exigenciasError } = await supabase
+            .from("exigencias_seguranca")
+            .select("id, codigo")
+            .in("codigo", requiredCodes);
+
+          if (exigenciasError) {
+            console.error("Error fetching requirements:", exigenciasError);
+            return;
+          }
+
+          console.log("📋 Edit - Found exigencias:", exigencias);
+
+          // Delete existing and insert new requirements
+          await supabase
+            .from("empresa_exigencias")
+            .delete()
+            .eq("empresa_id", empresaId);
+
+          if (exigencias && exigencias.length > 0) {
+            const requirementsToInsert = exigencias.map(exig => ({
+              empresa_id: empresaId,
+              exigencia_id: exig.id,
+              atende: false,
+              observacoes: null,
+            }));
+
+            const { error: insertError } = await supabase
+              .from("empresa_exigencias")
+              .insert(requirementsToInsert);
+
+            if (insertError) {
+              console.error("❌ Edit - Error inserting requirements:", insertError);
+            } else {
+              console.log("✅ Edit - Inserted", requirementsToInsert.length, "requirements from API");
+            }
+          }
+        } else {
+          console.log("⚠️ Edit - No requirements with 'sim' value found in API response");
+        }
+      } else {
+        console.log("ℹ️ Edit - Using database criteria (area <= 750 OR height <= 12m)");
+      }
+    } catch (error) {
+      console.error("❌ Edit - Error in fetchAndInsertRequirements:", error);
+    }
+  };
+
   useEffect(() => {
     if (company) {
       form.reset({
@@ -302,113 +389,13 @@ export const EditCompanyDialog = ({
       if (error) throw error;
 
       // Check if divisao, area, or height changed - recalculate requirements if so
-      if (cnaeData.divisao) {
-        // Check existing requirements
-        const { data: existingRequirements } = await supabase
-          .from("empresa_exigencias")
-          .select("id")
-          .eq("empresa_id", company.id);
-
-        const hasRequirements = existingRequirements && existingRequirements.length > 0;
-        const divisaoChanged = company.divisao !== cnaeData.divisao;
-
-        // If divisao, area, or height changed OR no requirements exist, update requirements
-        if (divisaoChanged || areaChanged || alturaChanged || !hasRequirements) {
-          // Delete existing requirements if any
-          if (hasRequirements) {
-            await supabase
-              .from("empresa_exigencias")
-              .delete()
-              .eq("empresa_id", company.id);
-          }
-
-          // Recalculate requirements based on criteria
-          try {
-            const area = Number(data.area_m2);
-            
-            console.log("Recalculating requirements for:", { 
-              divisao: cnaeData.divisao, 
-              altura_tipo: data.altura_tipo,
-              area 
-            });
-
-            // Get all requirements with their criteria
-            const { data: allExigencias } = await supabase
-              .from("exigencias_seguranca")
-              .select(`
-                *,
-                exigencias_criterios(*)
-              `);
-
-            if (!allExigencias) {
-              console.log("No requirements found in database");
-              return;
-            }
-
-            // Filter requirements based on criteria matching
-            const applicableExigencias = allExigencias.filter(exig => {
-              const criterios = (exig as any).exigencias_criterios;
-              
-              // If no criteria exists, skip this requirement
-              if (!criterios || criterios.length === 0) {
-                return false;
-              }
-
-              // Check if any criteria matches the company's divisao, area, and altura
-              const matchingCriterio = criterios.find((criterio: any) => {
-                // Must match divisao
-                if (criterio.divisao !== cnaeData.divisao) return false;
-
-                // Check altura_tipo criteria
-                // If criterio has altura_tipo specified, it must match the company's altura_tipo
-                // If criterio.altura_tipo is null, it applies to all heights
-                if (criterio.altura_tipo !== null && criterio.altura_tipo !== data.altura_tipo) return false;
-
-                // Check area criteria
-                if (criterio.area_min !== null && area < Number(criterio.area_min)) return false;
-                if (criterio.area_max !== null && area > Number(criterio.area_max)) return false;
-
-                return true;
-              });
-
-              if (matchingCriterio) {
-                console.log(`✓ ${exig.codigo} - ${exig.nome} (matched criteria)`);
-                return true;
-              }
-              
-              return false;
-            });
-
-            console.log("Applicable requirements after update:", applicableExigencias.length);
-
-            // Insert new requirements
-            if (applicableExigencias.length > 0) {
-              const newRequirements = applicableExigencias.map(exig => ({
-                empresa_id: company.id,
-                exigencia_id: exig.id,
-                atende: false,
-                observacoes: null
-              }));
-
-              const { error: insertError } = await supabase
-                .from("empresa_exigencias")
-                .insert(newRequirements);
-              
-              if (insertError) {
-                console.error("Error inserting requirements:", insertError);
-              } else {
-                console.log("✅ Requirements updated successfully!");
-              }
-            }
-          } catch (error) {
-            console.error("Error updating requirements:", error);
-            toast({
-              title: "Aviso",
-              description: "Empresa atualizada, mas não foi possível atualizar as exigências.",
-              variant: "default",
-            });
-          }
-        }
+      if (cnaeData.divisao && (divisaoChanged || areaChanged || alturaChanged)) {
+        await fetchAndInsertRequirements(
+          company.id,
+          cnaeData.divisao,
+          alturaDenominacao,
+          Number(data.area_m2)
+        );
       }
 
       toast({

@@ -49,16 +49,6 @@ const CompanyRequirements = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      
-      // Delete all existing requirements for this company
-      const { error: deleteError } = await supabase
-        .from("empresa_exigencias")
-        .delete()
-        .eq("empresa_id", id);
-
-      if (deleteError) {
-        console.error("Error deleting existing requirements:", deleteError);
-      }
 
       // Fetch company data
       const { data: companyData, error: companyError } = await supabase
@@ -100,128 +90,48 @@ const CompanyRequirements = () => {
 
       setCompany(companyData);
 
-      let exigenciasToInsert: Exigencia[] = [];
-
-      // Check if area > 750 AND height > 12m
-      const { data: alturaRef } = await supabase
-        .from("altura_ref")
-        .select("h_min_m")
-        .eq("tipo", companyData.altura_tipo || "")
-        .maybeSingle();
-
-      const heightAbove12 = alturaRef?.h_min_m && alturaRef.h_min_m > 12;
-      const areaAbove750 = companyData.area_m2 > 750;
-
-      if (heightAbove12 && areaAbove750) {
-        // Fetch requirements from API for area > 750 AND height > 12m
-        try {
-          const apiUrl = `https://script.google.com/macros/s/AKfycbwhODbivOcTkHNmzXDGyag6IStJW0hSuXUsFyvlLlStSpNo2t8aMDCsr3kJZhySlBjd/exec?divisao=${encodeURIComponent(companyData.divisao || "")}&altura=${encodeURIComponent(companyData.altura_denominacao || "")}`;
-          
-          console.log("Fetching from API:", apiUrl);
-          const response = await fetch(apiUrl);
-          const apiData = await response.json();
-          console.log("API Response:", apiData);
-
-          // Filter requirements where value is "sim"
-          const requiredCodes = Object.entries(apiData)
-            .filter(([key, value]) => value === "sim")
-            .map(([key]) => key);
-
-          console.log("Required codes:", requiredCodes);
-
-          // Fetch the full requirement details from exigencias_seguranca
-          if (requiredCodes.length > 0) {
-            const { data: apiExigencias, error: apiExigenciasError } = await supabase
-              .from("exigencias_seguranca")
-              .select("id, codigo, nome, categoria, ordem")
-              .in("codigo", requiredCodes);
-
-            if (apiExigenciasError) {
-              console.error("Error fetching API requirements:", apiExigenciasError);
-            } else if (apiExigencias) {
-              exigenciasToInsert = apiExigencias;
-              
-              // Insert into empresa_exigencias
-              const requirementsToInsert = apiExigencias.map(exig => ({
-                empresa_id: id,
-                exigencia_id: exig.id,
-                atende: false,
-                observacoes: null,
-              }));
-
-              if (requirementsToInsert.length > 0) {
-                const { error: insertError } = await supabase
-                  .from("empresa_exigencias")
-                  .insert(requirementsToInsert);
-
-                if (insertError) {
-                  console.error("Error inserting requirements:", insertError);
-                } else {
-                  console.log("Successfully inserted", requirementsToInsert.length, "requirements");
-                }
-              }
-            }
-          }
-        } catch (error) {
-          console.error("Error fetching from API:", error);
-          toast.error("Erro ao buscar exigências da API");
-        }
-      } else {
-        // Use existing logic for area <= 750 OR height <= 12m
-        const { data: criteriaData, error: criteriaError} = await supabase
-          .from("exigencias_criterios")
-          .select(`
-            exigencia_id,
-            observacao,
-            exigencias_seguranca!inner (
-              id,
-              codigo,
-              nome,
-              categoria,
-              ordem
-            )
-          `)
-          .eq("divisao", companyData.divisao || "")
-          .eq("altura_tipo", companyData.altura_tipo || "")
-          .lte("area_min", companyData.area_m2)
-          .or(`area_max.is.null,area_max.gte.${companyData.area_m2}`);
-
-        if (criteriaError) {
-          console.error("Error fetching criteria:", criteriaError);
-        }
-
-        // Extract unique requirements
-        const uniqueReqs = new Map();
-        criteriaData?.forEach((item: any) => {
-          const req = item.exigencias_seguranca;
-          if (!uniqueReqs.has(req.id)) {
-            uniqueReqs.set(req.id, {
-              ...req,
-              observacao: item.observacao
-            });
-          }
-        });
-
-        exigenciasToInsert = Array.from(uniqueReqs.values());
-      }
-
-      const filteredExigencias = exigenciasToInsert.sort((a: any, b: any) => a.ordem - b.ordem);
-      setExigencias(filteredExigencias);
-
-      // Fetch existing company requirements
-      const { data: companyReqData, error: companyReqError } = await supabase
+      // Fetch requirements from empresa_exigencias with details from exigencias_seguranca
+      const { data: companyRequirements, error: reqError } = await supabase
         .from("empresa_exigencias")
-        .select("exigencia_id, atende, observacoes")
+        .select(`
+          exigencia_id,
+          atende,
+          observacoes,
+          exigencias_seguranca!inner (
+            id,
+            codigo,
+            nome,
+            categoria,
+            ordem
+          )
+        `)
         .eq("empresa_id", id);
 
-      if (companyReqError) throw companyReqError;
+      if (reqError) throw reqError;
 
-      const reqArray = (companyReqData || []).map(req => ({
-        exigenciaId: req.exigencia_id,
-        atende: req.atende,
-        observacoes: req.observacoes,
-      }));
-      setRequirements(reqArray);
+      // Extract exigencias and requirements
+      const exigenciasData: Exigencia[] = [];
+      const requirementsData: CompanyRequirement[] = [];
+
+      companyRequirements?.forEach((item: any) => {
+        const exig = item.exigencias_seguranca;
+        exigenciasData.push({
+          id: exig.id,
+          codigo: exig.codigo,
+          nome: exig.nome,
+          categoria: exig.categoria,
+          ordem: exig.ordem,
+        });
+        requirementsData.push({
+          exigenciaId: exig.id,
+          atende: item.atende,
+          observacoes: item.observacoes,
+        });
+      });
+
+      setExigencias(exigenciasData.sort((a, b) => a.ordem - b.ordem));
+      setRequirements(requirementsData);
+
     } catch (error) {
       console.error("Error fetching data:", error);
       toast.error("Não foi possível carregar os dados da empresa.");
