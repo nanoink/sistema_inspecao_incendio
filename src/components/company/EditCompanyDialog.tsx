@@ -246,6 +246,17 @@ export const EditCompanyDialog = ({
         "SISTEMA_DE_CONTROLE_DE_FUMAÇA": "8.1"
       };
 
+      // Mapping from database altura names to API altura names
+      const alturaDbToApi: Record<string, string> = {
+        "Edificação Térrea": "Edificação Térrea",
+        "Edificação de Baixa Altura": "Edificação Baixa",
+        "Edificação de Baixa-Média Altura": "Edificação de Baixa-Média Altura",
+        "Edificação de Média Altura": "Edificação de Média Altura",
+        "Edificação de Grande Altura": "Edificação Alta"
+      };
+
+      const alturaForApi = alturaDbToApi[alturaDenom] || alturaDenom;
+
       // Check if area > 750 AND look for h_min_m > 12
       const { data: alturaRef } = await supabase
         .from("altura_ref")
@@ -259,7 +270,8 @@ export const EditCompanyDialog = ({
       console.log("🔍 Edit - Check requirements conditions:", {
         area,
         areaAbove750,
-        alturaDenom,
+        alturaDenomDb: alturaDenom,
+        alturaForApi,
         h_min_m: alturaRef?.h_min_m,
         heightAbove12,
         shouldUseAPI: heightAbove12 && areaAbove750
@@ -267,7 +279,7 @@ export const EditCompanyDialog = ({
 
       if (heightAbove12 && areaAbove750) {
         // Fetch from API
-        const apiUrl = `https://script.google.com/macros/s/AKfycbwhODbivOcTkHNmzXDGyag6IStJW0hSuXUsFyvlLlStSpNo2t8aMDCsr3kJZhySlBjd/exec?divisao=${encodeURIComponent(divisao)}&altura=${encodeURIComponent(alturaDenom)}`;
+        const apiUrl = `https://script.google.com/macros/s/AKfycbwhODbivOcTkHNmzXDGyag6IStJW0hSuXUsFyvlLlStSpNo2t8aMDCsr3kJZhySlBjd/exec?divisao=${encodeURIComponent(divisao)}&altura=${encodeURIComponent(alturaForApi)}`;
         
         console.log("📡 Edit - Fetching from API:", apiUrl);
         const response = await fetch(apiUrl);
