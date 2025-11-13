@@ -220,6 +220,32 @@ export const EditCompanyDialog = ({
   // Function to fetch and insert requirements from API
   const fetchAndInsertRequirements = async (empresaId: string, divisao: string, alturaDenom: string, area: number) => {
     try {
+      // Mapping from API keys to requirement codes
+      const apiKeyToCode: Record<string, string> = {
+        "COMPARTIMENTAÇÃO_HORIZONTAL": "1.1",
+        "COMPARTIMENTAÇÃO_VERTICAL": "1.2",
+        "CONTROLE_DE_MATERIAIS_DE ACABAMENTO_E_REVESTIMENTO_CMAR": "1.3",
+        "SISTEMA_DE_PROTEÇÃO_CONTRA_DESCARGAS_ATMOSFÉRICAS_SPDA": "1.4",
+        "SISTEMAS_DE_EXTINTORES_DE_INCÊNDIO": "2.1",
+        "SISTEMA_DE_HIDRANTES_E_MANGOTINHOS": "2.2",
+        "SISTEMA_DE_CHUVEIROS_AUTOMÁTICOS": "2.3",
+        "SISTEMA_DE_SUPRESSÃO_DE_INCÊNDIO": "2.4",
+        "SISTEMA_DE_ESPUMA": "2.5",
+        "SISTEMA_DE_DETECÇÃO_DE_INCÊNDIO": "3.1",
+        "SISTEMA_DE_ALARME_DE_INCÊNDIO": "3.2",
+        "SAÍDAS_DE_EMERGÊNCIA": "4.1",
+        "ILUMINAÇÃO_DE_EMERGÊNCIA": "4.2",
+        "SINALIZAÇÃO_DE_EMERGÊNCIA": "4.3",
+        "ACESSO_DE_VIATURA_NA_EDIFICAÇÃO": "5.1",
+        "HIDRANTE_PÚBLICO": "5.2",
+        "SEGURANÇA_ESTRUTURAL_CONTRA_INCÊNDIO": "6.1",
+        "BRIGADA_DE_INCÊNDIO": "7.1",
+        "BRIGADA_PROFISSIONAL": "7.2",
+        "PROGRAMA_DE_SEGURANÇA_CONTRA_INCÊNDIO_E_EMERGÊNCIAS_PSIE": "7.3",
+        "PLANO_DE_EMERGÊNCIA_CONTRA_INCÊNDIO": "7.4",
+        "SISTEMA_DE_CONTROLE_DE_FUMAÇA": "8.1"
+      };
+
       // Check if area > 750 AND look for h_min_m > 12
       const { data: alturaRef } = await supabase
         .from("altura_ref")
@@ -248,10 +274,17 @@ export const EditCompanyDialog = ({
         const apiData = await response.json();
         console.log("📦 Edit - API Response:", apiData);
 
-        // Filter requirements where value is "sim"
-        const requiredCodes = Object.entries(apiData)
-          .filter(([key, value]) => value === "sim")
-          .map(([key]) => key);
+        // Filter requirements where value starts with "Sim" (case-insensitive)
+        const requiredCodes: string[] = [];
+        Object.entries(apiData).forEach(([key, value]) => {
+          const code = apiKeyToCode[key];
+          const valueStr = String(value || "").trim();
+          
+          if (code && valueStr.toLowerCase().startsWith("sim")) {
+            requiredCodes.push(code);
+            console.log(`  ✓ Edit - ${key} -> ${code} (${valueStr})`);
+          }
+        });
 
         console.log("✅ Edit - Required codes from API:", requiredCodes);
 
@@ -294,7 +327,7 @@ export const EditCompanyDialog = ({
             }
           }
         } else {
-          console.log("⚠️ Edit - No requirements with 'sim' value found in API response");
+          console.log("⚠️ Edit - No requirements with 'Sim' value found in API response");
         }
       } else {
         console.log("ℹ️ Edit - Using database criteria (area <= 750 OR height <= 12m)");
