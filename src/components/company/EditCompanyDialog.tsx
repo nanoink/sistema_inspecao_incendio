@@ -78,6 +78,14 @@ export const EditCompanyDialog = ({
   const [alturaDenominacao, setAlturaDenominacao] = useState<string>("");
   const [alturaDescricao, setAlturaDescricao] = useState<string>("");
   const [cnaeOptions, setCnaeOptions] = useState<CNAEData[]>([]);
+  
+  // Store original values for comparison
+  const [originalValues, setOriginalValues] = useState<{
+    divisao: string;
+    area_m2: number;
+    altura_tipo: string;
+    altura_denominacao: string;
+  } | null>(null);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -435,6 +443,14 @@ export const EditCompanyDialog = ({
         altura_tipo: company.altura_tipo || "",
       });
 
+      // Store original values for later comparison
+      setOriginalValues({
+        divisao: company.divisao,
+        area_m2: company.area_m2,
+        altura_tipo: company.altura_tipo,
+        altura_denominacao: company.altura_denominacao,
+      });
+
       // Set existing CNAE data
       if (company.cnae) {
         setCnaeData({
@@ -463,6 +479,10 @@ export const EditCompanyDialog = ({
   }, [company, form]);
 
   const onSubmit = async (data: FormData) => {
+    console.log("=" .repeat(60));
+    console.log("🚀 EDIT COMPANY SUBMIT STARTED");
+    console.log("=" .repeat(60));
+    
     if (!cnaeData) {
       toast({
         title: "Dados incompletos",
@@ -475,19 +495,23 @@ export const EditCompanyDialog = ({
     try {
       // Check if divisao, area, or height changed
       console.log("🔄 Edit - Checking for changes:");
-      console.log("  Original divisao:", company.divisao, "New divisao:", cnaeData.divisao);
-      console.log("  Original area:", company.area_m2, "New area:", data.area_m2);
-      console.log("  Original altura_tipo:", company.altura_tipo, "New altura_tipo:", data.altura_tipo);
-      console.log("  Original altura_denominacao:", company.altura_denominacao, "New alturaDenominacao:", alturaDenominacao);
+      console.log("  Original divisao:", originalValues?.divisao, "New divisao:", cnaeData.divisao);
+      console.log("  Original area:", originalValues?.area_m2, "New area:", data.area_m2);
+      console.log("  Original altura_tipo:", originalValues?.altura_tipo, "New altura_tipo:", data.altura_tipo);
+      console.log("  Original altura_denominacao:", originalValues?.altura_denominacao, "New alturaDenominacao:", alturaDenominacao);
       
-      const divisaoChanged = company.divisao !== cnaeData.divisao;
-      const areaChanged = Number(company.area_m2) !== Number(data.area_m2);
-      const alturaChanged = company.altura_tipo !== data.altura_tipo;
+      const divisaoChanged = originalValues?.divisao !== cnaeData.divisao;
+      const areaChanged = Number(originalValues?.area_m2) !== Number(data.area_m2);
+      const alturaTipoChanged = originalValues?.altura_tipo !== data.altura_tipo;
+      const alturaDenomChanged = originalValues?.altura_denominacao !== alturaDenominacao;
+      const alturaChanged = alturaTipoChanged || alturaDenomChanged;
       
       console.log("📊 Edit - Changes detected:");
       console.log("  divisaoChanged:", divisaoChanged);
       console.log("  areaChanged:", areaChanged);
-      console.log("  alturaChanged:", alturaChanged);
+      console.log("  alturaTipoChanged:", alturaTipoChanged);
+      console.log("  alturaDenomChanged:", alturaDenomChanged);
+      console.log("  alturaChanged (any altura change):", alturaChanged);
 
       const { error } = await supabase
         .from("empresa")
@@ -516,11 +540,17 @@ export const EditCompanyDialog = ({
       if (error) throw error;
 
       console.log("✅ Edit - Company updated successfully in database");
+      console.log("=" .repeat(60));
+      console.log("🔍 CHECKING IF SHOULD RECALCULATE REQUIREMENTS");
+      console.log("=" .repeat(60));
 
       // Check if divisao, area, or height changed - recalculate requirements if so
       const shouldRecalculate = cnaeData.divisao && (divisaoChanged || areaChanged || alturaChanged);
       console.log("🔍 Edit - Should recalculate requirements?", shouldRecalculate);
-      console.log("  cnaeData.divisao exists:", !!cnaeData.divisao);
+      console.log("  cnaeData.divisao exists:", !!cnaeData.divisao, "value:", cnaeData.divisao);
+      console.log("  divisaoChanged:", divisaoChanged);
+      console.log("  areaChanged:", areaChanged);
+      console.log("  alturaChanged:", alturaChanged);
       console.log("  Any changes:", divisaoChanged || areaChanged || alturaChanged);
       
       if (shouldRecalculate) {
