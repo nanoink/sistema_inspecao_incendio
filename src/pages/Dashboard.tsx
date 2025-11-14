@@ -2,10 +2,31 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CompanyTable } from "@/components/company/CompanyTable";
 import { Button } from "@/components/ui/button";
-import { Shield, Plus } from "lucide-react";
+import { Shield, Plus, LogOut } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { signOut } = useAuth();
+  const { toast } = useToast();
+
+  const handleLogout = async () => {
+    const { error } = await signOut();
+    if (error) {
+      toast({
+        title: "Erro ao sair",
+        description: error.message,
+        variant: "destructive"
+      });
+    } else {
+      toast({
+        title: "Logout realizado",
+        description: "Até logo!"
+      });
+      navigate('/auth');
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -21,10 +42,16 @@ const Dashboard = () => {
                 </p>
               </div>
             </div>
-            <Button onClick={() => navigate("/cadastro")} size="lg" className="w-full md:w-auto">
-              <Plus className="mr-2 h-5 w-5" />
-              Nova Empresa
-            </Button>
+            <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
+              <Button onClick={() => navigate("/cadastro")} size="lg" className="w-full md:w-auto">
+                <Plus className="mr-2 h-5 w-5" />
+                Nova Empresa
+              </Button>
+              <Button onClick={handleLogout} variant="outline" size="lg" className="w-full md:w-auto">
+                <LogOut className="mr-2 h-5 w-5" />
+                Sair
+              </Button>
+            </div>
           </div>
         </div>
         
