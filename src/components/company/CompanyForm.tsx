@@ -337,14 +337,7 @@ export function CompanyForm() {
 
       const alturaForApi = alturaDbToApi[alturaDenom] || alturaDenom;
 
-      // Check if area > 750 AND look for h_min_m > 12
-      const { data: alturaRef } = await supabase
-        .from("altura_ref")
-        .select("h_min_m")
-        .eq("denominacao", alturaDenom)
-        .maybeSingle();
-
-      const heightAbove12 = alturaRef?.h_min_m && alturaRef.h_min_m > 12;
+      // Check if area > 750 to determine if we should use API or database criteria
       const areaAbove750 = area > 750;
 
       console.log("🔍 Check requirements conditions:", {
@@ -352,13 +345,11 @@ export function CompanyForm() {
         areaAbove750,
         alturaDenomDb: alturaDenom,
         alturaForApi,
-        h_min_m: alturaRef?.h_min_m,
-        heightAbove12,
-        shouldUseAPI: heightAbove12 && areaAbove750
+        shouldUseAPI: areaAbove750
       });
 
-      if (heightAbove12 && areaAbove750) {
-        // Fetch from API
+      if (areaAbove750) {
+        // Fetch from API when area > 750m²
         const apiUrl = `https://script.google.com/macros/s/AKfycbwhODbivOcTkHNmzXDGyag6IStJW0hSuXUsFyvlLlStSpNo2t8aMDCsr3kJZhySlBjd/exec?divisao=${encodeURIComponent(divisao)}&altura=${encodeURIComponent(alturaForApi)}`;
         
         console.log("📡 Fetching from API:", apiUrl);
