@@ -337,22 +337,24 @@ export function CompanyForm() {
 
       const alturaForApi = alturaDbToApi[alturaDenom] || alturaDenom;
 
-      // Check if area > 750 to determine if we should use API or database criteria
+      // Determine which API endpoint to use based on area
       const areaAbove750 = area > 750;
+      const apiEndpoint = areaAbove750 
+        ? 'https://script.google.com/macros/s/AKfycbwhODbivOcTkHNmzXDGyag6IStJW0hSuXUsFyvlLlStSpNo2t8aMDCsr3kJZhySlBjd/exec'
+        : 'https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec';
 
       console.log("🔍 Check requirements conditions:", {
         area,
         areaAbove750,
         alturaDenomDb: alturaDenom,
         alturaForApi,
-        shouldUseAPI: areaAbove750
+        apiEndpoint
       });
 
-      if (areaAbove750) {
-        // Fetch from API when area > 750m²
-        const apiUrl = `https://script.google.com/macros/s/AKfycbwhODbivOcTkHNmzXDGyag6IStJW0hSuXUsFyvlLlStSpNo2t8aMDCsr3kJZhySlBjd/exec?divisao=${encodeURIComponent(divisao)}&altura=${encodeURIComponent(alturaForApi)}`;
-        
-        console.log("📡 Fetching from API:", apiUrl);
+      // Always use API now (different endpoints based on area)
+      const apiUrl = `${apiEndpoint}?divisao=${encodeURIComponent(divisao)}&altura=${encodeURIComponent(alturaForApi)}`;
+      
+      console.log("📡 Fetching from API:", apiUrl);
         const response = await fetch(apiUrl);
         const apiData = await response.json();
         
@@ -429,65 +431,6 @@ export function CompanyForm() {
         } else {
           console.log("⚠️ No requirements with 'Sim' value found in API response");
         }
-      } else {
-        console.log("ℹ️ Using database criteria (area <= 750 OR height <= 12m)");
-        
-        // Fetch from database criteria
-        const { data: alturaRefData } = await supabase
-          .from("altura_ref")
-          .select("tipo")
-          .eq("denominacao", alturaDenom)
-          .maybeSingle();
-        
-        const alturaTipo = alturaRefData?.tipo;
-        console.log("📋 Fetching from database criteria with:", { divisao, alturaTipo, area });
-        
-        if (alturaTipo) {
-          // Query exigencias_criterios to find matching requirements
-          const { data: criterios, error: criteriosError } = await supabase
-            .from("exigencias_criterios")
-            .select("exigencia_id")
-            .eq("divisao", divisao)
-            .eq("altura_tipo", alturaTipo)
-            .or(`area_min.is.null,area_min.lte.${area}`)
-            .or(`area_max.is.null,area_max.gte.${area}`);
-          
-          if (criteriosError) {
-            console.error("❌ Error fetching criteria:", criteriosError);
-            return;
-          }
-          
-          console.log("📋 Found criteria:", criterios);
-          
-          if (criterios && criterios.length > 0) {
-            // Delete existing requirements
-            await supabase
-              .from("empresa_exigencias")
-              .delete()
-              .eq("empresa_id", empresaId);
-            
-            // Insert new requirements
-            const requirementsToInsert = criterios.map(crit => ({
-              empresa_id: empresaId,
-              exigencia_id: crit.exigencia_id,
-              atende: false,
-              observacoes: null,
-            }));
-            
-            const { error: insertError } = await supabase
-              .from("empresa_exigencias")
-              .insert(requirementsToInsert);
-            
-            if (insertError) {
-              console.error("❌ Error inserting requirements from DB:", insertError);
-            } else {
-              console.log("✅ Inserted", requirementsToInsert.length, "requirements from database");
-            }
-          } else {
-            console.log("⚠️ No matching criteria found in database");
-          }
-        }
-      }
     } catch (error) {
       console.error("❌ Error in fetchAndInsertRequirements:", error);
     }
