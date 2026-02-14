@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Loader2, Save, ClipboardCheck, FileText, Shield, Building, Zap, Flame, Bell, CloudRain, Package } from "lucide-react";
+import { ArrowLeft, Loader2, Save, ClipboardCheck, FileText, Shield, Building, Zap, Flame, Bell, CloudRain, Package, Check, X, Minus, type LucideIcon } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -19,6 +19,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 interface Company {
   id: string;
@@ -41,11 +42,59 @@ interface ChecklistItem {
   ordem: number;
 }
 
+type ChecklistStatus = "C" | "NC" | "NA";
+
 interface ChecklistResponse {
   checklist_item_id: string;
-  status: string;
+  status: ChecklistStatus;
   observacoes: string | null;
 }
+
+const STATUS_ORDER: ChecklistStatus[] = ["C", "NC", "NA"];
+
+const isChecklistStatus = (value: string): value is ChecklistStatus =>
+  value === "C" || value === "NC" || value === "NA";
+
+const STATUS_META: Record<
+  ChecklistStatus,
+  {
+    value: ChecklistStatus;
+    label: string;
+    shortLabel: string;
+    icon: LucideIcon;
+    activeClass: string;
+    inactiveClass: string;
+    ariaLabel: string;
+  }
+> = {
+  C: {
+    value: "C",
+    label: "Conforme",
+    shortLabel: "C",
+    icon: Check,
+    activeClass: "border-emerald-600 bg-emerald-600 text-white shadow-sm",
+    inactiveClass: "border-emerald-200 bg-background text-emerald-700 hover:bg-emerald-50",
+    ariaLabel: "Marcar como conforme",
+  },
+  NC: {
+    value: "NC",
+    label: "Nao Conforme",
+    shortLabel: "NC",
+    icon: X,
+    activeClass: "border-red-600 bg-red-600 text-white shadow-sm",
+    inactiveClass: "border-red-200 bg-background text-red-700 hover:bg-red-50",
+    ariaLabel: "Marcar como nao conforme",
+  },
+  NA: {
+    value: "NA",
+    label: "Nao Aplicavel",
+    shortLabel: "NA",
+    icon: Minus,
+    activeClass: "border-slate-500 bg-slate-500 text-white shadow-sm",
+    inactiveClass: "border-slate-300 bg-background text-slate-600 hover:bg-slate-100",
+    ariaLabel: "Marcar como nao aplicavel",
+  },
+};
 
 const getInspectionIcon = (codigo: string) => {
   if (codigo.includes('Informações')) return FileText;
@@ -131,7 +180,11 @@ const CompanyChecklists = () => {
 
       const responsesMap = new Map<string, ChecklistResponse>();
       responsesData?.forEach((resp) => {
-        responsesMap.set(resp.checklist_item_id, resp);
+        responsesMap.set(resp.checklist_item_id, {
+          checklist_item_id: resp.checklist_item_id,
+          status: isChecklistStatus(resp.status) ? resp.status : "NA",
+          observacoes: resp.observacoes,
+        });
       });
       setResponses(responsesMap);
     } catch (error) {
@@ -146,7 +199,7 @@ const CompanyChecklists = () => {
     }
   };
 
-  const handleStatusChange = (itemId: string, status: string) => {
+  const handleStatusChange = (itemId: string, status: ChecklistStatus) => {
     setResponses((prev) => {
       const newMap = new Map(prev);
       const existing = newMap.get(itemId);
@@ -308,15 +361,29 @@ const CompanyChecklists = () => {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0 md:p-6">
+              <div className="px-4 pt-4 md:px-0 md:pt-0">
+                <div className="flex flex-wrap items-center gap-2 text-xs md:text-sm">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-700">
+                    <Check className="h-3 w-3" />
+                    C = Conforme
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-1 text-red-700">
+                    <X className="h-3 w-3" />
+                    NC = Nao Conforme
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 px-2 py-1 text-slate-700">
+                    <Minus className="h-3 w-3" />
+                    NA = Nao Aplicavel
+                  </span>
+                </div>
+              </div>
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-16 md:w-24 whitespace-nowrap">Item</TableHead>
                       <TableHead className="whitespace-nowrap">Descrição</TableHead>
-                      <TableHead className="w-20 md:w-24 text-center whitespace-nowrap">C</TableHead>
-                      <TableHead className="w-20 md:w-24 text-center whitespace-nowrap">NC</TableHead>
-                      <TableHead className="w-20 md:w-24 text-center whitespace-nowrap">NA</TableHead>
+                      <TableHead className="w-[220px] text-center whitespace-nowrap">Status</TableHead>
                       <TableHead className="w-32 md:w-[300px] whitespace-nowrap">Observações</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -330,31 +397,37 @@ const CompanyChecklists = () => {
                           </TableCell>
                           <TableCell className="text-xs md:text-sm">{item.descricao}</TableCell>
                           <TableCell className="text-center">
-                            <input
-                              type="radio"
-                              name={`status-${item.id}`}
-                              checked={resp?.status === 'C'}
-                              onChange={() => handleStatusChange(item.id, 'C')}
-                              className="cursor-pointer"
-                            />
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <input
-                              type="radio"
-                              name={`status-${item.id}`}
-                              checked={resp?.status === 'NC'}
-                              onChange={() => handleStatusChange(item.id, 'NC')}
-                              className="cursor-pointer"
-                            />
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <input
-                              type="radio"
-                              name={`status-${item.id}`}
-                              checked={resp?.status === 'NA'}
-                              onChange={() => handleStatusChange(item.id, 'NA')}
-                              className="cursor-pointer"
-                            />
+                            <div
+                              role="radiogroup"
+                              aria-label={`Status do item ${item.item_numero}`}
+                              className="inline-flex items-center gap-1 rounded-xl border bg-muted/30 p-1"
+                            >
+                              {STATUS_ORDER.map((statusValue) => {
+                                const meta = STATUS_META[statusValue];
+                                const Icon = meta.icon;
+                                const isActive = resp?.status === statusValue;
+
+                                return (
+                                  <button
+                                    key={meta.value}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={isActive}
+                                    aria-label={`${meta.ariaLabel} para item ${item.item_numero}`}
+                                    onClick={() => handleStatusChange(item.id, statusValue)}
+                                    className={cn(
+                                      "inline-flex min-h-9 min-w-9 items-center justify-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                                      isActive ? meta.activeClass : meta.inactiveClass,
+                                    )}
+                                  >
+                                    <Icon className="h-3.5 w-3.5" />
+                                    <span className="sr-only sm:not-sr-only sm:ml-1">
+                                      {meta.shortLabel}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </TableCell>
                           <TableCell>
                             <Textarea
