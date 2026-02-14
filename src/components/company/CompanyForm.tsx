@@ -337,43 +337,89 @@ export function CompanyForm() {
 
       const alturaForApi = alturaDbToApi[alturaDenom] || alturaDenom;
 
-      // Determine which API endpoint to use based on area
-      const areaAbove750 = area > 750;
-      const apiEndpoint = areaAbove750 
-        ? 'https://script.google.com/macros/s/AKfycbwhODbivOcTkHNmzXDGyag6IStJW0hSuXUsFyvlLlStSpNo2t8aMDCsr3kJZhySlBjd/exec'
-        : 'https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec';
+      const normalizeText = (value: string) =>
+        value
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .toUpperCase();
+
+      const normalizeDivisao = (value: string) =>
+        normalizeText(value).replace(/\s*-\s*/g, "-");
+
+      const safeDivisao = String(divisao || "");
+      const safeAltura = String(alturaForApi || "");
+      const normalizedDivisao = normalizeDivisao(safeDivisao);
+      const normalizedAltura = normalizeText(safeAltura);
+
+      // < 750 must use the specific API without altura matching.
+      const useReducedAreaApi = Number(area) < 750;
+      const apiEndpoint = useReducedAreaApi
+        ? "https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec"
+        : "https://script.google.com/macros/s/AKfycbwhODbivOcTkHNmzXDGyag6IStJW0hSuXUsFyvlLlStSpNo2t8aMDCsr3kJZhySlBjd/exec";
 
       console.log("🔍 Check requirements conditions:", {
         area,
-        areaAbove750,
+        useReducedAreaApi,
         alturaDenomDb: alturaDenom,
         alturaForApi,
+        divisaoOriginal: safeDivisao,
+        divisaoNormalized: normalizedDivisao,
         apiEndpoint
       });
 
       // Always use API now (different endpoints based on area)
-      const apiUrl = `${apiEndpoint}?divisao=${encodeURIComponent(divisao)}&altura=${encodeURIComponent(alturaForApi)}`;
+      const apiUrl = useReducedAreaApi
+        ? `${apiEndpoint}?divisao=${encodeURIComponent(safeDivisao)}`
+        : `${apiEndpoint}?divisao=${encodeURIComponent(safeDivisao)}&altura=${encodeURIComponent(safeAltura)}`;
       
       console.log("📡 Fetching from API:", apiUrl);
         const response = await fetch(apiUrl);
+        if (!response.ok) {
+          console.error("[requirements-api] request failed:", response.status, response.statusText);
+          return;
+        }
         const apiData = await response.json();
         
         console.log("📦 API Response type:", Array.isArray(apiData) ? "Array" : "Object");
         console.log("📦 API returned", Array.isArray(apiData) ? apiData.length : 1, "object(s)");
-        console.log("🔍 Looking for: divisao =", divisao, "altura =", alturaForApi);
+        console.log("🔍 Looking for: divisao =", safeDivisao, "altura =", safeAltura);
+
+        const readApiField = (source: unknown, ...keys: string[]) => {
+          if (!source || typeof source !== "object") return "";
+
+          const record = source as Record<string, unknown>;
+          for (const key of keys) {
+            const value = record[key];
+            if (value !== undefined && value !== null && String(value).trim() !== "") {
+              return String(value);
+            }
+          }
+
+          return "";
+        };
 
         // If API returns an array, find the matching object
         let matchingData = apiData;
         if (Array.isArray(apiData)) {
-          console.log("📋 Available combinations:", apiData.map((d: any) => `${d.DIVISÃO || d.divisao} / ${d.ALTURA || d.altura}`));
+          console.log("📋 Available combinations:", apiData.map((d: unknown) => `${readApiField(d, "DIVISÃO", "divisao")} / ${readApiField(d, "ALTURA", "altura")}`));
           
-          matchingData = apiData.find((item: any) => 
-            (item.DIVISÃO === divisao || item.divisao === divisao) && 
-            (item.ALTURA === alturaForApi || item.altura === alturaForApi)
-          );
+          matchingData = apiData.find((item: unknown) => {
+            const itemDivisao = normalizeDivisao(readApiField(item, "DIVISÃO", "divisao"));
+            if (itemDivisao !== normalizedDivisao) return false;
+
+            if (useReducedAreaApi) {
+              // API for area < 750 has no ALTURA column.
+              return true;
+            }
+
+            const itemAltura = normalizeText(readApiField(item, "ALTURA", "altura"));
+            return itemAltura === normalizedAltura;
+          });
           
           if (!matchingData) {
-            console.error("❌ No matching data found for divisao:", divisao, "altura:", alturaForApi);
+            console.error("❌ No matching data found for divisao:", safeDivisao, "altura:", safeAltura, "useReducedAreaApi:", useReducedAreaApi);
             console.log("⚠️ No requirements will be saved - no match in API response");
             return;
           }
