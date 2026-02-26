@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,27 @@ interface CompanyRequirement {
   observacoes: string | null;
 }
 
+interface CompanyRequirementRow {
+  exigencia_id: string;
+  atende: boolean;
+  observacoes: string | null;
+  exigencias_seguranca:
+    | {
+        id: string;
+        codigo: string;
+        nome: string;
+        categoria: string;
+        ordem: number;
+      }
+    | Array<{
+        id: string;
+        codigo: string;
+        nome: string;
+        categoria: string;
+        ordem: number;
+      }>;
+}
+
 const CompanyRequirements = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -40,13 +61,11 @@ const CompanyRequirements = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    if (id) {
-      fetchData();
+  const fetchData = useCallback(async () => {
+    if (!id) {
+      return;
     }
-  }, [id]);
 
-  const fetchData = async () => {
     try {
       setLoading(true);
 
@@ -113,8 +132,15 @@ const CompanyRequirements = () => {
       const exigenciasData: Exigencia[] = [];
       const requirementsData: CompanyRequirement[] = [];
 
-      companyRequirements?.forEach((item: any) => {
-        const exig = item.exigencias_seguranca;
+      (companyRequirements as CompanyRequirementRow[] | null)?.forEach((item) => {
+        const exig = Array.isArray(item.exigencias_seguranca)
+          ? item.exigencias_seguranca[0]
+          : item.exigencias_seguranca;
+
+        if (!exig) {
+          return;
+        }
+
         exigenciasData.push({
           id: exig.id,
           codigo: exig.codigo,
@@ -138,7 +164,11 @@ const CompanyRequirements = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handleCheckChange = (exigenciaId: string, checked: boolean) => {
     setRequirements(prev => {
@@ -171,6 +201,10 @@ const CompanyRequirements = () => {
   };
 
   const handleSave = async () => {
+    if (!id) {
+      return;
+    }
+
     try {
       setSaving(true);
 

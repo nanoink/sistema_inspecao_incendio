@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -125,13 +125,11 @@ const CompanyChecklists = () => {
   const [saving, setSaving] = useState(false);
   const [openInspection, setOpenInspection] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (id) {
-      fetchData();
+  const fetchData = useCallback(async () => {
+    if (!id) {
+      return;
     }
-  }, [id]);
 
-  const fetchData = async () => {
     try {
       setLoading(true);
 
@@ -197,7 +195,11 @@ const CompanyChecklists = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, toast]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handleStatusChange = (itemId: string, status: ChecklistStatus) => {
     setResponses((prev) => {
@@ -226,6 +228,10 @@ const CompanyChecklists = () => {
   };
 
   const handleSave = async () => {
+    if (!id) {
+      return;
+    }
+
     try {
       setSaving(true);
 

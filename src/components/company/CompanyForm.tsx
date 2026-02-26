@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -91,9 +91,9 @@ export function CompanyForm() {
   useEffect(() => {
     loadAlturaOptions();
     loadCnaeOptions();
-  }, []);
+  }, [loadAlturaOptions, loadCnaeOptions]);
 
-  const loadAlturaOptions = async () => {
+  const loadAlturaOptions = useCallback(async () => {
     const { data, error } = await supabase
       .from("altura_ref")
       .select("*")
@@ -105,15 +105,19 @@ export function CompanyForm() {
     }
     
     setAlturaOptions(data || []);
-  };
+  }, []);
 
-  const loadCnaeOptions = async () => {
+  const loadCnaeOptions = useCallback(async () => {
     try {
       const response = await fetch('https://script.google.com/macros/s/AKfycbwFuTToILsB-y5kbSkSI7u04jIoOlCOogPzUp6VSJbElZ-8u3pra5TtFRKR4J5aGvbX/exec');
-      const data = await response.json();
+      const data: unknown = await response.json();
+
+      if (!Array.isArray(data)) {
+        throw new Error("Resposta de CNAE invalida");
+      }
       
       // Map API response to expected format
-      const mappedData = data.map((item: any) => ({
+      const mappedData = (data as Array<Record<string, unknown>>).map((item) => ({
         cnae: item.CNAE || item.cnae,
         grupo: item.GRUPO || item.grupo || '',
         ocupacao_uso: item['OCUPAÇÃO/USO'] || item.ocupacao_uso || '',
@@ -136,7 +140,7 @@ export function CompanyForm() {
         variant: "destructive",
       });
     }
-  };
+  }, [toast]);
 
   // Fetch CEP data from ViaCEP
   const handleCEPBlur = async () => {
@@ -554,11 +558,20 @@ export function CompanyForm() {
       setCnaeData(null);
       setGrauRisco("");
       setAlturaDenominacao("");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error saving company:", error);
+
+      const errorCode =
+        typeof error === "object" && error !== null && "code" in error
+          ? String((error as { code: unknown }).code)
+          : "";
+      const errorMessage =
+        typeof error === "object" && error !== null && "message" in error
+          ? String((error as { message: unknown }).message)
+          : "";
       
       // Check if it's a duplicate CNPJ error
-      if (error.code === '23505' && error.message.includes('empresa_cnpj_key')) {
+      if (errorCode === "23505" && errorMessage.includes("empresa_cnpj_key")) {
         toast({
           title: "CNPJ duplicado",
           description: "Já existe uma empresa cadastrada com este CNPJ. Por favor, use um CNPJ diferente ou edite a empresa existente.",
@@ -567,7 +580,7 @@ export function CompanyForm() {
       } else {
         toast({
           title: "Erro ao salvar empresa",
-          description: error.message || "Não foi possível salvar os dados.",
+          description: errorMessage || "Não foi possível salvar os dados.",
           variant: "destructive",
         });
       }

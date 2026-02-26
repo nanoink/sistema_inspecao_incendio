@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 import { useToast } from "@/hooks/use-toast";
 import {
   Table,
@@ -25,18 +26,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-interface Company {
-  id: string;
-  razao_social: string;
-  nome_fantasia: string | null;
-  cnpj: string;
-  responsavel: string;
-  telefone: string;
-  email: string;
-  area_m2: number;
-  numero_ocupantes: number;
-  grau_risco: string | null;
-}
+type Company = Database["public"]["Tables"]["empresa"]["Row"];
 
 export const CompanyTable = () => {
   const navigate = useNavigate();
@@ -46,7 +36,7 @@ export const CompanyTable = () => {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const fetchCompanies = async () => {
+  const fetchCompanies = useCallback(async () => {
     try {
       setLoading(true);
       const { data, error } = await supabase
@@ -65,7 +55,7 @@ export const CompanyTable = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
   const handleDelete = async (id: string) => {
     try {
@@ -92,7 +82,7 @@ export const CompanyTable = () => {
 
   useEffect(() => {
     fetchCompanies();
-  }, []);
+  }, [fetchCompanies]);
 
   if (loading) {
     return (

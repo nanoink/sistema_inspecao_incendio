@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -40,6 +41,7 @@ const formSchema = z.object({
 });
 
 type FormData = z.infer<typeof formSchema>;
+type Company = Database["public"]["Tables"]["empresa"]["Row"];
 
 interface CNAEData {
   cnae: string;
@@ -58,7 +60,7 @@ interface AlturaRef {
 }
 
 interface EditCompanyDialogProps {
-  company: any;
+  company: Company | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
@@ -81,10 +83,10 @@ export const EditCompanyDialog = ({
   
   // Store original values for comparison
   const [originalValues, setOriginalValues] = useState<{
-    divisao: string;
+    divisao: string | null;
     area_m2: number;
-    altura_tipo: string;
-    altura_denominacao: string;
+    altura_tipo: string | null;
+    altura_denominacao: string | null;
   } | null>(null);
 
   const form = useForm<FormData>({
@@ -126,9 +128,13 @@ export const EditCompanyDialog = ({
   const loadCnaeOptions = async () => {
     try {
       const response = await fetch('https://script.google.com/macros/s/AKfycbwFuTToILsB-y5kbSkSI7u04jIoOlCOogPzUp6VSJbElZ-8u3pra5TtFRKR4J5aGvbX/exec');
-      const data = await response.json();
+      const data: unknown = await response.json();
+
+      if (!Array.isArray(data)) {
+        throw new Error("Resposta de CNAE invalida");
+      }
       
-      const mappedData = data.map((item: any) => ({
+      const mappedData = (data as Array<Record<string, unknown>>).map((item) => ({
         cnae: item.CNAE || item.cnae,
         grupo: item.GRUPO || item.grupo || '',
         ocupacao_uso: item['OCUPAÇÃO/USO'] || item.ocupacao_uso || '',
@@ -478,6 +484,10 @@ export const EditCompanyDialog = ({
         description: "Por favor, selecione um CNAE válido.",
         variant: "destructive",
       });
+      return;
+    }
+
+    if (!company) {
       return;
     }
 
