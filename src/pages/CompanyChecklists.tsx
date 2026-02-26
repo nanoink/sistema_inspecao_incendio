@@ -6,11 +6,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Loader2, Save, ClipboardCheck, FileText, Shield, Building, Zap, Flame, Bell, CloudRain, Package, Check, X, Minus, type LucideIcon } from "lucide-react";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import {
   Table,
   TableBody,
   TableCell,
@@ -48,6 +43,13 @@ interface ChecklistResponse {
   checklist_item_id: string;
   status: ChecklistStatus;
   observacoes: string | null;
+}
+
+interface ChecklistResponseRow {
+  checklist_item_id: string;
+  status: string;
+  observacoes: string | null;
+  updated_at: string;
 }
 
 const STATUS_ORDER: ChecklistStatus[] = ["C", "NC", "NA"];
@@ -138,25 +140,39 @@ const CompanyChecklists = () => {
         .from("empresa")
         .select("id, razao_social")
         .eq("id", id)
-        .single();
+        .maybeSingle();
 
       if (companyError) throw companyError;
+      if (!companyData) {
+        throw new Error("Empresa nao encontrada");
+      }
       setCompany(companyData);
 
-      // Fetch all inspections
+      // Fetch only renewal inspections for this page
       const { data: inspecoesData, error: inspecoesError } = await supabase
         .from("inspecoes")
-        .select("*")
-        .order("ordem");
+        .select("id, codigo, nome, tipo, ordem")
+        .eq("tipo", "renovacao")
+        .order("ordem", { ascending: true });
 
       if (inspecoesError) throw inspecoesError;
-      setInspecoes(inspecoesData || []);
+      const inspections = inspecoesData || [];
+      setInspecoes(inspections);
 
-      // Fetch all checklist items
+      const inspectionIds = inspections.map((inspection) => inspection.id);
+      if (inspectionIds.length === 0) {
+        setChecklistItems(new Map());
+        setResponses(new Map());
+        return;
+      }
+
+      // Fetch checklist items only for returned inspections
       const { data: itemsData, error: itemsError } = await supabase
         .from("checklist_itens")
-        .select("*")
-        .order("ordem");
+        .select("id, inspecao_id, item_numero, descricao, ordem")
+        .in("inspecao_id", inspectionIds)
+        .order("inspecao_id", { ascending: true })
+        .order("ordem", { ascending: true });
 
       if (itemsError) throw itemsError;
 
@@ -171,13 +187,19 @@ const CompanyChecklists = () => {
       // Fetch existing responses
       const { data: responsesData, error: responsesError } = await supabase
         .from("empresa_checklist")
-        .select("checklist_item_id, status, observacoes")
-        .eq("empresa_id", id);
+        .select("checklist_item_id, status, observacoes, updated_at")
+        .eq("empresa_id", id)
+        .order("updated_at", { ascending: false });
 
       if (responsesError) throw responsesError;
 
       const responsesMap = new Map<string, ChecklistResponse>();
-      responsesData?.forEach((resp) => {
+      (responsesData as ChecklistResponseRow[] | null)?.forEach((resp) => {
+        // Keep the most recent response when duplicates exist.
+        if (responsesMap.has(resp.checklist_item_id)) {
+          return;
+        }
+
         responsesMap.set(resp.checklist_item_id, {
           checklist_item_id: resp.checklist_item_id,
           status: isChecklistStatus(resp.status) ? resp.status : "NA",
