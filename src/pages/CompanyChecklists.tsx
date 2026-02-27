@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -13,7 +13,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 interface Company {
@@ -51,6 +50,143 @@ interface ChecklistResponseRow {
   observacoes: string | null;
   updated_at: string;
 }
+
+type ChecklistTableRow =
+  | {
+      type: "section";
+      key: string;
+      title: string;
+    }
+  | {
+      type: "item";
+      key: string;
+      itemId: string;
+      number: string;
+      description: string;
+    };
+
+const ACTIONABLE_PREFIXES = [
+  "verificar",
+  "testar",
+  "selecionar",
+  "inspecionar",
+  "confirmar",
+  "avaliar",
+];
+
+const ACTIONABLE_REGEX = new RegExp(
+  `\\b(?:${ACTIONABLE_PREFIXES.join("|")})\\b`,
+  "i",
+);
+
+const normalizeText = (value: string) => value.replace(/\s+/g, " ").trim();
+
+const splitChecklistDescription = (descricao: string) => {
+  const normalized = normalizeText(descricao);
+  const match = ACTIONABLE_REGEX.exec(normalized);
+  if (!match || match.index === undefined) {
+    return {
+      heading: normalized,
+      actionable: null as string | null,
+    };
+  }
+
+  const actionable = normalized.slice(match.index).trim();
+  const heading = normalized
+    .slice(0, match.index)
+    .replace(/[-:]\s*$/, "")
+    .trim();
+
+  return {
+    heading: heading || null,
+    actionable,
+  };
+};
+
+const buildParentItemNumbers = (items: ChecklistItem[]) => {
+  const parents = new Set<string>();
+
+  items.forEach((item) => {
+    const parts = item.item_numero.trim().split(".");
+    if (parts.length <= 1) return;
+
+    for (let depth = 1; depth < parts.length; depth += 1) {
+      parents.add(parts.slice(0, depth).join("."));
+    }
+  });
+
+  return parents;
+};
+
+const buildChecklistTableRows = (itemsByInspection: Map<string, ChecklistItem[]>) => {
+  const rowsByInspection = new Map<string, ChecklistTableRow[]>();
+  const evaluableIds = new Set<string>();
+
+  itemsByInspection.forEach((items, inspectionId) => {
+    const parentNumbers = buildParentItemNumbers(items);
+    const rows: ChecklistTableRow[] = [];
+    let sectionCounter = 0;
+    let sectionItemCounter = 0;
+    let hasSection = false;
+
+    const pushSection = (title: string, baseKey: string) => {
+      const cleanTitle = normalizeText(title).replace(/[-:]\s*$/, "").trim();
+      if (!cleanTitle) return;
+
+      sectionCounter += 1;
+      sectionItemCounter = 0;
+      hasSection = true;
+      rows.push({
+        type: "section",
+        key: `section-${inspectionId}-${baseKey}-${sectionCounter}`,
+        title: cleanTitle,
+      });
+    };
+
+    const pushItem = (item: ChecklistItem, description: string) => {
+      if (!hasSection) {
+        pushSection("Itens para avaliacao", item.id);
+      }
+
+      sectionItemCounter += 1;
+      rows.push({
+        type: "item",
+        key: `item-${item.id}`,
+        itemId: item.id,
+        number: String(sectionItemCounter),
+        description,
+      });
+      evaluableIds.add(item.id);
+    };
+
+    items.forEach((item) => {
+      const itemNumber = item.item_numero.trim();
+      const isParent = parentNumbers.has(itemNumber);
+      const normalizedDescription = normalizeText(item.descricao);
+      const { heading, actionable } = splitChecklistDescription(normalizedDescription);
+
+      if (isParent) {
+        pushSection(heading || normalizedDescription, item.id);
+        return;
+      }
+
+      if (!actionable) {
+        pushSection(normalizedDescription, item.id);
+        return;
+      }
+
+      if (heading) {
+        pushSection(heading, item.id);
+      }
+
+      pushItem(item, actionable);
+    });
+
+    rowsByInspection.set(inspectionId, rows);
+  });
+
+  return { rowsByInspection, evaluableIds };
+};
 
 const STATUS_ORDER: ChecklistStatus[] = ["C", "NC", "NA"];
 
@@ -126,6 +262,10 @@ const CompanyChecklists = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [openInspection, setOpenInspection] = useState<string | null>(null);
+  const { rowsByInspection, evaluableIds: evaluableItemIds } = useMemo(
+    () => buildChecklistTableRows(checklistItems),
+    [checklistItems],
+  );
 
   const fetchData = useCallback(async () => {
     if (!id) {
@@ -236,19 +376,6 @@ const CompanyChecklists = () => {
     });
   };
 
-  const handleObservationChange = (itemId: string, observacoes: string) => {
-    setResponses((prev) => {
-      const newMap = new Map(prev);
-      const existing = newMap.get(itemId);
-      newMap.set(itemId, {
-        checklist_item_id: itemId,
-        status: existing?.status || 'NA',
-        observacoes: observacoes || null,
-      });
-      return newMap;
-    });
-  };
-
   const handleSave = async () => {
     if (!id) {
       return;
@@ -271,7 +398,7 @@ const CompanyChecklists = () => {
           status: resp.status,
           observacoes: resp.observacoes,
         })
-      );
+      ).filter((response) => evaluableItemIds.has(response.checklist_item_id));
 
       if (responsesToInsert.length > 0) {
         const { error } = await supabase
@@ -320,6 +447,9 @@ const CompanyChecklists = () => {
       </div>
     );
   }
+
+  const openInspectionData = inspecoes.find((inspection) => inspection.id === openInspection);
+  const checklistRows = openInspection ? rowsByInspection.get(openInspection) || [] : [];
 
   return (
     <div className="min-h-screen bg-background">
@@ -385,7 +515,7 @@ const CompanyChecklists = () => {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg md:text-xl">
-                {inspecoes.find(i => i.id === openInspection)?.nome}
+                {openInspectionData?.nome}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0 md:p-6">
@@ -409,65 +539,68 @@ const CompanyChecklists = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-16 md:w-24 whitespace-nowrap">Item</TableHead>
-                      <TableHead className="whitespace-nowrap">Descrição</TableHead>
-                      <TableHead className="w-[220px] text-center whitespace-nowrap">Status</TableHead>
-                      <TableHead className="w-32 md:w-[300px] whitespace-nowrap">Observações</TableHead>
+                      <TableHead colSpan={5} className="text-center whitespace-nowrap">
+                        {`CHECKLIST DE ${openInspectionData?.nome.toUpperCase() || ""}`}
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {checklistItems.get(openInspection)?.map((item) => {
-                      const resp = responses.get(item.id);
-                      return (
-                        <TableRow key={item.id}>
-                          <TableCell className="font-medium whitespace-nowrap text-xs md:text-sm">
-                            {item.item_numero}
-                          </TableCell>
-                          <TableCell className="text-xs md:text-sm">{item.descricao}</TableCell>
-                          <TableCell className="text-center">
-                            <div
-                              role="radiogroup"
-                              aria-label={`Status do item ${item.item_numero}`}
-                              className="inline-flex items-center gap-1 rounded-xl border bg-muted/30 p-1"
-                            >
-                              {STATUS_ORDER.map((statusValue) => {
-                                const meta = STATUS_META[statusValue];
-                                const Icon = meta.icon;
-                                const isActive = resp?.status === statusValue;
+                    {checklistRows.map((row) => {
+                      if (row.type === "section") {
+                        return (
+                          <TableRow key={row.key} className="bg-muted/25">
+                            <TableCell className="font-medium whitespace-nowrap text-xs md:text-sm">
+                              Item
+                            </TableCell>
+                            <TableCell className="font-medium text-xs md:text-sm">
+                              {row.title}
+                            </TableCell>
+                            <TableCell className="font-medium text-center whitespace-nowrap text-xs md:text-sm">
+                              C
+                            </TableCell>
+                            <TableCell className="font-medium text-center whitespace-nowrap text-xs md:text-sm">
+                              NC
+                            </TableCell>
+                            <TableCell className="font-medium text-center whitespace-nowrap text-xs md:text-sm">
+                              NA
+                            </TableCell>
+                          </TableRow>
+                        );
+                      }
 
-                                return (
-                                  <button
-                                    key={meta.value}
-                                    type="button"
-                                    role="radio"
-                                    aria-checked={isActive}
-                                    aria-label={`${meta.ariaLabel} para item ${item.item_numero}`}
-                                    onClick={() => handleStatusChange(item.id, statusValue)}
-                                    className={cn(
-                                      "inline-flex min-h-9 min-w-9 items-center justify-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                                      isActive ? meta.activeClass : meta.inactiveClass,
-                                    )}
-                                  >
-                                    <Icon className="h-3.5 w-3.5" />
-                                    <span className="sr-only sm:not-sr-only sm:ml-1">
-                                      {meta.shortLabel}
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                            </div>
+                      const resp = responses.get(row.itemId);
+
+                      return (
+                        <TableRow key={row.key}>
+                          <TableCell className="font-medium whitespace-nowrap text-xs md:text-sm">
+                            {row.number}
                           </TableCell>
-                          <TableCell>
-                            <Textarea
-                              placeholder="Observações..."
-                              value={resp?.observacoes || ""}
-                              onChange={(e) =>
-                                handleObservationChange(item.id, e.target.value)
-                              }
-                              rows={2}
-                              className="text-xs md:text-sm min-w-[200px]"
-                            />
-                          </TableCell>
+                          <TableCell className="text-xs md:text-sm">{row.description}</TableCell>
+                          {STATUS_ORDER.map((statusValue) => {
+                            const meta = STATUS_META[statusValue];
+                            const Icon = meta.icon;
+                            const isActive = resp?.status === statusValue;
+
+                            return (
+                              <TableCell key={`${row.itemId}-${statusValue}`} className="text-center">
+                                <button
+                                  type="button"
+                                  aria-pressed={isActive}
+                                  aria-label={`${meta.ariaLabel} para item ${row.number}`}
+                                  onClick={() => handleStatusChange(row.itemId, statusValue)}
+                                  className={cn(
+                                    "inline-flex min-h-9 min-w-9 items-center justify-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                                    isActive ? meta.activeClass : meta.inactiveClass,
+                                  )}
+                                >
+                                  <Icon className="h-3.5 w-3.5" />
+                                  <span className="sr-only sm:not-sr-only sm:ml-1">
+                                    {meta.shortLabel}
+                                  </span>
+                                </button>
+                              </TableCell>
+                            );
+                          })}
                         </TableRow>
                       );
                     })}
