@@ -81,13 +81,6 @@ export const EditCompanyDialog = ({
   const [alturaDescricao, setAlturaDescricao] = useState<string>("");
   const [cnaeOptions, setCnaeOptions] = useState<CNAEData[]>([]);
   
-  // Store original values for comparison
-  const [originalValues, setOriginalValues] = useState<{
-    divisao: string | null;
-    area_m2: number;
-    altura_tipo: string | null;
-    altura_denominacao: string | null;
-  } | null>(null);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -231,197 +224,6 @@ export const EditCompanyDialog = ({
     }
   };
 
-  // Function to fetch and insert requirements from API
-  const fetchAndInsertRequirements = async (empresaId: string, divisao: string, alturaDenom: string, area: number) => {
-    console.log("🚀 Edit - fetchAndInsertRequirements called with:", { empresaId, divisao, alturaDenom, area });
-    
-    try {
-      // Mapping from API keys to requirement codes
-      const apiKeyToCode: Record<string, string> = {
-        "COMPARTIMENTAÇÃO_HORIZONTAL": "1.1",
-        "COMPARTIMENTAÇÃO_VERTICAL": "1.2",
-        "CONTROLE_DE_MATERIAIS_DE ACABAMENTO_E_REVESTIMENTO_CMAR": "1.3",
-        "SISTEMA_DE_PROTEÇÃO_CONTRA_DESCARGAS_ATMOSFÉRICAS_SPDA": "1.4",
-        "SISTEMAS_DE_EXTINTORES_DE_INCÊNDIO": "2.1",
-        "SISTEMA_DE_HIDRANTES_E_MANGOTINHOS": "2.2",
-        "SISTEMA_DE_CHUVEIROS_AUTOMÁTICOS": "2.3",
-        "SISTEMA_DE_SUPRESSÃO_DE_INCÊNDIO": "2.4",
-        "SISTEMA_DE_ESPUMA": "2.5",
-        "SISTEMA_DE_DETECÇÃO_DE_INCÊNDIO": "3.1",
-        "SISTEMA_DE_ALARME_DE_INCÊNDIO": "3.2",
-        "SAÍDAS_DE_EMERGÊNCIA": "4.1",
-        "ILUMINAÇÃO_DE_EMERGÊNCIA": "4.2",
-        "SINALIZAÇÃO_DE_EMERGÊNCIA": "4.3",
-        "ACESSO_DE_VIATURA_NA_EDIFICAÇÃO": "5.1",
-        "HIDRANTE_PÚBLICO": "5.2",
-        "SEGURANÇA_ESTRUTURAL_CONTRA_INCÊNDIO": "6.1",
-        "BRIGADA_DE_INCÊNDIO": "7.1",
-        "BRIGADA_PROFISSIONAL": "7.2",
-        "PROGRAMA_DE_SEGURANÇA_CONTRA_INCÊNDIO_E_EMERGÊNCIAS_PSIE": "7.3",
-        "PLANO_DE_EMERGÊNCIA_CONTRA_INCÊNDIO": "7.4",
-        "SISTEMA_DE_CONTROLE_DE_FUMAÇA": "8.1"
-      };
-
-      // Mapping from database altura names to API altura names
-      const alturaDbToApi: Record<string, string> = {
-        "Edificação Térrea": "Edificação Térrea",
-        "Edificação de Baixa Altura": "Edificação Baixa",
-        "Edificação de Baixa-Média Altura": "Edificação de Baixa-Média Altura",
-        "Edificação de Média Altura": "Edificação de Média Altura",
-        "Edificação de Grande Altura": "Edificação Alta"
-      };
-
-      const alturaForApi = alturaDbToApi[alturaDenom] || alturaDenom;
-
-      const normalizeText = (value: string) =>
-        value
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .replace(/\s+/g, " ")
-          .trim()
-          .toUpperCase();
-
-      const normalizeDivisao = (value: string) =>
-        normalizeText(value).replace(/\s*-\s*/g, "-");
-
-      const safeDivisao = String(divisao || "");
-      const safeAltura = String(alturaForApi || "");
-      const normalizedDivisao = normalizeDivisao(safeDivisao);
-      const normalizedAltura = normalizeText(safeAltura);
-
-      // < 750 must use the specific API without altura matching.
-      const useReducedAreaApi = Number(area) < 750;
-      const apiEndpoint = useReducedAreaApi
-        ? "https://script.google.com/macros/s/AKfycbwVCNyGnn84VSz0gKaV6PIyCdrcLJzYfkVCLe-EN94WkgQyPhU_a3SXyc16YF8QyC61/exec"
-        : "https://script.google.com/macros/s/AKfycbwhODbivOcTkHNmzXDGyag6IStJW0hSuXUsFyvlLlStSpNo2t8aMDCsr3kJZhySlBjd/exec";
-
-      console.log("🔍 Edit - Check requirements conditions:", {
-        area,
-        useReducedAreaApi,
-        alturaDenomDb: alturaDenom,
-        alturaForApi,
-        divisaoOriginal: safeDivisao,
-        divisaoNormalized: normalizedDivisao,
-        apiEndpoint
-      });
-
-      // Always use API now (different endpoints based on area)
-      const apiUrl = useReducedAreaApi
-        ? `${apiEndpoint}?divisao=${encodeURIComponent(safeDivisao)}`
-        : `${apiEndpoint}?divisao=${encodeURIComponent(safeDivisao)}&altura=${encodeURIComponent(safeAltura)}`;
-      
-      console.log("📡 Edit - Fetching from API:", apiUrl);
-        const response = await fetch(apiUrl);
-        if (!response.ok) {
-          console.error("[edit requirements-api] request failed:", response.status, response.statusText);
-          return;
-        }
-        const apiData = await response.json();
-        
-        console.log("📦 Edit - API Response type:", Array.isArray(apiData) ? "Array" : "Object");
-        console.log("📦 Edit - API returned", Array.isArray(apiData) ? apiData.length : 1, "object(s)");
-        console.log("🔍 Edit - Looking for: divisao =", safeDivisao, "altura =", safeAltura);
-
-        const readApiField = (source: unknown, ...keys: string[]) => {
-          if (!source || typeof source !== "object") return "";
-
-          const record = source as Record<string, unknown>;
-          for (const key of keys) {
-            const value = record[key];
-            if (value !== undefined && value !== null && String(value).trim() !== "") {
-              return String(value);
-            }
-          }
-
-          return "";
-        };
-
-        // If API returns an array, find the matching object
-        let matchingData = apiData;
-        if (Array.isArray(apiData)) {
-          console.log("📋 Edit - Available combinations:", apiData.map((d: unknown) => `${readApiField(d, "DIVISÃO", "divisao")} / ${readApiField(d, "ALTURA", "altura")}`));
-          
-          matchingData = apiData.find((item: unknown) => {
-            const itemDivisao = normalizeDivisao(readApiField(item, "DIVISÃO", "divisao"));
-            if (itemDivisao !== normalizedDivisao) return false;
-
-            if (useReducedAreaApi) {
-              // API for area < 750 has no ALTURA column.
-              return true;
-            }
-
-            const itemAltura = normalizeText(readApiField(item, "ALTURA", "altura"));
-            return itemAltura === normalizedAltura;
-          });
-          
-          if (!matchingData) {
-            console.error("❌ Edit - No matching data found for divisao:", safeDivisao, "altura:", safeAltura, "useReducedAreaApi:", useReducedAreaApi);
-            console.log("⚠️ Edit - No requirements will be saved - no match in API response");
-            return;
-          }
-          
-          console.log("✓ Edit - Found matching object:", matchingData);
-        }
-
-        // Filter requirements where value starts with "Sim" (case-insensitive)
-        const requiredCodes: string[] = [];
-        Object.entries(matchingData).forEach(([key, value]) => {
-          const code = apiKeyToCode[key];
-          const valueStr = String(value || "").trim();
-          
-          if (code && valueStr.toLowerCase().startsWith("sim")) {
-            requiredCodes.push(code);
-            console.log(`  ✓ Edit - ${key} -> ${code} (${valueStr})`);
-          }
-        });
-
-        console.log("✅ Edit - Required codes from API:", requiredCodes);
-
-        if (requiredCodes.length > 0) {
-          // Fetch requirement details
-          const { data: exigencias, error: exigenciasError } = await supabase
-            .from("exigencias_seguranca")
-            .select("id, codigo")
-            .in("codigo", requiredCodes);
-
-          if (exigenciasError) {
-            console.error("Error fetching requirements:", exigenciasError);
-            return;
-          }
-
-          console.log("📋 Edit - Found exigencias:", exigencias);
-
-          // Delete existing and insert new requirements
-          await supabase
-            .from("empresa_exigencias")
-            .delete()
-            .eq("empresa_id", empresaId);
-
-          if (exigencias && exigencias.length > 0) {
-            const requirementsToInsert = exigencias.map(exig => ({
-              empresa_id: empresaId,
-              exigencia_id: exig.id,
-              atende: false,
-              observacoes: null,
-            }));
-
-            const { error: insertError } = await supabase
-              .from("empresa_exigencias")
-              .insert(requirementsToInsert);
-
-            if (insertError) {
-              console.error("❌ Edit - Error inserting requirements:", insertError);
-            } else {
-              console.log("✅ Edit - Inserted", requirementsToInsert.length, "requirements from API");
-            }
-          }
-        } else {
-          console.log("⚠️ Edit - No requirements with 'Sim' value found in API response");
-        }
-    } catch (error) {
-      console.error("❌ Edit - Error in fetchAndInsertRequirements:", error);
-    }
-  };
 
   useEffect(() => {
     if (company) {
@@ -438,13 +240,6 @@ export const EditCompanyDialog = ({
         altura_tipo: company.altura_tipo || "",
       });
 
-      // Store original values for later comparison
-      setOriginalValues({
-        divisao: company.divisao,
-        area_m2: company.area_m2,
-        altura_tipo: company.altura_tipo,
-        altura_denominacao: company.altura_denominacao,
-      });
 
       // Set existing CNAE data
       if (company.cnae) {
@@ -474,14 +269,10 @@ export const EditCompanyDialog = ({
   }, [company, form]);
 
   const onSubmit = async (data: FormData) => {
-    console.log("=" .repeat(60));
-    console.log("🚀 EDIT COMPANY SUBMIT STARTED");
-    console.log("=" .repeat(60));
-    
     if (!cnaeData) {
       toast({
         title: "Dados incompletos",
-        description: "Por favor, selecione um CNAE válido.",
+        description: "Por favor, selecione um CNAE valido.",
         variant: "destructive",
       });
       return;
@@ -492,26 +283,6 @@ export const EditCompanyDialog = ({
     }
 
     try {
-      // Check if divisao, area, or height changed
-      console.log("🔄 Edit - Checking for changes:");
-      console.log("  Original divisao:", originalValues?.divisao, "New divisao:", cnaeData.divisao);
-      console.log("  Original area:", originalValues?.area_m2, "New area:", data.area_m2);
-      console.log("  Original altura_tipo:", originalValues?.altura_tipo, "New altura_tipo:", data.altura_tipo);
-      console.log("  Original altura_denominacao:", originalValues?.altura_denominacao, "New alturaDenominacao:", alturaDenominacao);
-      
-      const divisaoChanged = originalValues?.divisao !== cnaeData.divisao;
-      const areaChanged = Number(originalValues?.area_m2) !== Number(data.area_m2);
-      const alturaTipoChanged = originalValues?.altura_tipo !== data.altura_tipo;
-      const alturaDenomChanged = originalValues?.altura_denominacao !== alturaDenominacao;
-      const alturaChanged = alturaTipoChanged || alturaDenomChanged;
-      
-      console.log("📊 Edit - Changes detected:");
-      console.log("  divisaoChanged:", divisaoChanged);
-      console.log("  areaChanged:", areaChanged);
-      console.log("  alturaTipoChanged:", alturaTipoChanged);
-      console.log("  alturaDenomChanged:", alturaDenomChanged);
-      console.log("  alturaChanged (any altura change):", alturaChanged);
-
       const { error } = await supabase
         .from("empresa")
         .update({
@@ -538,39 +309,6 @@ export const EditCompanyDialog = ({
 
       if (error) throw error;
 
-      console.log("✅ Edit - Company updated successfully in database");
-      console.log("=" .repeat(60));
-      console.log("🔍 CHECKING IF SHOULD RECALCULATE REQUIREMENTS");
-      console.log("=" .repeat(60));
-
-      // Check if divisao, area, or height changed - recalculate requirements if so
-      const shouldRecalculate = cnaeData.divisao && (divisaoChanged || areaChanged || alturaChanged);
-      console.log("🔍 Edit - Should recalculate requirements?", shouldRecalculate);
-      console.log("  cnaeData.divisao exists:", !!cnaeData.divisao, "value:", cnaeData.divisao);
-      console.log("  divisaoChanged:", divisaoChanged);
-      console.log("  areaChanged:", areaChanged);
-      console.log("  alturaChanged:", alturaChanged);
-      console.log("  Any changes:", divisaoChanged || areaChanged || alturaChanged);
-      
-      if (shouldRecalculate) {
-        console.log("🔄 Edit - Calling fetchAndInsertRequirements with:");
-        console.log("  empresaId:", company.id);
-        console.log("  divisao:", cnaeData.divisao);
-        console.log("  alturaDenominacao:", alturaDenominacao);
-        console.log("  area:", Number(data.area_m2));
-        
-        await fetchAndInsertRequirements(
-          company.id,
-          cnaeData.divisao,
-          alturaDenominacao,
-          Number(data.area_m2)
-        );
-        
-        console.log("✅ Edit - fetchAndInsertRequirements completed");
-      } else {
-        console.log("⏭️ Edit - Skipping requirements recalculation - no relevant changes");
-      }
-
       toast({
         title: "Empresa atualizada",
         description: "Os dados da empresa foram atualizados com sucesso.",
@@ -580,7 +318,7 @@ export const EditCompanyDialog = ({
     } catch (error) {
       toast({
         title: "Erro ao atualizar empresa",
-        description: "Não foi possível atualizar os dados da empresa.",
+        description: "Nao foi possivel atualizar os dados da empresa.",
         variant: "destructive",
       });
     }

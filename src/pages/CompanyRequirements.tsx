@@ -17,6 +17,9 @@ interface Company {
 }
 
 interface Exigencia {
+  criterioCenario?: string | null;
+  criterioId?: string | null;
+  criterioStatus?: string | null;
   id: string;
   codigo: string;
   nome: string;
@@ -26,12 +29,20 @@ interface Exigencia {
 }
 
 interface CompanyRequirement {
+  criterioCenario?: string | null;
+  criterioId?: string | null;
+  criterioStatus?: string | null;
+  criterioTexto?: string | null;
   exigenciaId: string;
   atende: boolean;
   observacoes: string | null;
 }
 
 interface CompanyRequirementRow {
+  criterio_cenario: string | null;
+  criterio_id: string | null;
+  criterio_status: string | null;
+  criterio_texto: string | null;
   exigencia_id: string;
   atende: boolean;
   observacoes: string | null;
@@ -113,6 +124,10 @@ const CompanyRequirements = () => {
       const { data: companyRequirements, error: reqError } = await supabase
         .from("empresa_exigencias")
         .select(`
+          criterio_texto,
+          criterio_cenario,
+          criterio_id,
+          criterio_status,
           exigencia_id,
           atende,
           observacoes,
@@ -147,8 +162,16 @@ const CompanyRequirements = () => {
           nome: exig.nome,
           categoria: exig.categoria,
           ordem: exig.ordem,
+          observacao: item.criterio_texto,
+          criterioCenario: item.criterio_cenario,
+          criterioId: item.criterio_id,
+          criterioStatus: item.criterio_status,
         });
         requirementsData.push({
+          criterioCenario: item.criterio_cenario,
+          criterioId: item.criterio_id,
+          criterioStatus: item.criterio_status,
+          criterioTexto: item.criterio_texto,
           exigenciaId: exig.id,
           atende: item.atende,
           observacoes: item.observacoes,
@@ -180,7 +203,19 @@ const CompanyRequirements = () => {
             : r
         );
       } else {
-        return [...prev, { exigenciaId, atende: checked, observacoes: null }];
+        const exigencia = exigencias.find((item) => item.id === exigenciaId);
+        return [
+          ...prev,
+          {
+            criterioCenario: exigencia?.criterioCenario ?? null,
+            criterioId: exigencia?.criterioId ?? null,
+            criterioStatus: exigencia?.criterioStatus ?? null,
+            criterioTexto: exigencia?.observacao ?? null,
+            exigenciaId,
+            atende: checked,
+            observacoes: null,
+          },
+        ];
       }
     });
   };
@@ -195,7 +230,19 @@ const CompanyRequirements = () => {
             : r
         );
       } else {
-        return [...prev, { exigenciaId, atende: false, observacoes: value || null }];
+        const exigencia = exigencias.find((item) => item.id === exigenciaId);
+        return [
+          ...prev,
+          {
+            criterioCenario: exigencia?.criterioCenario ?? null,
+            criterioId: exigencia?.criterioId ?? null,
+            criterioStatus: exigencia?.criterioStatus ?? null,
+            criterioTexto: exigencia?.observacao ?? null,
+            exigenciaId,
+            atende: false,
+            observacoes: value || null,
+          },
+        ];
       }
     });
   };
@@ -219,6 +266,10 @@ const CompanyRequirements = () => {
         empresa_id: id,
         exigencia_id: req.exigenciaId,
         atende: req.atende,
+        criterio_cenario: req.criterioCenario ?? null,
+        criterio_id: req.criterioId ?? null,
+        criterio_status: req.criterioStatus ?? null,
+        criterio_texto: req.criterioTexto ?? null,
         observacoes: req.observacoes,
       }));
 

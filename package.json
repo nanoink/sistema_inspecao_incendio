@@ -8,6 +8,7 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "checklists:import": "node ./scripts/import-checklists-from-xlsx.mjs",
+    "exigencias:import": "node ./scripts/import-exigencias-from-xlsx.mjs",
     "supabase:bootstrap": "node ./scripts/build-supabase-bootstrap.mjs",
     "lint": "eslint .",
     "preview": "vite preview"

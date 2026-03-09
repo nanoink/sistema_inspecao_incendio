@@ -323,6 +323,10 @@ export type Database = {
       empresa_exigencias: {
         Row: {
           atende: boolean
+          criterio_cenario: string | null
+          criterio_id: string | null
+          criterio_status: string | null
+          criterio_texto: string | null
           created_at: string
           empresa_id: string
           exigencia_id: string
@@ -332,6 +336,10 @@ export type Database = {
         }
         Insert: {
           atende?: boolean
+          criterio_cenario?: string | null
+          criterio_id?: string | null
+          criterio_status?: string | null
+          criterio_texto?: string | null
           created_at?: string
           empresa_id: string
           exigencia_id: string
@@ -341,6 +349,10 @@ export type Database = {
         }
         Update: {
           atende?: boolean
+          criterio_cenario?: string | null
+          criterio_id?: string | null
+          criterio_status?: string | null
+          criterio_texto?: string | null
           created_at?: string
           empresa_id?: string
           exigencia_id?: string
@@ -361,6 +373,13 @@ export type Database = {
             columns: ["exigencia_id"]
             isOneToOne: false
             referencedRelation: "exigencias_seguranca"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "empresa_exigencias_criterio_id_fkey"
+            columns: ["criterio_id"]
+            isOneToOne: false
+            referencedRelation: "exigencias_criterios"
             referencedColumns: ["id"]
           },
         ]
@@ -450,40 +469,70 @@ export type Database = {
       }
       exigencias_criterios: {
         Row: {
+          altura_denominacao: string | null
           altura_max: number | null
           altura_min: number | null
           altura_tipo: string | null
           area_max: number | null
           area_min: number | null
+          cenario: string
           created_at: string
+          descricao_edificacao: string | null
           divisao: string | null
           exigencia_id: string
+          fonte_arquivo: string | null
+          fonte_linha: number | null
+          graus_risco: string[] | null
           id: string
           observacao: string | null
+          ocupantes_max: number | null
+          ocupantes_min: number | null
+          status_aplicabilidade: string
+          valor_raw: string
         }
         Insert: {
+          altura_denominacao?: string | null
           altura_max?: number | null
           altura_min?: number | null
           altura_tipo?: string | null
           area_max?: number | null
           area_min?: number | null
+          cenario?: string
           created_at?: string
+          descricao_edificacao?: string | null
           divisao?: string | null
           exigencia_id: string
+          fonte_arquivo?: string | null
+          fonte_linha?: number | null
+          graus_risco?: string[] | null
           id?: string
           observacao?: string | null
+          ocupantes_max?: number | null
+          ocupantes_min?: number | null
+          status_aplicabilidade?: string
+          valor_raw?: string
         }
         Update: {
+          altura_denominacao?: string | null
           altura_max?: number | null
           altura_min?: number | null
           altura_tipo?: string | null
           area_max?: number | null
           area_min?: number | null
+          cenario?: string
           created_at?: string
+          descricao_edificacao?: string | null
           divisao?: string | null
           exigencia_id?: string
+          fonte_arquivo?: string | null
+          fonte_linha?: number | null
+          graus_risco?: string[] | null
           id?: string
           observacao?: string | null
+          ocupantes_max?: number | null
+          ocupantes_min?: number | null
+          status_aplicabilidade?: string
+          valor_raw?: string
         }
         Relationships: [
           {
@@ -554,7 +603,30 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      normalize_divisao_codigo: {
+        Args: { p_value: string | null }
+        Returns: string | null
+      }
+      resolve_exigencias_empresa: {
+        Args: {
+          p_altura_tipo: string | null
+          p_area_m2: number | null
+          p_divisao: string | null
+          p_grau_risco?: string | null
+          p_numero_ocupantes?: number | null
+        }
+        Returns: {
+          criterio_cenario: string
+          criterio_id: string
+          criterio_status: string
+          criterio_texto: string | null
+          exigencia_id: string
+        }[]
+      }
+      sync_empresa_exigencias: {
+        Args: { p_empresa_id: string }
+        Returns: number
+      }
     }
     Enums: {
       [_ in never]: never
