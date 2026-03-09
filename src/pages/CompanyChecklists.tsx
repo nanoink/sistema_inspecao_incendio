@@ -14,6 +14,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import {
+  buildChecklistSnapshot,
+  buildChecklistTableRows,
+} from "@/lib/checklist";
+import { isMissingRelationError } from "@/lib/supabase-errors";
 
 interface Company {
   id: string;
@@ -50,143 +55,6 @@ interface ChecklistResponseRow {
   observacoes: string | null;
   updated_at: string;
 }
-
-type ChecklistTableRow =
-  | {
-      type: "section";
-      key: string;
-      title: string;
-    }
-  | {
-      type: "item";
-      key: string;
-      itemId: string;
-      number: string;
-      description: string;
-    };
-
-const ACTIONABLE_PREFIXES = [
-  "verificar",
-  "testar",
-  "selecionar",
-  "inspecionar",
-  "confirmar",
-  "avaliar",
-];
-
-const ACTIONABLE_REGEX = new RegExp(
-  `\\b(?:${ACTIONABLE_PREFIXES.join("|")})\\b`,
-  "i",
-);
-
-const normalizeText = (value: string) => value.replace(/\s+/g, " ").trim();
-
-const splitChecklistDescription = (descricao: string) => {
-  const normalized = normalizeText(descricao);
-  const match = ACTIONABLE_REGEX.exec(normalized);
-  if (!match || match.index === undefined) {
-    return {
-      heading: normalized,
-      actionable: null as string | null,
-    };
-  }
-
-  const actionable = normalized.slice(match.index).trim();
-  const heading = normalized
-    .slice(0, match.index)
-    .replace(/[-:]\s*$/, "")
-    .trim();
-
-  return {
-    heading: heading || null,
-    actionable,
-  };
-};
-
-const buildParentItemNumbers = (items: ChecklistItem[]) => {
-  const parents = new Set<string>();
-
-  items.forEach((item) => {
-    const parts = item.item_numero.trim().split(".");
-    if (parts.length <= 1) return;
-
-    for (let depth = 1; depth < parts.length; depth += 1) {
-      parents.add(parts.slice(0, depth).join("."));
-    }
-  });
-
-  return parents;
-};
-
-const buildChecklistTableRows = (itemsByInspection: Map<string, ChecklistItem[]>) => {
-  const rowsByInspection = new Map<string, ChecklistTableRow[]>();
-  const evaluableIds = new Set<string>();
-
-  itemsByInspection.forEach((items, inspectionId) => {
-    const parentNumbers = buildParentItemNumbers(items);
-    const rows: ChecklistTableRow[] = [];
-    let sectionCounter = 0;
-    let sectionItemCounter = 0;
-    let hasSection = false;
-
-    const pushSection = (title: string, baseKey: string) => {
-      const cleanTitle = normalizeText(title).replace(/[-:]\s*$/, "").trim();
-      if (!cleanTitle) return;
-
-      sectionCounter += 1;
-      sectionItemCounter = 0;
-      hasSection = true;
-      rows.push({
-        type: "section",
-        key: `section-${inspectionId}-${baseKey}-${sectionCounter}`,
-        title: cleanTitle,
-      });
-    };
-
-    const pushItem = (item: ChecklistItem, description: string) => {
-      if (!hasSection) {
-        pushSection("Itens para avaliacao", item.id);
-      }
-
-      sectionItemCounter += 1;
-      rows.push({
-        type: "item",
-        key: `item-${item.id}`,
-        itemId: item.id,
-        number: String(sectionItemCounter),
-        description,
-      });
-      evaluableIds.add(item.id);
-    };
-
-    items.forEach((item) => {
-      const itemNumber = item.item_numero.trim();
-      const isParent = parentNumbers.has(itemNumber);
-      const normalizedDescription = normalizeText(item.descricao);
-      const { heading, actionable } = splitChecklistDescription(normalizedDescription);
-
-      if (isParent) {
-        pushSection(heading || normalizedDescription, item.id);
-        return;
-      }
-
-      if (!actionable) {
-        pushSection(normalizedDescription, item.id);
-        return;
-      }
-
-      if (heading) {
-        pushSection(heading, item.id);
-      }
-
-      pushItem(item, actionable);
-    });
-
-    rowsByInspection.set(inspectionId, rows);
-  });
-
-  return { rowsByInspection, evaluableIds };
-};
 
 const STATUS_ORDER: ChecklistStatus[] = ["C", "NC", "NA"];
 
@@ -376,6 +244,107 @@ const CompanyChecklists = () => {
     });
   };
 
+  const saveChecklistAndEnsureReport = async () => {
+    if (!id) {
+      return false;
+    }
+
+    try {
+      const { error: deleteError } = await supabase
+        .from("empresa_checklist")
+        .delete()
+        .eq("empresa_id", id);
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      const responsesToInsert = Array.from(responses.entries())
+        .map(([itemId, resp]) => ({
+          empresa_id: id,
+          checklist_item_id: itemId,
+          status: resp.status,
+          observacoes: resp.observacoes,
+        }))
+        .filter((response) => evaluableItemIds.has(response.checklist_item_id));
+
+      if (responsesToInsert.length > 0) {
+        const { error: insertError } = await supabase
+          .from("empresa_checklist")
+          .insert(responsesToInsert);
+
+        if (insertError) {
+          throw insertError;
+        }
+      }
+
+      const checklistSnapshot = buildChecklistSnapshot(
+        inspecoes,
+        checklistItems,
+        responses,
+      );
+
+      const { error: reportError } = await supabase
+        .from("empresa_relatorios")
+        .upsert(
+          {
+            empresa_id: id,
+            titulo: "Relatorio de Inspecao",
+            status: "rascunho",
+            checklist_snapshot: checklistSnapshot,
+          },
+          { onConflict: "empresa_id" },
+        );
+
+      if (reportError) {
+        if (isMissingRelationError(reportError, "empresa_relatorios")) {
+          toast({
+            title: "Relatorio indisponivel",
+            description: "A tabela de relatorios ainda nao foi criada no Supabase. O checklist foi salvo mesmo assim.",
+            variant: "destructive",
+          });
+          return true;
+        }
+
+        throw reportError;
+      }
+
+      return true;
+    } catch (error) {
+      console.error("Error finalizing checklist:", error);
+      toast({
+        title: "Erro ao finalizar",
+        description: "NÃ£o foi possÃ­vel finalizar o checklist.",
+        variant: "destructive",
+      });
+      return false;
+    }
+  };
+
+  const handleFinalizeChecklist = async () => {
+    if (!id) {
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const saved = await saveChecklistAndEnsureReport();
+      if (!saved) {
+        return;
+      }
+
+      toast({
+        title: "Checklist finalizado",
+        description: "Continue preenchendo o relatÃ³rio da inspeÃ§Ã£o.",
+      });
+
+      navigate(`/relatorios/${id}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!id) {
       return;
@@ -476,13 +445,13 @@ const CompanyChecklists = () => {
                 </p>
               </div>
             </div>
-            <Button onClick={handleSave} disabled={saving} size="lg" className="w-full md:w-auto">
+            <Button onClick={handleFinalizeChecklist} disabled={saving} size="lg" className="w-full md:w-auto">
               {saving ? (
                 <Loader2 className="mr-2 h-5 w-5 animate-spin" />
               ) : (
                 <Save className="mr-2 h-5 w-5" />
               )}
-              Salvar Check Lists
+              Finalizar Checklist
             </Button>
           </div>
         </div>

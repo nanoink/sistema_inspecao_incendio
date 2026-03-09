@@ -8,6 +8,7 @@ import Dashboard from "./pages/Dashboard";
 import Index from "./pages/Index";
 import CompanyRequirements from "./pages/CompanyRequirements";
 import CompanyChecklists from "./pages/CompanyChecklists";
+import CompanyReport from "./pages/CompanyReport";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
@@ -25,6 +26,7 @@ const App = () => (
           <Route path="/cadastro" element={<ProtectedRoute><Index /></ProtectedRoute>} />
           <Route path="/exigencias/:id" element={<ProtectedRoute><CompanyRequirements /></ProtectedRoute>} />
           <Route path="/checklists/:id" element={<ProtectedRoute><CompanyChecklists /></ProtectedRoute>} />
+          <Route path="/relatorios/:id" element={<ProtectedRoute><CompanyReport /></ProtectedRoute>} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

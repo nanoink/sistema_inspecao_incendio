@@ -87,12 +87,6 @@ export function CompanyForm() {
     },
   });
 
-  // Load altura options and CNAE catalog
-  useEffect(() => {
-    loadAlturaOptions();
-    loadCnaeOptions();
-  }, [loadAlturaOptions, loadCnaeOptions]);
-
   const loadAlturaOptions = useCallback(async () => {
     const { data, error } = await supabase
       .from("altura_ref")
@@ -141,6 +135,12 @@ export function CompanyForm() {
       });
     }
   }, [toast]);
+
+  // Load altura options and CNAE catalog
+  useEffect(() => {
+    loadAlturaOptions();
+    loadCnaeOptions();
+  }, [loadAlturaOptions, loadCnaeOptions]);
 
   // Fetch CEP data from ViaCEP
   const handleCEPBlur = async () => {

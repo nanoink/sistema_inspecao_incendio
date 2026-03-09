@@ -12,8 +12,9 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Pencil, Trash2, Loader2, ClipboardCheck } from "lucide-react";
+import { Pencil, Trash2, Loader2, ClipboardCheck, FileText } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { isMissingRelationError } from "@/lib/supabase-errors";
 import { EditCompanyDialog } from "./EditCompanyDialog";
 import {
   AlertDialog,
@@ -31,6 +32,7 @@ type Company = Database["public"]["Tables"]["empresa"]["Row"];
 export const CompanyTable = () => {
   const navigate = useNavigate();
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [reportCompanyIds, setReportCompanyIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -39,13 +41,31 @@ export const CompanyTable = () => {
   const fetchCompanies = useCallback(async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      const companiesResult = await supabase
         .from("empresa")
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (error) throw error;
-      setCompanies(data || []);
+      if (companiesResult.error) {
+        throw companiesResult.error;
+      }
+
+      setCompanies(companiesResult.data || []);
+
+      const reportsResult = await supabase
+        .from("empresa_relatorios")
+        .select("empresa_id");
+
+      if (reportsResult.error) {
+        if (isMissingRelationError(reportsResult.error, "empresa_relatorios")) {
+          setReportCompanyIds(new Set());
+          return;
+        }
+
+        throw reportsResult.error;
+      }
+
+      setReportCompanyIds(new Set((reportsResult.data || []).map((report) => report.empresa_id)));
     } catch (error) {
       toast({
         title: "Erro ao carregar empresas",
@@ -135,6 +155,16 @@ export const CompanyTable = () => {
                     <TableCell className="whitespace-nowrap hidden lg:table-cell">{company.grau_risco || "-"}</TableCell>
                     <TableCell className="text-right sticky right-0 bg-background">
                       <div className="flex justify-end gap-1 md:gap-2">
+                        {reportCompanyIds.has(company.id) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => navigate(`/relatorios/${company.id}`)}
+                            title="Abrir relatÃ³rio"
+                          >
+                            <FileText className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button
                           variant="outline"
                           size="sm"

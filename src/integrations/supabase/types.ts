@@ -285,6 +285,89 @@ export type Database = {
           },
         ]
       }
+      empresa_relatorios: {
+        Row: {
+          checklist_snapshot: Json
+          conclusao: string | null
+          created_at: string
+          dados_adicionais: Json
+          data_emissao: string | null
+          data_inspecao: string | null
+          empresa_id: string
+          escopo: string | null
+          hora_fim: string | null
+          hora_inicio: string | null
+          id: string
+          inspetor_cargo: string | null
+          inspetor_nome: string | null
+          numero_relatorio: string | null
+          objetivo: string | null
+          observacoes_gerais: string | null
+          recomendacoes: string | null
+          representante_cargo: string | null
+          representante_nome: string | null
+          status: string
+          titulo: string
+          updated_at: string
+        }
+        Insert: {
+          checklist_snapshot?: Json
+          conclusao?: string | null
+          created_at?: string
+          dados_adicionais?: Json
+          data_emissao?: string | null
+          data_inspecao?: string | null
+          empresa_id: string
+          escopo?: string | null
+          hora_fim?: string | null
+          hora_inicio?: string | null
+          id?: string
+          inspetor_cargo?: string | null
+          inspetor_nome?: string | null
+          numero_relatorio?: string | null
+          objetivo?: string | null
+          observacoes_gerais?: string | null
+          recomendacoes?: string | null
+          representante_cargo?: string | null
+          representante_nome?: string | null
+          status?: string
+          titulo?: string
+          updated_at?: string
+        }
+        Update: {
+          checklist_snapshot?: Json
+          conclusao?: string | null
+          created_at?: string
+          dados_adicionais?: Json
+          data_emissao?: string | null
+          data_inspecao?: string | null
+          empresa_id?: string
+          escopo?: string | null
+          hora_fim?: string | null
+          hora_inicio?: string | null
+          id?: string
+          inspetor_cargo?: string | null
+          inspetor_nome?: string | null
+          numero_relatorio?: string | null
+          objetivo?: string | null
+          observacoes_gerais?: string | null
+          recomendacoes?: string | null
+          representante_cargo?: string | null
+          representante_nome?: string | null
+          status?: string
+          titulo?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_relatorios_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: true
+            referencedRelation: "empresa"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       exigencias_criterios: {
         Row: {
           altura_max: number | null
