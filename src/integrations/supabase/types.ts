@@ -70,6 +70,121 @@ export type Database = {
           },
         ]
       }
+      checklist_itens_modelo: {
+        Row: {
+          avaliavel: boolean
+          complemento: string | null
+          created_at: string
+          descricao: string
+          grupo_id: string
+          id: string
+          numero_original: string | null
+          ordem: number
+          tipo: string
+        }
+        Insert: {
+          avaliavel?: boolean
+          complemento?: string | null
+          created_at?: string
+          descricao: string
+          grupo_id: string
+          id?: string
+          numero_original?: string | null
+          ordem: number
+          tipo?: string
+        }
+        Update: {
+          avaliavel?: boolean
+          complemento?: string | null
+          created_at?: string
+          descricao?: string
+          grupo_id?: string
+          id?: string
+          numero_original?: string | null
+          ordem?: number
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checklist_itens_modelo_grupo_id_fkey"
+            columns: ["grupo_id"]
+            isOneToOne: false
+            referencedRelation: "checklist_grupos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      checklist_grupos: {
+        Row: {
+          created_at: string
+          id: string
+          modelo_id: string
+          ordem: number
+          tipo: string
+          titulo: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          modelo_id: string
+          ordem: number
+          tipo?: string
+          titulo: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          modelo_id?: string
+          ordem?: number
+          tipo?: string
+          titulo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checklist_grupos_modelo_id_fkey"
+            columns: ["modelo_id"]
+            isOneToOne: false
+            referencedRelation: "checklist_modelos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      checklist_modelos: {
+        Row: {
+          ativo: boolean
+          codigo: string
+          created_at: string
+          id: string
+          nome: string
+          ordem: number
+          tipo: string
+          titulo: string
+          total_grupos: number | null
+        }
+        Insert: {
+          ativo?: boolean
+          codigo: string
+          created_at?: string
+          id?: string
+          nome: string
+          ordem: number
+          tipo?: string
+          titulo: string
+          total_grupos?: number | null
+        }
+        Update: {
+          ativo?: boolean
+          codigo?: string
+          created_at?: string
+          id?: string
+          nome?: string
+          ordem?: number
+          tipo?: string
+          titulo?: string
+          total_grupos?: number | null
+        }
+        Relationships: []
+      }
       cnae_catalogo: {
         Row: {
           carga_incendio_mj_m2: number
@@ -233,6 +348,51 @@ export type Database = {
           },
           {
             foreignKeyName: "empresa_checklist_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresa"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      empresa_checklist_respostas: {
+        Row: {
+          checklist_item_id: string
+          created_at: string
+          empresa_id: string
+          id: string
+          observacoes: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          checklist_item_id: string
+          created_at?: string
+          empresa_id: string
+          id?: string
+          observacoes?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          checklist_item_id?: string
+          created_at?: string
+          empresa_id?: string
+          id?: string
+          observacoes?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_checklist_respostas_checklist_item_id_fkey"
+            columns: ["checklist_item_id"]
+            isOneToOne: false
+            referencedRelation: "checklist_itens_modelo"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "empresa_checklist_respostas_empresa_id_fkey"
             columns: ["empresa_id"]
             isOneToOne: false
             referencedRelation: "empresa"

@@ -1,16 +1,33 @@
-export interface ChecklistItemShape {
-  id: string;
-  inspecao_id: string;
-  item_numero: string;
-  descricao: string;
-  ordem: number;
-}
-
-export interface InspectionShape {
+export interface ChecklistModelShape {
   id: string;
   codigo: string;
   nome: string;
+  tipo?: string;
   ordem?: number;
+  titulo?: string | null;
+}
+
+export interface ChecklistGroupShape {
+  id: string;
+  modelId: string;
+  title: string;
+  type: "grupo" | "outros";
+  order: number;
+}
+
+export interface ChecklistItemShape {
+  id: string;
+  groupId: string;
+  originalNumber: string | null;
+  description: string;
+  complement: string | null;
+  kind: "item" | "informativo";
+  evaluable: boolean;
+  order: number;
+}
+
+export interface ChecklistGroupWithItems extends ChecklistGroupShape {
+  items: ChecklistItemShape[];
 }
 
 export interface ChecklistResponseShape {
@@ -24,14 +41,22 @@ export type ChecklistTableRow =
       type: "section";
       key: string;
       title: string;
+      sectionType: ChecklistGroupShape["type"];
+    }
+  | {
+      type: "info";
+      key: string;
+      description: string;
+      complement: string | null;
     }
   | {
       type: "item";
       key: string;
       itemId: string;
       number: string;
-      sourceItemNumber: string;
+      sourceItemNumber: string | null;
       description: string;
+      complement: string | null;
     };
 
 export type ChecklistSnapshotStatus = "C" | "NC" | "NA" | "P";
@@ -71,137 +96,9 @@ export interface ChecklistSnapshot {
   non_conformities: ChecklistSnapshotItem[];
 }
 
-const ACTIONABLE_PREFIXES = [
-  "verificar",
-  "testar",
-  "selecionar",
-  "inspecionar",
-  "confirmar",
-  "avaliar",
-];
-
-const ACTIONABLE_REGEX = new RegExp(
-  `\\b(?:${ACTIONABLE_PREFIXES.join("|")})\\b`,
-  "i",
-);
-
-export const normalizeText = (value: string) => value.replace(/\s+/g, " ").trim();
-
-export const splitChecklistDescription = (descricao: string) => {
-  const normalized = normalizeText(descricao);
-  const match = ACTIONABLE_REGEX.exec(normalized);
-  if (!match || match.index === undefined) {
-    return {
-      heading: normalized,
-      actionable: null as string | null,
-    };
-  }
-
-  const actionable = normalized.slice(match.index).trim();
-  const heading = normalized
-    .slice(0, match.index)
-    .replace(/[-:]\s*$/, "")
-    .trim();
-
-  return {
-    heading: heading || null,
-    actionable,
-  };
-};
-
-export const buildParentItemNumbers = (items: ChecklistItemShape[]) => {
-  const parents = new Set<string>();
-
-  items.forEach((item) => {
-    const parts = item.item_numero.trim().split(".");
-    if (parts.length <= 1) {
-      return;
-    }
-
-    for (let depth = 1; depth < parts.length; depth += 1) {
-      parents.add(parts.slice(0, depth).join("."));
-    }
-  });
-
-  return parents;
-};
-
-export const buildChecklistTableRows = (
-  itemsByInspection: Map<string, ChecklistItemShape[]>,
-) => {
-  const rowsByInspection = new Map<string, ChecklistTableRow[]>();
-  const evaluableIds = new Set<string>();
-
-  itemsByInspection.forEach((items, inspectionId) => {
-    const parentNumbers = buildParentItemNumbers(items);
-    const rows: ChecklistTableRow[] = [];
-    let sectionCounter = 0;
-    let sectionItemCounter = 0;
-    let hasSection = false;
-
-    const pushSection = (title: string, baseKey: string) => {
-      const cleanTitle = normalizeText(title).replace(/[-:]\s*$/, "").trim();
-      if (!cleanTitle) {
-        return;
-      }
-
-      sectionCounter += 1;
-      sectionItemCounter = 0;
-      hasSection = true;
-      rows.push({
-        type: "section",
-        key: `section-${inspectionId}-${baseKey}-${sectionCounter}`,
-        title: cleanTitle,
-      });
-    };
-
-    const pushItem = (item: ChecklistItemShape, description: string) => {
-      if (!hasSection) {
-        pushSection("Itens para avaliacao", item.id);
-      }
-
-      sectionItemCounter += 1;
-      rows.push({
-        type: "item",
-        key: `item-${item.id}`,
-        itemId: item.id,
-        number: String(sectionItemCounter),
-        sourceItemNumber: item.item_numero.trim(),
-        description,
-      });
-      evaluableIds.add(item.id);
-    };
-
-    items.forEach((item) => {
-      const itemNumber = item.item_numero.trim();
-      const isParent = parentNumbers.has(itemNumber);
-      const normalizedDescription = normalizeText(item.descricao);
-      const { heading, actionable } = splitChecklistDescription(normalizedDescription);
-
-      if (isParent) {
-        pushSection(heading || normalizedDescription, item.id);
-        return;
-      }
-
-      if (!actionable) {
-        pushSection(normalizedDescription, item.id);
-        return;
-      }
-
-      if (heading) {
-        pushSection(heading, item.id);
-      }
-
-      pushItem(item, actionable);
-    });
-
-    rowsByInspection.set(inspectionId, rows);
-  });
-
-  return { rowsByInspection, evaluableIds };
-};
-
-const normalizeSnapshotStatus = (status: string | null | undefined): ChecklistSnapshotStatus => {
+const normalizeSnapshotStatus = (
+  status: string | null | undefined,
+): ChecklistSnapshotStatus => {
   if (status === "C" || status === "NC" || status === "NA") {
     return status;
   }
@@ -209,14 +106,81 @@ const normalizeSnapshotStatus = (status: string | null | undefined): ChecklistSn
   return "P";
 };
 
+export const buildChecklistItemText = (
+  description: string,
+  complement?: string | null,
+) => {
+  const parts = [description.trim()];
+  if (complement?.trim()) {
+    parts.push(complement.trim());
+  }
+
+  return parts.join("\n\n");
+};
+
+export const buildChecklistTableRows = (
+  groupsByModel: Map<string, ChecklistGroupWithItems[]>,
+) => {
+  const rowsByInspection = new Map<string, ChecklistTableRow[]>();
+  const evaluableIds = new Set<string>();
+
+  groupsByModel.forEach((groups, modelId) => {
+    const rows: ChecklistTableRow[] = [];
+
+    groups
+      .slice()
+      .sort((left, right) => left.order - right.order)
+      .forEach((group) => {
+        rows.push({
+          type: "section",
+          key: `section-${modelId}-${group.id}`,
+          title: group.title,
+          sectionType: group.type,
+        });
+
+        let itemCounter = 0;
+        group.items
+          .slice()
+          .sort((left, right) => left.order - right.order)
+          .forEach((item) => {
+            if (!item.evaluable) {
+              rows.push({
+                type: "info",
+                key: `info-${item.id}`,
+                description: item.description,
+                complement: item.complement,
+              });
+              return;
+            }
+
+            itemCounter += 1;
+            evaluableIds.add(item.id);
+            rows.push({
+              type: "item",
+              key: `item-${item.id}`,
+              itemId: item.id,
+              number: String(itemCounter),
+              sourceItemNumber: item.originalNumber,
+              description: item.description,
+              complement: item.complement,
+            });
+          });
+      });
+
+    rowsByInspection.set(modelId, rows);
+  });
+
+  return { rowsByInspection, evaluableIds };
+};
+
 export const buildChecklistSnapshot = (
-  inspections: InspectionShape[],
-  itemsByInspection: Map<string, ChecklistItemShape[]>,
+  inspections: ChecklistModelShape[],
+  groupsByModel: Map<string, ChecklistGroupWithItems[]>,
   responses: Map<string, ChecklistResponseShape>,
 ): ChecklistSnapshot => {
-  const { rowsByInspection } = buildChecklistTableRows(itemsByInspection);
+  const { rowsByInspection } = buildChecklistTableRows(groupsByModel);
   const sortedInspections = [...inspections].sort(
-    (a, b) => (a.ordem ?? 0) - (b.ordem ?? 0),
+    (left, right) => (left.ordem ?? 0) - (right.ordem ?? 0),
   );
 
   const overall = {
@@ -240,14 +204,18 @@ export const buildChecklistSnapshot = (
         return;
       }
 
+      if (row.type === "info") {
+        return;
+      }
+
       const response = responses.get(row.itemId);
       const status = normalizeSnapshotStatus(response?.status);
       const itemSnapshot: ChecklistSnapshotItem = {
         checklist_item_id: row.itemId,
-        item_numero: row.sourceItemNumber,
+        item_numero: row.sourceItemNumber || row.number,
         item_exibicao: row.number,
         secao: currentSection,
-        descricao: row.description,
+        descricao: buildChecklistItemText(row.description, row.complement),
         status,
         observacoes: response?.observacoes || null,
       };

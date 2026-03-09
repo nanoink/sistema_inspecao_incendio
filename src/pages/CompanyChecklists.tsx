@@ -4,7 +4,24 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Loader2, Save, ClipboardCheck, FileText, Shield, Building, Zap, Flame, Bell, CloudRain, Package, Check, X, Minus, type LucideIcon } from "lucide-react";
+import {
+  ArrowLeft,
+  Loader2,
+  Save,
+  ClipboardCheck,
+  FileText,
+  Shield,
+  Building,
+  Zap,
+  Flame,
+  Bell,
+  CloudRain,
+  Package,
+  Check,
+  X,
+  Minus,
+  type LucideIcon,
+} from "lucide-react";
 import {
   Table,
   TableBody,
@@ -17,7 +34,14 @@ import { cn } from "@/lib/utils";
 import {
   buildChecklistSnapshot,
   buildChecklistTableRows,
+  type ChecklistGroupWithItems,
+  type ChecklistModelShape,
+  type ChecklistResponseShape,
 } from "@/lib/checklist";
+import {
+  loadChecklistData,
+  saveChecklistResponses,
+} from "@/lib/checklist-source";
 import { isMissingRelationError } from "@/lib/supabase-errors";
 
 interface Company {
@@ -25,41 +49,10 @@ interface Company {
   razao_social: string;
 }
 
-interface Inspecao {
-  id: string;
-  codigo: string;
-  nome: string;
-  tipo: string;
-  ordem: number;
-}
-
-interface ChecklistItem {
-  id: string;
-  inspecao_id: string;
-  item_numero: string;
-  descricao: string;
-  ordem: number;
-}
-
 type ChecklistStatus = "C" | "NC" | "NA";
-
-interface ChecklistResponse {
-  checklist_item_id: string;
-  status: ChecklistStatus;
-  observacoes: string | null;
-}
-
-interface ChecklistResponseRow {
-  checklist_item_id: string;
-  status: string;
-  observacoes: string | null;
-  updated_at: string;
-}
+type ChecklistResponseTable = "empresa_checklist_respostas" | "empresa_checklist";
 
 const STATUS_ORDER: ChecklistStatus[] = ["C", "NC", "NA"];
-
-const isChecklistStatus = (value: string): value is ChecklistStatus =>
-  value === "C" || value === "NC" || value === "NA";
 
 const STATUS_META: Record<
   ChecklistStatus,
@@ -102,20 +95,20 @@ const STATUS_META: Record<
   },
 };
 
-const getInspectionIcon = (codigo: string) => {
-  if (codigo.includes('Informações')) return FileText;
-  if (codigo.includes('Acesso')) return Building;
-  if (codigo.includes('Compartimentação')) return Package;
-  if (codigo.includes('Escada') || codigo.includes('Saída')) return Building;
-  if (codigo.includes('Iluminação')) return Zap;
-  if (codigo.includes('Sinalização')) return ClipboardCheck;
-  if (codigo.includes('Extintor')) return Flame;
-  if (codigo.includes('Hidrante') || codigo.includes('Mangotinh')) return Flame;
-  if (codigo.includes('Chuveiro')) return CloudRain;
-  if (codigo.includes('Alarme') || codigo.includes('Detecção')) return Bell;
-  if (codigo.includes('GLP') || codigo.includes('GN')) return Flame;
-  if (codigo.includes('SPDA') || codigo.includes('Atmosférica')) return CloudRain;
-  if (codigo.includes('Acabamento')) return Package;
+const getInspectionIcon = (name: string) => {
+  if (name.includes("Informacoes")) return FileText;
+  if (name.includes("Acesso")) return Building;
+  if (name.includes("Compartimentacao")) return Package;
+  if (name.includes("Escada") || name.includes("Saida")) return Building;
+  if (name.includes("Iluminacao")) return Zap;
+  if (name.includes("Sinalizacao")) return ClipboardCheck;
+  if (name.includes("Extintor")) return Flame;
+  if (name.includes("Hidrante") || name.includes("Mangotinh")) return Flame;
+  if (name.includes("Chuveiro")) return CloudRain;
+  if (name.includes("Alarme") || name.includes("Deteccao")) return Bell;
+  if (name.includes("GLP") || name.includes("GN")) return Flame;
+  if (name.includes("SPDA") || name.includes("Atmosferica")) return CloudRain;
+  if (name.includes("Acabamento") || name.includes("CMAR")) return Package;
   return Shield;
 };
 
@@ -124,15 +117,21 @@ const CompanyChecklists = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [company, setCompany] = useState<Company | null>(null);
-  const [inspecoes, setInspecoes] = useState<Inspecao[]>([]);
-  const [checklistItems, setChecklistItems] = useState<Map<string, ChecklistItem[]>>(new Map());
-  const [responses, setResponses] = useState<Map<string, ChecklistResponse>>(new Map());
+  const [models, setModels] = useState<ChecklistModelShape[]>([]);
+  const [groupsByModel, setGroupsByModel] = useState<
+    Map<string, ChecklistGroupWithItems[]>
+  >(new Map());
+  const [responses, setResponses] = useState<
+    Map<string, ChecklistResponseShape>
+  >(new Map());
+  const [responseTable, setResponseTable] =
+    useState<ChecklistResponseTable>("empresa_checklist");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [openInspection, setOpenInspection] = useState<string | null>(null);
   const { rowsByInspection, evaluableIds: evaluableItemIds } = useMemo(
-    () => buildChecklistTableRows(checklistItems),
-    [checklistItems],
+    () => buildChecklistTableRows(groupsByModel),
+    [groupsByModel],
   );
 
   const fetchData = useCallback(async () => {
@@ -143,83 +142,32 @@ const CompanyChecklists = () => {
     try {
       setLoading(true);
 
-      // Fetch company data
       const { data: companyData, error: companyError } = await supabase
         .from("empresa")
         .select("id, razao_social")
         .eq("id", id)
         .maybeSingle();
 
-      if (companyError) throw companyError;
+      if (companyError) {
+        throw companyError;
+      }
+
       if (!companyData) {
         throw new Error("Empresa nao encontrada");
       }
+
+      const checklistData = await loadChecklistData(supabase, id);
+
       setCompany(companyData);
-
-      // Fetch only renewal inspections for this page
-      const { data: inspecoesData, error: inspecoesError } = await supabase
-        .from("inspecoes")
-        .select("id, codigo, nome, tipo, ordem")
-        .eq("tipo", "renovacao")
-        .order("ordem", { ascending: true });
-
-      if (inspecoesError) throw inspecoesError;
-      const inspections = inspecoesData || [];
-      setInspecoes(inspections);
-
-      const inspectionIds = inspections.map((inspection) => inspection.id);
-      if (inspectionIds.length === 0) {
-        setChecklistItems(new Map());
-        setResponses(new Map());
-        return;
-      }
-
-      // Fetch checklist items only for returned inspections
-      const { data: itemsData, error: itemsError } = await supabase
-        .from("checklist_itens")
-        .select("id, inspecao_id, item_numero, descricao, ordem")
-        .in("inspecao_id", inspectionIds)
-        .order("inspecao_id", { ascending: true })
-        .order("ordem", { ascending: true });
-
-      if (itemsError) throw itemsError;
-
-      // Group items by inspection
-      const itemsMap = new Map<string, ChecklistItem[]>();
-      itemsData?.forEach((item) => {
-        const existing = itemsMap.get(item.inspecao_id) || [];
-        itemsMap.set(item.inspecao_id, [...existing, item]);
-      });
-      setChecklistItems(itemsMap);
-
-      // Fetch existing responses
-      const { data: responsesData, error: responsesError } = await supabase
-        .from("empresa_checklist")
-        .select("checklist_item_id, status, observacoes, updated_at")
-        .eq("empresa_id", id)
-        .order("updated_at", { ascending: false });
-
-      if (responsesError) throw responsesError;
-
-      const responsesMap = new Map<string, ChecklistResponse>();
-      (responsesData as ChecklistResponseRow[] | null)?.forEach((resp) => {
-        // Keep the most recent response when duplicates exist.
-        if (responsesMap.has(resp.checklist_item_id)) {
-          return;
-        }
-
-        responsesMap.set(resp.checklist_item_id, {
-          checklist_item_id: resp.checklist_item_id,
-          status: isChecklistStatus(resp.status) ? resp.status : "NA",
-          observacoes: resp.observacoes,
-        });
-      });
-      setResponses(responsesMap);
+      setModels(checklistData.models);
+      setGroupsByModel(checklistData.groupsByModel);
+      setResponses(checklistData.responses);
+      setResponseTable(checklistData.responseTable);
     } catch (error) {
       console.error("Error fetching data:", error);
       toast({
         title: "Erro ao carregar dados",
-        description: "Não foi possível carregar os dados dos check lists.",
+        description: "Nao foi possivel carregar os dados dos checklists.",
         variant: "destructive",
       });
     } finally {
@@ -232,15 +180,15 @@ const CompanyChecklists = () => {
   }, [fetchData]);
 
   const handleStatusChange = (itemId: string, status: ChecklistStatus) => {
-    setResponses((prev) => {
-      const newMap = new Map(prev);
-      const existing = newMap.get(itemId);
-      newMap.set(itemId, {
+    setResponses((previous) => {
+      const next = new Map(previous);
+      const existing = next.get(itemId);
+      next.set(itemId, {
         checklist_item_id: itemId,
         status,
         observacoes: existing?.observacoes || null,
       });
-      return newMap;
+      return next;
     });
   };
 
@@ -250,37 +198,17 @@ const CompanyChecklists = () => {
     }
 
     try {
-      const { error: deleteError } = await supabase
-        .from("empresa_checklist")
-        .delete()
-        .eq("empresa_id", id);
-
-      if (deleteError) {
-        throw deleteError;
-      }
-
-      const responsesToInsert = Array.from(responses.entries())
-        .map(([itemId, resp]) => ({
-          empresa_id: id,
-          checklist_item_id: itemId,
-          status: resp.status,
-          observacoes: resp.observacoes,
-        }))
-        .filter((response) => evaluableItemIds.has(response.checklist_item_id));
-
-      if (responsesToInsert.length > 0) {
-        const { error: insertError } = await supabase
-          .from("empresa_checklist")
-          .insert(responsesToInsert);
-
-        if (insertError) {
-          throw insertError;
-        }
-      }
+      await saveChecklistResponses({
+        supabase,
+        companyId: id,
+        responseTable,
+        responses,
+        evaluableIds: evaluableItemIds,
+      });
 
       const checklistSnapshot = buildChecklistSnapshot(
-        inspecoes,
-        checklistItems,
+        models,
+        groupsByModel,
         responses,
       );
 
@@ -300,7 +228,8 @@ const CompanyChecklists = () => {
         if (isMissingRelationError(reportError, "empresa_relatorios")) {
           toast({
             title: "Relatorio indisponivel",
-            description: "A tabela de relatorios ainda nao foi criada no Supabase. O checklist foi salvo mesmo assim.",
+            description:
+              "A tabela de relatorios ainda nao foi criada no Supabase. O checklist foi salvo mesmo assim.",
             variant: "destructive",
           });
           return true;
@@ -314,7 +243,7 @@ const CompanyChecklists = () => {
       console.error("Error finalizing checklist:", error);
       toast({
         title: "Erro ao finalizar",
-        description: "NÃ£o foi possÃ­vel finalizar o checklist.",
+        description: "Nao foi possivel finalizar o checklist.",
         variant: "destructive",
       });
       return false;
@@ -336,60 +265,10 @@ const CompanyChecklists = () => {
 
       toast({
         title: "Checklist finalizado",
-        description: "Continue preenchendo o relatÃ³rio da inspeÃ§Ã£o.",
+        description: "Continue preenchendo o relatorio da inspecao.",
       });
 
       navigate(`/relatorios/${id}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleSave = async () => {
-    if (!id) {
-      return;
-    }
-
-    try {
-      setSaving(true);
-
-      // Delete existing responses
-      await supabase
-        .from("empresa_checklist")
-        .delete()
-        .eq("empresa_id", id);
-
-      // Insert new responses
-      const responsesToInsert = Array.from(responses.entries()).map(
-        ([itemId, resp]) => ({
-          empresa_id: id,
-          checklist_item_id: itemId,
-          status: resp.status,
-          observacoes: resp.observacoes,
-        })
-      ).filter((response) => evaluableItemIds.has(response.checklist_item_id));
-
-      if (responsesToInsert.length > 0) {
-        const { error } = await supabase
-          .from("empresa_checklist")
-          .insert(responsesToInsert);
-
-        if (error) throw error;
-      }
-
-      toast({
-        title: "Check lists salvos",
-        description: "Os check lists foram salvos com sucesso.",
-      });
-
-      navigate("/");
-    } catch (error) {
-      console.error("Error saving checklists:", error);
-      toast({
-        title: "Erro ao salvar",
-        description: "Não foi possível salvar os check lists.",
-        variant: "destructive",
-      });
     } finally {
       setSaving(false);
     }
@@ -409,7 +288,7 @@ const CompanyChecklists = () => {
         <Card>
           <CardContent className="py-12">
             <p className="text-center text-muted-foreground">
-              Empresa não encontrada.
+              Empresa nao encontrada.
             </p>
           </CardContent>
         </Card>
@@ -417,8 +296,14 @@ const CompanyChecklists = () => {
     );
   }
 
-  const openInspectionData = inspecoes.find((inspection) => inspection.id === openInspection);
-  const checklistRows = openInspection ? rowsByInspection.get(openInspection) || [] : [];
+  const openInspectionData = models.find(
+    (inspection) => inspection.id === openInspection,
+  );
+  const checklistRows = openInspection
+    ? rowsByInspection.get(openInspection) || []
+    : [];
+  const checklistTitle =
+    openInspectionData?.titulo || `CHECKLIST DE ${openInspectionData?.nome || ""}`;
 
   return (
     <div className="min-h-screen bg-background">
@@ -430,7 +315,7 @@ const CompanyChecklists = () => {
             className="mb-4"
           >
             <ArrowLeft className="mr-2 h-4 w-4" />
-            Voltar às Exigências
+            Voltar as Exigencias
           </Button>
 
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -438,14 +323,19 @@ const CompanyChecklists = () => {
               <ClipboardCheck className="h-8 w-8 md:h-12 md:w-12 text-primary mr-2 md:mr-3 flex-shrink-0 mt-1 md:mt-0" />
               <div>
                 <h1 className="text-2xl md:text-4xl font-bold text-foreground">
-                  Check Lists de Renovação
+                  Check Lists de Renovacao
                 </h1>
                 <p className="text-sm md:text-lg text-muted-foreground mt-1">
                   {company.razao_social}
                 </p>
               </div>
             </div>
-            <Button onClick={handleFinalizeChecklist} disabled={saving} size="lg" className="w-full md:w-auto">
+            <Button
+              onClick={handleFinalizeChecklist}
+              disabled={saving}
+              size="lg"
+              className="w-full md:w-auto"
+            >
               {saving ? (
                 <Loader2 className="mr-2 h-5 w-5 animate-spin" />
               ) : (
@@ -457,22 +347,26 @@ const CompanyChecklists = () => {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-8">
-          {inspecoes.map((inspecao) => {
-            const Icon = getInspectionIcon(inspecao.nome);
-            const isOpen = openInspection === inspecao.id;
-            
+          {models.map((inspection) => {
+            const Icon = getInspectionIcon(inspection.nome);
+            const isOpen = openInspection === inspection.id;
+
             return (
               <Card
-                key={inspecao.id}
+                key={inspection.id}
                 className={`cursor-pointer transition-all hover:shadow-lg ${
-                  isOpen ? 'ring-2 ring-primary' : ''
+                  isOpen ? "ring-2 ring-primary" : ""
                 }`}
-                onClick={() => setOpenInspection(isOpen ? null : inspecao.id)}
+                onClick={() => setOpenInspection(isOpen ? null : inspection.id)}
               >
                 <CardContent className="p-3 flex flex-col items-center text-center">
-                  <Icon className={`h-6 w-6 mb-2 ${isOpen ? 'text-primary' : 'text-muted-foreground'}`} />
+                  <Icon
+                    className={`h-6 w-6 mb-2 ${
+                      isOpen ? "text-primary" : "text-muted-foreground"
+                    }`}
+                  />
                   <p className="text-[10px] md:text-xs text-muted-foreground line-clamp-2">
-                    {inspecao.nome}
+                    {inspection.nome}
                   </p>
                 </CardContent>
               </Card>
@@ -509,7 +403,7 @@ const CompanyChecklists = () => {
                   <TableHeader>
                     <TableRow>
                       <TableHead colSpan={5} className="text-center whitespace-nowrap">
-                        {`CHECKLIST DE ${openInspectionData?.nome.toUpperCase() || ""}`}
+                        {checklistTitle.toUpperCase()}
                       </TableHead>
                     </TableRow>
                   </TableHeader>
@@ -537,29 +431,60 @@ const CompanyChecklists = () => {
                         );
                       }
 
-                      const resp = responses.get(row.itemId);
+                      if (row.type === "info") {
+                        return (
+                          <TableRow key={row.key}>
+                            <TableCell className="whitespace-nowrap text-xs md:text-sm" />
+                            <TableCell
+                              colSpan={4}
+                              className="text-xs md:text-sm text-muted-foreground"
+                            >
+                              <div>{row.description}</div>
+                              {row.complement && (
+                                <p className="mt-2">{row.complement}</p>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      }
+
+                      const response = responses.get(row.itemId);
 
                       return (
                         <TableRow key={row.key}>
                           <TableCell className="font-medium whitespace-nowrap text-xs md:text-sm">
                             {row.number}
                           </TableCell>
-                          <TableCell className="text-xs md:text-sm">{row.description}</TableCell>
+                          <TableCell className="text-xs md:text-sm">
+                            <div>{row.description}</div>
+                            {row.complement && (
+                              <p className="mt-2 text-muted-foreground">
+                                {row.complement}
+                              </p>
+                            )}
+                          </TableCell>
                           {STATUS_ORDER.map((statusValue) => {
                             const meta = STATUS_META[statusValue];
                             const Icon = meta.icon;
-                            const isActive = resp?.status === statusValue;
+                            const isActive = response?.status === statusValue;
 
                             return (
-                              <TableCell key={`${row.itemId}-${statusValue}`} className="text-center">
+                              <TableCell
+                                key={`${row.itemId}-${statusValue}`}
+                                className="text-center"
+                              >
                                 <button
                                   type="button"
                                   aria-pressed={isActive}
                                   aria-label={`${meta.ariaLabel} para item ${row.number}`}
-                                  onClick={() => handleStatusChange(row.itemId, statusValue)}
+                                  onClick={() =>
+                                    handleStatusChange(row.itemId, statusValue)
+                                  }
                                   className={cn(
                                     "inline-flex min-h-9 min-w-9 items-center justify-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                                    isActive ? meta.activeClass : meta.inactiveClass,
+                                    isActive
+                                      ? meta.activeClass
+                                      : meta.inactiveClass,
                                   )}
                                 >
                                   <Icon className="h-3.5 w-3.5" />

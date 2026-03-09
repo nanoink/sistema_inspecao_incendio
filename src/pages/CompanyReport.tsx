@@ -4,7 +4,8 @@ import { ArrowLeft, CheckCircle2, ClipboardCheck, FileCheck, FileText, Loader2, 
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { useToast } from "@/hooks/use-toast";
-import { buildChecklistSnapshot, type ChecklistItemShape, type ChecklistResponseShape, type ChecklistSnapshot, type InspectionShape } from "@/lib/checklist";
+import { buildChecklistSnapshot, type ChecklistSnapshot } from "@/lib/checklist";
+import { loadChecklistData } from "@/lib/checklist-source";
 import { isMissingRelationError } from "@/lib/supabase-errors";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,10 +49,6 @@ type Company = Pick<
 
 type ReportRow = Database["public"]["Tables"]["empresa_relatorios"]["Row"];
 type ReportStatus = "rascunho" | "finalizado";
-
-interface ChecklistResponseRow extends ChecklistResponseShape {
-  updated_at: string;
-}
 
 interface ReportFormState {
   titulo: string;
@@ -174,40 +171,25 @@ const CompanyReport = () => {
       try {
         setLoading(true);
 
-        const [companyResult, inspectionsResult, reportResult, responsesResult] = await Promise.all([
+        const [companyResult, reportResult, checklistData] = await Promise.all([
           supabase
             .from("empresa")
             .select("id, razao_social, nome_fantasia, cnpj, responsavel, telefone, email, rua, numero, bairro, cidade, estado, cep, divisao, grupo, ocupacao_uso, area_m2, numero_ocupantes, altura_denominacao, altura_descricao, grau_risco")
             .eq("id", id)
             .maybeSingle(),
           supabase
-            .from("inspecoes")
-            .select("id, codigo, nome, ordem")
-            .eq("tipo", "renovacao")
-            .order("ordem", { ascending: true }),
-          supabase
             .from("empresa_relatorios")
             .select("*")
             .eq("empresa_id", id)
             .maybeSingle(),
-          supabase
-            .from("empresa_checklist")
-            .select("checklist_item_id, status, observacoes, updated_at")
-            .eq("empresa_id", id)
-            .order("updated_at", { ascending: false }),
+          loadChecklistData(supabase, id),
         ]);
 
         if (companyResult.error) {
           throw companyResult.error;
         }
-        if (inspectionsResult.error) {
-          throw inspectionsResult.error;
-        }
         if (reportResult.error && !isMissingRelationError(reportResult.error, "empresa_relatorios")) {
           throw reportResult.error;
-        }
-        if (responsesResult.error) {
-          throw responsesResult.error;
         }
 
         if (!companyResult.data) {
@@ -217,45 +199,10 @@ const CompanyReport = () => {
         const reportData = reportResult.error ? null : reportResult.data;
         const reportStorageEnabled = !reportResult.error;
 
-        const inspections = inspectionsResult.data || [];
-        const inspectionIds = inspections.map((inspection) => inspection.id);
-
-        const itemsMap = new Map<string, ChecklistItemShape[]>();
-        if (inspectionIds.length > 0) {
-          const { data: itemsData, error: itemsError } = await supabase
-            .from("checklist_itens")
-            .select("id, inspecao_id, item_numero, descricao, ordem")
-            .in("inspecao_id", inspectionIds)
-            .order("inspecao_id", { ascending: true })
-            .order("ordem", { ascending: true });
-
-          if (itemsError) {
-            throw itemsError;
-          }
-
-          (itemsData || []).forEach((item) => {
-            const currentItems = itemsMap.get(item.inspecao_id) || [];
-            itemsMap.set(item.inspecao_id, [...currentItems, item]);
-          });
-        }
-
-        const responsesMap = new Map<string, ChecklistResponseShape>();
-        (responsesResult.data as ChecklistResponseRow[] | null)?.forEach((response) => {
-          if (responsesMap.has(response.checklist_item_id)) {
-            return;
-          }
-
-          responsesMap.set(response.checklist_item_id, {
-            checklist_item_id: response.checklist_item_id,
-            status: response.status,
-            observacoes: response.observacoes,
-          });
-        });
-
         const computedSnapshot = buildChecklistSnapshot(
-          inspections as InspectionShape[],
-          itemsMap,
-          responsesMap,
+          checklistData.models,
+          checklistData.groupsByModel,
+          checklistData.responses,
         );
         const persistedSnapshot = isChecklistSnapshot(reportData?.checklist_snapshot)
           ? reportData.checklist_snapshot
