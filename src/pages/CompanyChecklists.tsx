@@ -50,7 +50,6 @@ interface Company {
 }
 
 type ChecklistStatus = "C" | "NC" | "NA";
-type ChecklistResponseTable = "empresa_checklist_respostas" | "empresa_checklist";
 
 const STATUS_ORDER: ChecklistStatus[] = ["C", "NC", "NA"];
 
@@ -124,8 +123,6 @@ const CompanyChecklists = () => {
   const [responses, setResponses] = useState<
     Map<string, ChecklistResponseShape>
   >(new Map());
-  const [responseTable, setResponseTable] =
-    useState<ChecklistResponseTable>("empresa_checklist");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [openInspection, setOpenInspection] = useState<string | null>(null);
@@ -162,7 +159,6 @@ const CompanyChecklists = () => {
       setModels(checklistData.models);
       setGroupsByModel(checklistData.groupsByModel);
       setResponses(checklistData.responses);
-      setResponseTable(checklistData.responseTable);
     } catch (error) {
       console.error("Error fetching data:", error);
       toast({
@@ -201,7 +197,6 @@ const CompanyChecklists = () => {
       await saveChecklistResponses({
         supabase,
         companyId: id,
-        responseTable,
         responses,
         evaluableIds: evaluableItemIds,
       });

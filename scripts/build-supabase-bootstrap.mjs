@@ -18,6 +18,7 @@ const selectedMigrations = [
   "20251115090000_b6a38fa1-7aa7-4eb2-9d62-empresa_relatorios.sql",
   "20260308100000_5b0f4c11-8e93-4f5f-b7f2-checklist_modelos_normalizados.sql",
   "20260308110000_a9c1b4f0-cc6f-4f4e-a750-import_checklists_from_excel.sql",
+  "20260309014500_remove_legacy_checklist_tables.sql",
 ];
 
 const migrationDir = resolve(projectRoot, "supabase", "migrations");
