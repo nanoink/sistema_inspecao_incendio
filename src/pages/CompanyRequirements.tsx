@@ -410,6 +410,11 @@ const CompanyRequirements = () => {
                           <span className="text-sm font-medium">
                             {exigencia.nome}
                           </span>
+                          {exigencia.criterioStatus === "manual_review" && (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900">
+                              Analise manual
+                            </span>
+                          )}
                         </div>
                         {exigencia.observacao && (
                           <p className="text-xs text-muted-foreground italic">

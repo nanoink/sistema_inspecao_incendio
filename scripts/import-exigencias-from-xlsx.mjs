@@ -5,7 +5,7 @@ import XLSX from "xlsx";
 
 const DEFAULT_OUTPUT = path.resolve(
   process.cwd(),
-  "supabase/migrations/20260309123000_import_exigencias_from_excel.sql",
+  "supabase/migrations/20260310113000_reimport_exigencias_with_context_fields.sql",
 );
 
 const REQUIREMENT_CODES = [
@@ -83,16 +83,8 @@ const SUPPLEMENTAL_PREFIXES = [
 ];
 
 const MANUAL_KEYWORDS = [
-  "altura maior que 60m",
-  "altura acima de 60m",
-  "altura maior que 80m",
-  "altura acima de 80m",
-  "60m de altura",
-  "80m",
   "raio de acao",
   "areas comuns",
-  "atrio",
-  "atrios",
   "quartos",
   "corredores",
   "carga de incendio",
@@ -100,10 +92,7 @@ const MANUAL_KEYWORDS = [
   "rotas de saida",
   "rotas horizontais",
   "empilhamento",
-  "depositos",
   "casa de maquinas",
-  "claraboia",
-  "abertura entre pavimentos",
   "hospitais psiquiatricos",
   "detencao",
   "penitenciarias",
@@ -306,17 +295,24 @@ function parseConditionalRule(note) {
   const result = {
     areaMin: null,
     areaMax: null,
+    alturaRealMin: null,
+    alturaRealMax: null,
+    areaMaiorPavimentoMin: null,
+    areaMaiorPavimentoMax: null,
+    areaDepositosMin: null,
+    areaDepositosMax: null,
     ocupantesMin: null,
     ocupantesMax: null,
     grausRisco: parseRiskLevels(normalized),
+    requerAtrio: null,
     hasResolvedCondition: false,
     requiresManualReview: false,
   };
 
   const populationPatterns = [
-    /populacao acima de\s+(\d[\d.]*)/i,
-    /edificacoes acima de\s+(\d[\d.]*)\s+pessoas/i,
-    /com populacao acima de\s+(\d[\d.]*)/i,
+    /populacao acima(?: de)?\s+(\d[\d.]*)/i,
+    /edificacoes acima(?: de)?\s+(\d[\d.]*)\s+pessoas/i,
+    /com populacao acima(?: de)?\s+(\d[\d.]*)/i,
     /populacao superior a\s+(\d[\d.]*)/i,
   ];
 
@@ -332,7 +328,6 @@ function parseConditionalRule(note) {
   const areaMinPatterns = [
     /area(?: total construida| do maior pavimento)?(?: acima de| superior a| maior que)\s+(\d[\d.]*)\s*m/i,
     /areas superiores a\s+(\d[\d.]*)\s*m/i,
-    /areas de deposito superiores a\s+(\d[\d.]*)\s*m/i,
     /somente para areas superiores a\s+(\d[\d.]*)\s*m/i,
     /quando a edificacao possuir area superior a\s+(\d[\d.]*)\s*m/i,
   ];
@@ -360,6 +355,53 @@ function parseConditionalRule(note) {
     result.hasResolvedCondition = true;
   }
 
+  const alturaRealPatterns = [
+    /altura(?:[^0-9]{0,40})?(?:acima de|maior que|superior a)\s+(\d[\d.]*)\s*m/i,
+    /(?:edificacao|edificacoes)(?:[^0-9]{0,40})?(?:acima de|maior que|superior a)\s+(\d[\d.]*)\s*m(?:\s*de altura)?/i,
+    /acima de\s+(\d[\d.]*)\s*m\s*de altura/i,
+    /acima de\s+(\d[\d.]*)mde altura/i,
+  ];
+
+  for (const pattern of alturaRealPatterns) {
+    const match = normalized.match(pattern);
+    if (match) {
+      result.alturaRealMin = Number(match[1].replace(/\./g, "")) + 0.0001;
+      result.hasResolvedCondition = true;
+      break;
+    }
+  }
+
+  const areaMaiorPavimentoPatterns = [
+    /area (?:de|do) maior pavimento(?: acima de| superior a| maior que)\s+(\d[\d.]*)\s*m/i,
+  ];
+
+  for (const pattern of areaMaiorPavimentoPatterns) {
+    const match = normalized.match(pattern);
+    if (match) {
+      result.areaMaiorPavimentoMin = Number(match[1].replace(/\./g, "")) + 0.0001;
+      result.hasResolvedCondition = true;
+      break;
+    }
+  }
+
+  const areaDepositosPatterns = [
+    /areas? de depositos?(?: acima de| superiores? a| superior a| maior que)\s+(\d[\d.]*)\s*m/i,
+  ];
+
+  for (const pattern of areaDepositosPatterns) {
+    const match = normalized.match(pattern);
+    if (match) {
+      result.areaDepositosMin = Number(match[1].replace(/\./g, "")) + 0.0001;
+      result.hasResolvedCondition = true;
+      break;
+    }
+  }
+
+  if (/houver atrios?/i.test(normalized)) {
+    result.requerAtrio = true;
+    result.hasResolvedCondition = true;
+  }
+
   if (result.grausRisco) {
     result.hasResolvedCondition = true;
   }
@@ -375,10 +417,14 @@ function parseConditionalRule(note) {
   }
 
   if (/area do maior pavimento/i.test(normalized)) {
-    result.requiresManualReview = true;
+    result.requiresManualReview = !result.areaMaiorPavimentoMin && !result.areaMaiorPavimentoMax;
   }
 
-  if (/areas de deposito/i.test(normalized)) {
+  if (/areas? de deposito/i.test(normalized)) {
+    result.requiresManualReview = result.requiresManualReview || (!result.areaDepositosMin && !result.areaDepositosMax);
+  }
+
+  if (/houver atrios?/i.test(normalized) && result.requerAtrio === null) {
     result.requiresManualReview = true;
   }
 
@@ -400,9 +446,16 @@ function parseRule(rawValue, context) {
     areaMax: context.areaMax,
     alturaMin: context.alturaMin,
     alturaMax: context.alturaMax,
+    alturaRealMin: null,
+    alturaRealMax: null,
+    areaMaiorPavimentoMin: null,
+    areaMaiorPavimentoMax: null,
+    areaDepositosMin: null,
+    areaDepositosMax: null,
     ocupantesMin: null,
     ocupantesMax: null,
     grausRisco: null,
+    requerAtrio: null,
   };
 
   if (normalizedRaw === "nao") {
@@ -447,9 +500,16 @@ function parseRule(rawValue, context) {
       observacao: noteOriginal,
       areaMin: conditional.areaMin ?? base.areaMin,
       areaMax: conditional.areaMax ?? base.areaMax,
+      alturaRealMin: conditional.alturaRealMin,
+      alturaRealMax: conditional.alturaRealMax,
+      areaMaiorPavimentoMin: conditional.areaMaiorPavimentoMin,
+      areaMaiorPavimentoMax: conditional.areaMaiorPavimentoMax,
+      areaDepositosMin: conditional.areaDepositosMin,
+      areaDepositosMax: conditional.areaDepositosMax,
       ocupantesMin: conditional.ocupantesMin,
       ocupantesMax: conditional.ocupantesMax,
       grausRisco: conditional.grausRisco,
+      requerAtrio: conditional.requerAtrio,
     };
   }
 
@@ -460,9 +520,16 @@ function parseRule(rawValue, context) {
       observacao: noteOriginal,
       areaMin: conditional.areaMin ?? base.areaMin,
       areaMax: conditional.areaMax ?? base.areaMax,
+      alturaRealMin: conditional.alturaRealMin,
+      alturaRealMax: conditional.alturaRealMax,
+      areaMaiorPavimentoMin: conditional.areaMaiorPavimentoMin,
+      areaMaiorPavimentoMax: conditional.areaMaiorPavimentoMax,
+      areaDepositosMin: conditional.areaDepositosMin,
+      areaDepositosMax: conditional.areaDepositosMax,
       ocupantesMin: conditional.ocupantesMin,
       ocupantesMax: conditional.ocupantesMax,
       grausRisco: conditional.grausRisco,
+      requerAtrio: conditional.requerAtrio,
     };
   }
 
@@ -490,6 +557,8 @@ function createCriterionRow(seedPrefix, context, rule, requirementCode) {
     areaMax: rule.areaMax,
     alturaMin: rule.alturaMin,
     alturaMax: rule.alturaMax,
+    alturaRealMin: rule.alturaRealMin,
+    alturaRealMax: rule.alturaRealMax,
     alturaTipo: context.alturaTipo,
     alturaDenominacao: context.alturaDenominacao,
     descricaoEdificacao: context.descricaoEdificacao,
@@ -497,9 +566,14 @@ function createCriterionRow(seedPrefix, context, rule, requirementCode) {
     valorRaw: rule.valorRaw,
     cenario: context.cenario,
     status: rule.status,
+    areaMaiorPavimentoMin: rule.areaMaiorPavimentoMin,
+    areaMaiorPavimentoMax: rule.areaMaiorPavimentoMax,
+    areaDepositosMin: rule.areaDepositosMin,
+    areaDepositosMax: rule.areaDepositosMax,
     ocupantesMin: rule.ocupantesMin,
     ocupantesMax: rule.ocupantesMax,
     grausRisco: rule.grausRisco,
+    requerAtrio: rule.requerAtrio,
     fonteArquivo: context.sourceFile,
     fonteLinha: context.sourceRow,
   };
@@ -607,6 +681,8 @@ function buildSql(criteria) {
   ${sqlNullable(criterion.areaMax)},
   ${sqlNullable(criterion.alturaMin)},
   ${sqlNullable(criterion.alturaMax)},
+  ${sqlNullable(criterion.alturaRealMin)},
+  ${sqlNullable(criterion.alturaRealMax)},
   ${sqlNullable(criterion.alturaTipo)},
   ${sqlNullable(criterion.observacao)},
   now(),
@@ -615,9 +691,14 @@ function buildSql(criteria) {
   ${sqlNullable(criterion.valorRaw)},
   ${sqlNullable(criterion.alturaDenominacao)},
   ${sqlNullable(criterion.descricaoEdificacao)},
+  ${sqlNullable(criterion.areaMaiorPavimentoMin)},
+  ${sqlNullable(criterion.areaMaiorPavimentoMax)},
+  ${sqlNullable(criterion.areaDepositosMin)},
+  ${sqlNullable(criterion.areaDepositosMax)},
   ${sqlNullable(criterion.ocupantesMin)},
   ${sqlNullable(criterion.ocupantesMax)},
   ${sqlNullable(criterion.grausRisco)},
+  ${criterion.requerAtrio === null ? "NULL" : criterion.requerAtrio ? "TRUE" : "FALSE"},
   ${sqlNullable(criterion.fonteArquivo)},
   ${sqlNullable(criterion.fonteLinha)}
 )`);
@@ -631,6 +712,8 @@ function buildSql(criteria) {
   area_max,
   altura_min,
   altura_max,
+  altura_real_min,
+  altura_real_max,
   altura_tipo,
   observacao,
   created_at,
@@ -639,9 +722,14 @@ function buildSql(criteria) {
   valor_raw,
   altura_denominacao,
   descricao_edificacao,
+  area_maior_pavimento_min,
+  area_maior_pavimento_max,
+  area_depositos_min,
+  area_depositos_max,
   ocupantes_min,
   ocupantes_max,
   graus_risco,
+  requer_atrio,
   fonte_arquivo,
   fonte_linha
 ) VALUES`);
