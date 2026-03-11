@@ -41,14 +41,50 @@ type Company = Pick<
   | "grupo"
   | "ocupacao_uso"
   | "area_m2"
+  | "area_maior_pavimento_m2"
+  | "area_depositos_m2"
   | "numero_ocupantes"
   | "altura_denominacao"
   | "altura_descricao"
+  | "altura_real_m"
   | "grau_risco"
+  | "possui_atrio"
 >;
 
 type ReportRow = Database["public"]["Tables"]["empresa_relatorios"]["Row"];
 type ReportStatus = "rascunho" | "finalizado";
+
+interface ReportRequirement {
+  atende: boolean;
+  categoria: string;
+  codigo: string;
+  criterioStatus: string | null;
+  criterioTexto: string | null;
+  id: string;
+  nome: string;
+  observacoes: string | null;
+}
+
+interface ReportRequirementRow {
+  atende: boolean;
+  criterio_status: string | null;
+  criterio_texto: string | null;
+  exigencia_id: string;
+  observacoes: string | null;
+  exigencias_seguranca:
+    | {
+        categoria: string;
+        codigo: string;
+        id: string;
+        nome: string;
+      }
+    | Array<{
+        categoria: string;
+        codigo: string;
+        id: string;
+        nome: string;
+      }>;
+}
 
 interface ReportFormState {
   titulo: string;
@@ -154,6 +190,7 @@ const CompanyReport = () => {
   const { toast } = useToast();
   const [company, setCompany] = useState<Company | null>(null);
   const [report, setReport] = useState<ReportRow | null>(null);
+  const [reportRequirements, setReportRequirements] = useState<ReportRequirement[]>([]);
   const [form, setForm] = useState<ReportFormState>(emptyForm());
   const [liveSnapshot, setLiveSnapshot] = useState<ChecklistSnapshot | null>(null);
   const [snapshot, setSnapshot] = useState<ChecklistSnapshot | null>(null);
@@ -171,10 +208,10 @@ const CompanyReport = () => {
       try {
         setLoading(true);
 
-        const [companyResult, reportResult, checklistData] = await Promise.all([
+        const [companyResult, reportResult, requirementsResult, checklistData] = await Promise.all([
           supabase
             .from("empresa")
-            .select("id, razao_social, nome_fantasia, cnpj, responsavel, telefone, email, rua, numero, bairro, cidade, estado, cep, divisao, grupo, ocupacao_uso, area_m2, numero_ocupantes, altura_denominacao, altura_descricao, grau_risco")
+            .select("id, razao_social, nome_fantasia, cnpj, responsavel, telefone, email, rua, numero, bairro, cidade, estado, cep, divisao, grupo, ocupacao_uso, area_m2, area_maior_pavimento_m2, area_depositos_m2, numero_ocupantes, altura_denominacao, altura_descricao, altura_real_m, grau_risco, possui_atrio")
             .eq("id", id)
             .maybeSingle(),
           supabase
@@ -182,6 +219,22 @@ const CompanyReport = () => {
             .select("*")
             .eq("empresa_id", id)
             .maybeSingle(),
+          supabase
+            .from("empresa_exigencias")
+            .select(`
+              atende,
+              criterio_status,
+              criterio_texto,
+              exigencia_id,
+              observacoes,
+              exigencias_seguranca!inner (
+                categoria,
+                codigo,
+                id,
+                nome
+              )
+            `)
+            .eq("empresa_id", id),
           loadChecklistData(supabase, id),
         ]);
 
@@ -190,6 +243,9 @@ const CompanyReport = () => {
         }
         if (reportResult.error && !isMissingRelationError(reportResult.error, "empresa_relatorios")) {
           throw reportResult.error;
+        }
+        if (requirementsResult.error) {
+          throw requirementsResult.error;
         }
 
         if (!companyResult.data) {
@@ -211,9 +267,30 @@ const CompanyReport = () => {
         const initialStatus = reportData?.status === "finalizado"
           ? "finalizado"
           : "rascunho";
+        const mappedRequirements = (requirementsResult.data as ReportRequirementRow[] | null)?.flatMap((item) => {
+          const requirement = Array.isArray(item.exigencias_seguranca)
+            ? item.exigencias_seguranca[0]
+            : item.exigencias_seguranca;
+
+          if (!requirement) {
+            return [];
+          }
+
+          return [{
+            atende: item.atende,
+            categoria: requirement.categoria,
+            codigo: requirement.codigo,
+            criterioStatus: item.criterio_status,
+            criterioTexto: item.criterio_texto,
+            id: item.exigencia_id,
+            nome: requirement.nome,
+            observacoes: item.observacoes,
+          }];
+        }) ?? [];
 
         setCompany(companyResult.data);
         setReport(reportData);
+        setReportRequirements(mappedRequirements);
         setLiveSnapshot(computedSnapshot);
         setSnapshot(initialSnapshot);
         setReportStatus(initialStatus);
@@ -351,10 +428,63 @@ const CompanyReport = () => {
 
   const statusMeta = getReportStatusBadge(reportStatus);
   const snapshotIsCurrent = liveSnapshot?.generated_at === snapshot.generated_at;
+  const automaticRequirements = reportRequirements.filter((item) => item.criterioStatus !== "manual_review");
+  const manualRequirements = reportRequirements.filter((item) => item.criterioStatus === "manual_review");
   const executiveSummary =
     snapshot.overall.nao_conforme > 0
-      ? `Foram identificadas ${snapshot.overall.nao_conforme} nao conformidades entre ${snapshot.overall.total} itens avaliados. O relatorio deve consolidar as correcoes e a conclusao tecnica da vistoria.`
-      : `Nao ha nao conformidades registradas no checklist atual. O relatorio pode ser finalizado com a conclusao tecnica e os registros formais da inspecao.`;
+      ? `Foram identificadas ${snapshot.overall.nao_conforme} nao conformidades entre ${snapshot.overall.total} itens avaliados. Ha ${manualRequirements.length} exigencias que permanecem em analise manual e precisam de validacao tecnica complementar.`
+      : `Nao ha nao conformidades registradas no checklist atual. Ainda assim, existem ${manualRequirements.length} exigencias em analise manual que devem ser verificadas antes da emissao final do relatorio.`;
+
+  const renderRequirementList = (
+    sectionTitle: string,
+    description: string,
+    items: ReportRequirement[],
+  ) => (
+    <Card>
+      <CardHeader>
+        <CardTitle>{sectionTitle}</CardTitle>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {items.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Nenhuma exigencia encontrada nesta secao.
+          </p>
+        ) : (
+          items.map((item) => (
+            <div key={`${sectionTitle}-${item.id}`} className="rounded-lg border p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-sm font-semibold text-muted-foreground">{item.codigo}</span>
+                <span className="font-medium">{item.nome}</span>
+                <Badge variant="outline">{item.categoria}</Badge>
+                <Badge
+                  variant="outline"
+                  className={
+                    item.atende
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-red-200 bg-red-50 text-red-700"
+                  }
+                >
+                  {item.atende ? "Atende" : "Nao atende"}
+                </Badge>
+                {item.criterioStatus === "manual_review" && (
+                  <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+                    Analise manual
+                  </Badge>
+                )}
+              </div>
+              {item.criterioTexto && (
+                <p className="mt-2 text-sm text-muted-foreground">{item.criterioTexto}</p>
+              )}
+              {item.observacoes && (
+                <p className="mt-2 text-sm">{item.observacoes}</p>
+              )}
+            </div>
+          ))
+        )}
+      </CardContent>
+    </Card>
+  );
 
   return (
     <div className="min-h-screen bg-background">
@@ -480,11 +610,23 @@ const CompanyReport = () => {
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Area</p>
-              <p className="font-medium">{company.area_m2} m²</p>
+              <p className="font-medium">{company.area_m2} m2</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Area do maior pavimento</p>
+              <p className="font-medium">{company.area_maior_pavimento_m2 ?? "-"} m2</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Area de depositos</p>
+              <p className="font-medium">{company.area_depositos_m2 ?? "-"} m2</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Altura</p>
               <p className="font-medium">{company.altura_descricao || company.altura_denominacao || "-"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Altura real</p>
+              <p className="font-medium">{company.altura_real_m ?? "-"} m</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Ocupantes</p>
@@ -493,6 +635,10 @@ const CompanyReport = () => {
             <div>
               <p className="text-xs text-muted-foreground">Grau de risco</p>
               <p className="font-medium">{company.grau_risco || "-"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Possui atrio</p>
+              <p className="font-medium">{company.possui_atrio ? "Sim" : "Nao"}</p>
             </div>
           </CardContent>
         </Card>
@@ -683,6 +829,44 @@ const CompanyReport = () => {
               </div>
             </CardContent>
           </Card>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase text-muted-foreground">Exigencias automaticas</p>
+                  <p className="text-3xl font-bold">{automaticRequirements.length}</p>
+                </div>
+                <CheckCircle2 className="h-7 w-7 text-emerald-600" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase text-muted-foreground">Exigencias em analise manual</p>
+                  <p className="text-3xl font-bold">{manualRequirements.length}</p>
+                </div>
+                <TriangleAlert className="h-7 w-7 text-amber-600" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          {renderRequirementList(
+            "Exigencias automaticas",
+            "Requisitos resolvidos diretamente pelo motor de exigencias com base nos dados cadastrados da empresa.",
+            automaticRequirements,
+          )}
+          {renderRequirementList(
+            "Exigencias em analise manual",
+            "Requisitos que ainda dependem de validacao tecnica complementar, conferencia de campo ou dado operacional adicional.",
+            manualRequirements,
+          )}
         </div>
 
         <Card>

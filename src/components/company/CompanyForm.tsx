@@ -30,12 +30,8 @@ const formSchema = z.object({
   estado: z.string().min(2, "Estado é obrigatório"),
   cnae: z.string().optional(),
   altura_tipo: z.string().min(1, "Altura da edificação é obrigatória"),
-  area_m2: z.coerce.number().min(0, "Area deve ser maior que 0"),
-  altura_real_m: z.coerce.number().positive("Altura real deve ser maior que 0"),
-  area_maior_pavimento_m2: z.coerce.number().positive("Area do maior pavimento deve ser maior que 0"),
-  area_depositos_m2: z.coerce.number().min(0, "Area de depositos invalida"),
-  numero_ocupantes: z.coerce.number().int().min(0, "Numero de ocupantes invalido"),
-  possui_atrio: z.boolean(),
+  area_m2: z.coerce.number().min(0, "Área deve ser maior que 0"),
+  numero_ocupantes: z.coerce.number().int().min(0, "Número de ocupantes inválido"),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -87,11 +83,7 @@ export function CompanyForm() {
       cnae: "",
       altura_tipo: "",
       area_m2: 0,
-      altura_real_m: 0,
-      area_maior_pavimento_m2: 0,
-      area_depositos_m2: 0,
       numero_ocupantes: 0,
-      possui_atrio: false,
     },
   });
 
@@ -287,15 +279,6 @@ export function CompanyForm() {
     }
   };
 
-  const handleAreaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseFloat(e.target.value) || 0;
-    form.setValue("area_m2", value);
-
-    if ((form.getValues("area_maior_pavimento_m2") || 0) <= 0) {
-      form.setValue("area_maior_pavimento_m2", value, { shouldValidate: true });
-    }
-  };
-
   // Handle altura selection
   const handleAlturaChange = (tipo: string) => {
     form.setValue("altura_tipo", tipo);
@@ -355,11 +338,7 @@ export function CompanyForm() {
         altura_denominacao: alturaDenominacao,
         altura_descricao: alturaDescricao,
         area_m2: data.area_m2,
-        altura_real_m: data.altura_real_m,
-        area_maior_pavimento_m2: data.area_maior_pavimento_m2,
-        area_depositos_m2: data.area_depositos_m2,
         numero_ocupantes: data.numero_ocupantes,
-        possui_atrio: data.possui_atrio,
         grau_risco: grauRisco,
       };
 
@@ -386,7 +365,6 @@ export function CompanyForm() {
       setCnaeData(null);
       setGrauRisco("");
       setAlturaDenominacao("");
-      setAlturaDescricao("");
     } catch (error: unknown) {
       console.error("Error saving company:", error);
 
@@ -677,9 +655,8 @@ export function CompanyForm() {
                 id="area_m2" 
                 type="number" 
                 step="0.01" 
-                placeholder="Area em (m2)"
-                value={form.watch("area_m2")}
-                onChange={handleAreaChange}
+                placeholder="Área em (m²)"
+                {...form.register("area_m2")} 
               />
               {form.formState.errors.area_m2 && (
                 <p className="text-sm text-destructive">{form.formState.errors.area_m2.message}</p>
@@ -687,10 +664,10 @@ export function CompanyForm() {
             </div>
           </div>
 
-          {/* Fourth Row: Numero de Ocupantes */}
+          {/* Fourth Row: Número de Ocupantes */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="numero_ocupantes">Numero de Ocupantes *</Label>
+              <Label htmlFor="numero_ocupantes">Número de Ocupantes *</Label>
               <Input 
                 id="numero_ocupantes" 
                 type="number" 
@@ -700,66 +677,6 @@ export function CompanyForm() {
               {form.formState.errors.numero_ocupantes && (
                 <p className="text-sm text-destructive">{form.formState.errors.numero_ocupantes.message}</p>
               )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="altura_real_m">Altura real da edificacao (m) *</Label>
-              <Input 
-                id="altura_real_m"
-                type="number"
-                step="0.01"
-                placeholder="Ex.: 18.5"
-                {...form.register("altura_real_m")}
-              />
-              {form.formState.errors.altura_real_m && (
-                <p className="text-sm text-destructive">{form.formState.errors.altura_real_m.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="area_maior_pavimento_m2">Area do maior pavimento (m2) *</Label>
-              <Input 
-                id="area_maior_pavimento_m2"
-                type="number"
-                step="0.01"
-                placeholder="Repita a area total se houver um unico pavimento"
-                {...form.register("area_maior_pavimento_m2")}
-              />
-              {form.formState.errors.area_maior_pavimento_m2 && (
-                <p className="text-sm text-destructive">{form.formState.errors.area_maior_pavimento_m2.message}</p>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="area_depositos_m2">Area de depositos (m2)</Label>
-              <Input 
-                id="area_depositos_m2"
-                type="number"
-                step="0.01"
-                placeholder="Use 0 se nao houver deposito"
-                {...form.register("area_depositos_m2")}
-              />
-              {form.formState.errors.area_depositos_m2 && (
-                <p className="text-sm text-destructive">{form.formState.errors.area_depositos_m2.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="possui_atrio">Possui atrio?</Label>
-              <Select
-                onValueChange={(value) => form.setValue("possui_atrio", value === "true", { shouldValidate: true })}
-                value={String(form.watch("possui_atrio"))}
-              >
-                <SelectTrigger id="possui_atrio">
-                  <SelectValue placeholder="Selecione" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="false">Nao</SelectItem>
-                  <SelectItem value="true">Sim</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
           </div>
         </CardContent>

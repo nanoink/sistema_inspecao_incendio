@@ -33,15 +33,11 @@ const formSchema = z.object({
   cnpj: z.string().min(14, "CNPJ inválido"),
   responsavel: z.string().min(1, "Responsável é obrigatório"),
   telefone: z.string().min(10, "Telefone inválido"),
-  email: z.string().email("Email invalido"),
-  area_m2: z.number().min(1, "Area deve ser maior que 0"),
-  altura_real_m: z.number().positive("Altura real deve ser maior que 0"),
-  area_maior_pavimento_m2: z.number().positive("Area do maior pavimento deve ser maior que 0"),
-  area_depositos_m2: z.number().min(0, "Area de depositos invalida"),
-  numero_ocupantes: z.number().min(1, "Numero de ocupantes deve ser maior que 0"),
+  email: z.string().email("Email inválido"),
+  area_m2: z.number().min(1, "Área deve ser maior que 0"),
+  numero_ocupantes: z.number().min(1, "Número de ocupantes deve ser maior que 0"),
   cnae: z.string().optional(),
-  altura_tipo: z.string().min(1, "Altura e obrigatoria"),
-  possui_atrio: z.boolean(),
+  altura_tipo: z.string().min(1, "Altura é obrigatória"),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -96,13 +92,9 @@ export const EditCompanyDialog = ({
       telefone: "",
       email: "",
       area_m2: 0,
-      altura_real_m: 0,
-      area_maior_pavimento_m2: 0,
-      area_depositos_m2: 0,
       numero_ocupantes: 0,
       cnae: "",
       altura_tipo: "",
-      possui_atrio: false,
     },
   });
 
@@ -232,14 +224,6 @@ export const EditCompanyDialog = ({
     }
   };
 
-  const handleAreaChange = (value: number) => {
-    form.setValue("area_m2", value);
-
-    if ((form.getValues("area_maior_pavimento_m2") || 0) <= 0) {
-      form.setValue("area_maior_pavimento_m2", value, { shouldValidate: true });
-    }
-  };
-
 
   useEffect(() => {
     if (company) {
@@ -251,13 +235,9 @@ export const EditCompanyDialog = ({
         telefone: company.telefone,
         email: company.email,
         area_m2: company.area_m2,
-        altura_real_m: company.altura_real_m ?? 0,
-        area_maior_pavimento_m2: company.area_maior_pavimento_m2 ?? company.area_m2,
-        area_depositos_m2: company.area_depositos_m2 ?? 0,
         numero_ocupantes: company.numero_ocupantes,
         cnae: company.cnae || "",
         altura_tipo: company.altura_tipo || "",
-        possui_atrio: company.possui_atrio ?? false,
       });
 
 
@@ -313,11 +293,7 @@ export const EditCompanyDialog = ({
           telefone: data.telefone,
           email: data.email,
           area_m2: data.area_m2,
-          altura_real_m: data.altura_real_m,
-          area_maior_pavimento_m2: data.area_maior_pavimento_m2,
-          area_depositos_m2: data.area_depositos_m2,
           numero_ocupantes: data.numero_ocupantes,
-          possui_atrio: data.possui_atrio,
           cnae: data.cnae,
           grupo: cnaeData.grupo,
           ocupacao_uso: cnaeData.ocupacao_uso,

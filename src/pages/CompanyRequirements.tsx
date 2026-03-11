@@ -11,9 +11,13 @@ interface Company {
   razao_social: string;
   divisao: string | null;
   area_m2: number;
+  area_maior_pavimento_m2: number | null;
+  area_depositos_m2: number | null;
   altura_tipo: string | null;
   altura_denominacao: string | null;
   altura_descricao: string | null;
+  altura_real_m: number | null;
+  possui_atrio: boolean | null;
 }
 
 interface Exigencia {
@@ -71,6 +75,7 @@ const CompanyRequirements = () => {
   const [requirements, setRequirements] = useState<CompanyRequirement[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [viewMode, setViewMode] = useState<"all" | "automatic" | "manual">("all");
 
   const fetchData = useCallback(async () => {
     if (!id) {
@@ -83,7 +88,7 @@ const CompanyRequirements = () => {
       // Fetch company data
       const { data: companyData, error: companyError } = await supabase
         .from("empresa")
-        .select("id, razao_social, divisao, area_m2, altura_tipo, altura_denominacao, altura_descricao")
+        .select("id, razao_social, divisao, area_m2, area_maior_pavimento_m2, area_depositos_m2, altura_tipo, altura_denominacao, altura_descricao, altura_real_m, possui_atrio")
         .eq("id", id)
         .maybeSingle();
 
@@ -291,14 +296,19 @@ const CompanyRequirements = () => {
     }
   };
 
-  // Group requirements by category
-  const groupedRequirements = exigencias.reduce((acc, exigencia) => {
-    if (!acc[exigencia.categoria]) {
-      acc[exigencia.categoria] = [];
-    }
-    acc[exigencia.categoria].push(exigencia);
-    return acc;
-  }, {} as Record<string, Exigencia[]>);
+  const groupRequirementsByCategory = (items: Exigencia[]) =>
+    items.reduce((acc, exigencia) => {
+      if (!acc[exigencia.categoria]) {
+        acc[exigencia.categoria] = [];
+      }
+      acc[exigencia.categoria].push(exigencia);
+      return acc;
+    }, {} as Record<string, Exigencia[]>);
+
+  const automaticExigencias = exigencias.filter((item) => item.criterioStatus !== "manual_review");
+  const manualExigencias = exigencias.filter((item) => item.criterioStatus === "manual_review");
+  const automaticGroupedRequirements = groupRequirementsByCategory(automaticExigencias);
+  const manualGroupedRequirements = groupRequirementsByCategory(manualExigencias);
 
   const getCategoryColor = (categoria: string) => {
     switch (categoria) {
@@ -346,6 +356,104 @@ const CompanyRequirements = () => {
     }
   };
 
+  const renderRequirementGroups = (
+    sectionTitle: string,
+    sectionDescription: string,
+    itemsByCategory: Record<string, Exigencia[]>,
+  ) => {
+    const entries = Object.entries(itemsByCategory);
+
+    if (entries.length === 0) {
+      return (
+        <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+          Nenhuma exigencia encontrada nesta secao.
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-6">
+        <div className="rounded-lg border bg-card p-4">
+          <h3 className="text-lg font-semibold">{sectionTitle}</h3>
+          <p className="mt-1 text-sm text-muted-foreground">{sectionDescription}</p>
+        </div>
+
+        {entries.map(([categoria, exigs]) => (
+          <div key={`${sectionTitle}-${categoria}`} className={`border-l-4 p-4 rounded-lg ${getCategoryColor(categoria)}`}>
+            <h4 className={`text-lg font-semibold mb-4 ${getCategoryTextColor(categoria)}`}>
+              {categoria}
+            </h4>
+            <div className="space-y-4">
+              {exigs.map((exigencia) => {
+                const requirement = requirements.find((item) => item.exigenciaId === exigencia.id);
+                const atende = requirement?.atende || false;
+                const observacoes = requirement?.observacoes || "";
+
+                return (
+                  <div key={exigencia.id} className="bg-white p-4 rounded-md shadow-sm border">
+                    <div className="flex items-start gap-4 mb-2">
+                      <div className="flex-1">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          <span className="font-mono text-sm font-semibold text-muted-foreground">
+                            {exigencia.codigo}
+                          </span>
+                          <span className="text-sm font-medium">
+                            {exigencia.nome}
+                          </span>
+                          {exigencia.criterioStatus === "manual_review" && (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900">
+                              Analise manual
+                            </span>
+                          )}
+                        </div>
+                        {exigencia.observacao && (
+                          <p className="text-xs text-muted-foreground italic">
+                            {exigencia.observacao}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleCheckChange(exigencia.id, true)}
+                          className={`p-2 rounded-md transition-colors ${
+                            atende
+                              ? "bg-green-500 text-white"
+                              : "bg-gray-200 text-gray-400 hover:bg-green-100"
+                          }`}
+                          title="Atende"
+                        >
+                          <Check className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleCheckChange(exigencia.id, false)}
+                          className={`p-2 rounded-md transition-colors ${
+                            !atende
+                              ? "bg-red-500 text-white"
+                              : "bg-gray-200 text-gray-400 hover:bg-red-100"
+                          }`}
+                          title="Nao atende"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                    <Textarea
+                      placeholder="Observacoes..."
+                      value={observacoes}
+                      onChange={(event) => handleObservationChange(exigencia.id, event.target.value)}
+                      className="mt-2"
+                      rows={2}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <div className="container mx-auto py-8 px-4 flex justify-center items-center min-h-screen">
@@ -379,87 +487,59 @@ const CompanyRequirements = () => {
       {company && (
         <div className="mb-6 p-4 bg-card rounded-lg border">
           <h2 className="text-xl font-semibold mb-2">{company.razao_social}</h2>
-          <div className="text-sm text-muted-foreground">
-            <p>Divisão: {company.divisao}</p>
-            <p>Área: {company.area_m2}m²</p>
-            <p>Altura: {company.altura_descricao || company.altura_tipo}</p>
+          <div className="grid gap-2 text-sm text-muted-foreground md:grid-cols-2 xl:grid-cols-3">
+            <p>Divisao: {company.divisao || "-"}</p>
+            <p>Area total: {company.area_m2} m2</p>
+            <p>Area do maior pavimento: {company.area_maior_pavimento_m2 ?? "-"} m2</p>
+            <p>Area de depositos: {company.area_depositos_m2 ?? "-"} m2</p>
+            <p>Altura classificada: {company.altura_descricao || company.altura_tipo || "-"}</p>
+            <p>Altura real: {company.altura_real_m ?? "-"} m</p>
+            <p>Possui atrio: {company.possui_atrio ? "Sim" : "Nao"}</p>
           </div>
         </div>
       )}
 
-      <div className="space-y-6">
-        {Object.entries(groupedRequirements).map(([categoria, exigs]) => (
-          <div key={categoria} className={`border-l-4 p-4 rounded-lg ${getCategoryColor(categoria)}`}>
-            <h3 className={`text-lg font-semibold mb-4 ${getCategoryTextColor(categoria)}`}>
-              {categoria}
-            </h3>
-            <div className="space-y-4">
-              {exigs.map((exigencia) => {
-                const requirement = requirements.find(r => r.exigenciaId === exigencia.id);
-                const atende = requirement?.atende || false;
-                const observacoes = requirement?.observacoes || "";
+      <div className="mb-6 grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border bg-card p-4">
+          <p className="text-xs uppercase text-muted-foreground">Total</p>
+          <p className="mt-2 text-3xl font-bold">{exigencias.length}</p>
+        </div>
+        <div className="rounded-lg border bg-card p-4">
+          <p className="text-xs uppercase text-muted-foreground">Automaticas</p>
+          <p className="mt-2 text-3xl font-bold">{automaticExigencias.length}</p>
+        </div>
+        <div className="rounded-lg border bg-card p-4">
+          <p className="text-xs uppercase text-muted-foreground">Analise manual</p>
+          <p className="mt-2 text-3xl font-bold">{manualExigencias.length}</p>
+        </div>
+      </div>
 
-                return (
-                  <div key={exigencia.id} className="bg-white p-4 rounded-md shadow-sm border">
-                    <div className="flex items-start gap-4 mb-2">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-mono text-sm font-semibold text-muted-foreground">
-                            {exigencia.codigo}
-                          </span>
-                          <span className="text-sm font-medium">
-                            {exigencia.nome}
-                          </span>
-                          {exigencia.criterioStatus === "manual_review" && (
-                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900">
-                              Analise manual
-                            </span>
-                          )}
-                        </div>
-                        {exigencia.observacao && (
-                          <p className="text-xs text-muted-foreground italic">
-                            {exigencia.observacao}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleCheckChange(exigencia.id, true)}
-                          className={`p-2 rounded-md transition-colors ${
-                            atende 
-                              ? "bg-green-500 text-white" 
-                              : "bg-gray-200 text-gray-400 hover:bg-green-100"
-                          }`}
-                          title="Atende"
-                        >
-                          <Check className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => handleCheckChange(exigencia.id, false)}
-                          className={`p-2 rounded-md transition-colors ${
-                            !atende 
-                              ? "bg-red-500 text-white" 
-                              : "bg-gray-200 text-gray-400 hover:bg-red-100"
-                          }`}
-                          title="Não atende"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                    <Textarea
-                      placeholder="Observações..."
-                      value={observacoes}
-                      onChange={(e) => handleObservationChange(exigencia.id, e.target.value)}
-                      className="mt-2"
-                      rows={2}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+      <div className="mb-6 flex flex-wrap gap-2">
+        <Button variant={viewMode === "all" ? "default" : "outline"} onClick={() => setViewMode("all")}>
+          Todas
+        </Button>
+        <Button variant={viewMode === "automatic" ? "default" : "outline"} onClick={() => setViewMode("automatic")}>
+          Automaticas
+        </Button>
+        <Button variant={viewMode === "manual" ? "default" : "outline"} onClick={() => setViewMode("manual")}>
+          Analise manual
+        </Button>
+      </div>
+
+      <div className="space-y-8">
+        {(viewMode === "all" || viewMode === "automatic") &&
+          renderRequirementGroups(
+            "Exigencias automaticas",
+            "Requisitos resolvidos automaticamente com base nos dados da empresa e nos criterios estruturados do banco.",
+            automaticGroupedRequirements,
+          )}
+
+        {(viewMode === "all" || viewMode === "manual") &&
+          renderRequirementGroups(
+            "Exigencias em analise manual",
+            "Requisitos que ainda dependem de validacao tecnica, complemento operacional ou conferencia especifica em campo.",
+            manualGroupedRequirements,
+          )}
       </div>
 
       {exigencias.length === 0 && (

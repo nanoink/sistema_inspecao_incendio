@@ -182,7 +182,10 @@ export type Database = {
           altura_denominacao: string | null
           altura_descricao: string | null
           altura_tipo: string | null
+          altura_real_m: number | null
           area_m2: number
+          area_depositos_m2: number | null
+          area_maior_pavimento_m2: number | null
           bairro: string
           carga_incendio_mj_m2: number | null
           cep: string
@@ -201,6 +204,7 @@ export type Database = {
           numero: string
           numero_ocupantes: number
           ocupacao_uso: string | null
+          possui_atrio: boolean | null
           razao_social: string
           responsavel: string
           rua: string
@@ -211,7 +215,10 @@ export type Database = {
           altura_denominacao?: string | null
           altura_descricao?: string | null
           altura_tipo?: string | null
+          altura_real_m?: number | null
           area_m2: number
+          area_depositos_m2?: number | null
+          area_maior_pavimento_m2?: number | null
           bairro: string
           carga_incendio_mj_m2?: number | null
           cep: string
@@ -230,6 +237,7 @@ export type Database = {
           numero: string
           numero_ocupantes: number
           ocupacao_uso?: string | null
+          possui_atrio?: boolean | null
           razao_social: string
           responsavel: string
           rua: string
@@ -240,7 +248,10 @@ export type Database = {
           altura_denominacao?: string | null
           altura_descricao?: string | null
           altura_tipo?: string | null
+          altura_real_m?: number | null
           area_m2?: number
+          area_depositos_m2?: number | null
+          area_maior_pavimento_m2?: number | null
           bairro?: string
           carga_incendio_mj_m2?: number | null
           cep?: string
@@ -259,6 +270,7 @@ export type Database = {
           numero?: string
           numero_ocupantes?: number
           ocupacao_uso?: string | null
+          possui_atrio?: boolean | null
           razao_social?: string
           responsavel?: string
           rua?: string
@@ -472,8 +484,14 @@ export type Database = {
           altura_denominacao: string | null
           altura_max: number | null
           altura_min: number | null
+          altura_real_max: number | null
+          altura_real_min: number | null
           altura_tipo: string | null
           area_max: number | null
+          area_depositos_max: number | null
+          area_depositos_min: number | null
+          area_maior_pavimento_max: number | null
+          area_maior_pavimento_min: number | null
           area_min: number | null
           cenario: string
           created_at: string
@@ -487,6 +505,7 @@ export type Database = {
           observacao: string | null
           ocupantes_max: number | null
           ocupantes_min: number | null
+          requer_atrio: boolean | null
           status_aplicabilidade: string
           valor_raw: string
         }
@@ -494,8 +513,14 @@ export type Database = {
           altura_denominacao?: string | null
           altura_max?: number | null
           altura_min?: number | null
+          altura_real_max?: number | null
+          altura_real_min?: number | null
           altura_tipo?: string | null
           area_max?: number | null
+          area_depositos_max?: number | null
+          area_depositos_min?: number | null
+          area_maior_pavimento_max?: number | null
+          area_maior_pavimento_min?: number | null
           area_min?: number | null
           cenario?: string
           created_at?: string
@@ -509,6 +534,7 @@ export type Database = {
           observacao?: string | null
           ocupantes_max?: number | null
           ocupantes_min?: number | null
+          requer_atrio?: boolean | null
           status_aplicabilidade?: string
           valor_raw?: string
         }
@@ -516,8 +542,14 @@ export type Database = {
           altura_denominacao?: string | null
           altura_max?: number | null
           altura_min?: number | null
+          altura_real_max?: number | null
+          altura_real_min?: number | null
           altura_tipo?: string | null
           area_max?: number | null
+          area_depositos_max?: number | null
+          area_depositos_min?: number | null
+          area_maior_pavimento_max?: number | null
+          area_maior_pavimento_min?: number | null
           area_min?: number | null
           cenario?: string
           created_at?: string
@@ -531,6 +563,7 @@ export type Database = {
           observacao?: string | null
           ocupantes_max?: number | null
           ocupantes_min?: number | null
+          requer_atrio?: boolean | null
           status_aplicabilidade?: string
           valor_raw?: string
         }
@@ -609,11 +642,15 @@ export type Database = {
       }
       resolve_exigencias_empresa: {
         Args: {
+          p_altura_real_m?: number | null
           p_altura_tipo: string | null
           p_area_m2: number | null
+          p_area_depositos_m2?: number | null
+          p_area_maior_pavimento_m2?: number | null
           p_divisao: string | null
           p_grau_risco?: string | null
           p_numero_ocupantes?: number | null
+          p_possui_atrio?: boolean | null
         }
         Returns: {
           criterio_cenario: string

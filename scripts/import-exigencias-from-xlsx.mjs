@@ -406,17 +406,18 @@ function parseConditionalRule(note) {
     result.hasResolvedCondition = true;
   }
 
-  if (
+  const hasUnresolvedManualCondition =
     MANUAL_KEYWORDS.some((keyword) => normalized.includes(keyword)) ||
     /altura\s+(?:maior|acima|superior)/i.test(normalized) ||
     /se as rotas/i.test(normalized) ||
     /sera exigid[oa] quando/i.test(normalized) ||
-    /somente para condominios/i.test(normalized)
-  ) {
+    /somente para condominios/i.test(normalized);
+
+  if (hasUnresolvedManualCondition && !result.hasResolvedCondition) {
     result.requiresManualReview = true;
   }
 
-  if (/area do maior pavimento/i.test(normalized)) {
+  if (/area (?:de|do) maior pavimento/i.test(normalized)) {
     result.requiresManualReview = !result.areaMaiorPavimentoMin && !result.areaMaiorPavimentoMax;
   }
 
