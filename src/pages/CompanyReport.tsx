@@ -428,12 +428,10 @@ const CompanyReport = () => {
 
   const statusMeta = getReportStatusBadge(reportStatus);
   const snapshotIsCurrent = liveSnapshot?.generated_at === snapshot.generated_at;
-  const automaticRequirements = reportRequirements.filter((item) => item.criterioStatus !== "manual_review");
-  const manualRequirements = reportRequirements.filter((item) => item.criterioStatus === "manual_review");
   const executiveSummary =
     snapshot.overall.nao_conforme > 0
-      ? `Foram identificadas ${snapshot.overall.nao_conforme} nao conformidades entre ${snapshot.overall.total} itens avaliados. Ha ${manualRequirements.length} exigencias que permanecem em analise manual e precisam de validacao tecnica complementar.`
-      : `Nao ha nao conformidades registradas no checklist atual. Ainda assim, existem ${manualRequirements.length} exigencias em analise manual que devem ser verificadas antes da emissao final do relatorio.`;
+      ? `Foram identificadas ${snapshot.overall.nao_conforme} nao conformidades entre ${snapshot.overall.total} itens avaliados. O relatorio consolida ${reportRequirements.length} exigencias aplicaveis para a empresa.`
+      : `Nao ha nao conformidades registradas no checklist atual. O relatorio consolida ${reportRequirements.length} exigencias aplicaveis para a empresa.`;
 
   const renderRequirementList = (
     sectionTitle: string,
@@ -831,43 +829,23 @@ const CompanyReport = () => {
           </Card>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <Card>
-            <CardContent className="pt-6">
+        <Card>
+          <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs uppercase text-muted-foreground">Exigencias automaticas</p>
-                  <p className="text-3xl font-bold">{automaticRequirements.length}</p>
+                  <p className="text-xs uppercase text-muted-foreground">Exigencias aplicaveis</p>
+                  <p className="text-3xl font-bold">{reportRequirements.length}</p>
                 </div>
                 <CheckCircle2 className="h-7 w-7 text-emerald-600" />
               </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs uppercase text-muted-foreground">Exigencias em analise manual</p>
-                  <p className="text-3xl font-bold">{manualRequirements.length}</p>
-                </div>
-                <TriangleAlert className="h-7 w-7 text-amber-600" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+          </CardContent>
+        </Card>
 
-        <div className="grid gap-4 xl:grid-cols-2">
-          {renderRequirementList(
-            "Exigencias automaticas",
-            "Requisitos resolvidos diretamente pelo motor de exigencias com base nos dados cadastrados da empresa.",
-            automaticRequirements,
-          )}
-          {renderRequirementList(
-            "Exigencias em analise manual",
-            "Requisitos que ainda dependem de validacao tecnica complementar, conferencia de campo ou dado operacional adicional.",
-            manualRequirements,
-          )}
-        </div>
+        {renderRequirementList(
+          "Exigencias aplicaveis",
+          "Lista consolidada das exigencias da empresa. Itens que ainda dependem de validacao tecnica complementar permanecem sinalizados com selo de analise manual.",
+          reportRequirements,
+        )}
 
         <Card>
           <CardHeader>

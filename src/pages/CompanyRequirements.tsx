@@ -75,7 +75,6 @@ const CompanyRequirements = () => {
   const [requirements, setRequirements] = useState<CompanyRequirement[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [viewMode, setViewMode] = useState<"all" | "automatic" | "manual">("all");
 
   const fetchData = useCallback(async () => {
     if (!id) {
@@ -305,10 +304,7 @@ const CompanyRequirements = () => {
       return acc;
     }, {} as Record<string, Exigencia[]>);
 
-  const automaticExigencias = exigencias.filter((item) => item.criterioStatus !== "manual_review");
-  const manualExigencias = exigencias.filter((item) => item.criterioStatus === "manual_review");
-  const automaticGroupedRequirements = groupRequirementsByCategory(automaticExigencias);
-  const manualGroupedRequirements = groupRequirementsByCategory(manualExigencias);
+  const groupedRequirements = groupRequirementsByCategory(exigencias);
 
   const getCategoryColor = (categoria: string) => {
     switch (categoria) {
@@ -499,47 +495,19 @@ const CompanyRequirements = () => {
         </div>
       )}
 
-      <div className="mb-6 grid gap-4 md:grid-cols-3">
+      <div className="mb-6 grid gap-4 md:grid-cols-1">
         <div className="rounded-lg border bg-card p-4">
           <p className="text-xs uppercase text-muted-foreground">Total</p>
           <p className="mt-2 text-3xl font-bold">{exigencias.length}</p>
         </div>
-        <div className="rounded-lg border bg-card p-4">
-          <p className="text-xs uppercase text-muted-foreground">Automaticas</p>
-          <p className="mt-2 text-3xl font-bold">{automaticExigencias.length}</p>
-        </div>
-        <div className="rounded-lg border bg-card p-4">
-          <p className="text-xs uppercase text-muted-foreground">Analise manual</p>
-          <p className="mt-2 text-3xl font-bold">{manualExigencias.length}</p>
-        </div>
-      </div>
-
-      <div className="mb-6 flex flex-wrap gap-2">
-        <Button variant={viewMode === "all" ? "default" : "outline"} onClick={() => setViewMode("all")}>
-          Todas
-        </Button>
-        <Button variant={viewMode === "automatic" ? "default" : "outline"} onClick={() => setViewMode("automatic")}>
-          Automaticas
-        </Button>
-        <Button variant={viewMode === "manual" ? "default" : "outline"} onClick={() => setViewMode("manual")}>
-          Analise manual
-        </Button>
       </div>
 
       <div className="space-y-8">
-        {(viewMode === "all" || viewMode === "automatic") &&
-          renderRequirementGroups(
-            "Exigencias automaticas",
-            "Requisitos resolvidos automaticamente com base nos dados da empresa e nos criterios estruturados do banco.",
-            automaticGroupedRequirements,
-          )}
-
-        {(viewMode === "all" || viewMode === "manual") &&
-          renderRequirementGroups(
-            "Exigencias em analise manual",
-            "Requisitos que ainda dependem de validacao tecnica, complemento operacional ou conferencia especifica em campo.",
-            manualGroupedRequirements,
-          )}
+        {renderRequirementGroups(
+          "Exigencias aplicaveis",
+          "Lista consolidada das exigencias da empresa. Quando houver dependencia de validacao tecnica complementar, o item sera apenas sinalizado com selo de analise manual.",
+          groupedRequirements,
+        )}
       </div>
 
       {exigencias.length === 0 && (
