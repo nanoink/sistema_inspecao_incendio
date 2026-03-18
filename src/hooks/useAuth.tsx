@@ -28,10 +28,11 @@ export function useAuth() {
   }, []);
 
   const signUp = async (email: string, password: string, nome: string) => {
+    const normalizedEmail = email.trim().toLowerCase();
     const redirectUrl = `${window.location.origin}/`;
     
     const { error } = await supabase.auth.signUp({
-      email,
+      email: normalizedEmail,
       password,
       options: {
         emailRedirectTo: redirectUrl,
@@ -44,8 +45,9 @@ export function useAuth() {
   };
 
   const signIn = async (email: string, password: string) => {
+    const normalizedEmail = email.trim().toLowerCase();
     const { error } = await supabase.auth.signInWithPassword({
-      email,
+      email: normalizedEmail,
       password
     });
     return { error };

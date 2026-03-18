@@ -287,6 +287,112 @@ export type Database = {
           },
         ]
       }
+      empresa_extintores: {
+        Row: {
+          carga_nominal: string
+          created_at: string
+          empresa_id: string
+          id: string
+          localizacao: string
+          numero: string
+          tipo: string
+          updated_at: string
+          vencimento_carga: string
+          vencimento_teste_hidrostatico_ano: number
+        }
+        Insert: {
+          carga_nominal: string
+          created_at?: string
+          empresa_id: string
+          id?: string
+          localizacao: string
+          numero: string
+          tipo: string
+          updated_at?: string
+          vencimento_carga: string
+          vencimento_teste_hidrostatico_ano: number
+        }
+        Update: {
+          carga_nominal?: string
+          created_at?: string
+          empresa_id?: string
+          id?: string
+          localizacao?: string
+          numero?: string
+          tipo?: string
+          updated_at?: string
+          vencimento_carga?: string
+          vencimento_teste_hidrostatico_ano?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_extintores_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresa"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      empresa_hidrantes: {
+        Row: {
+          chave_mangueira: boolean
+          created_at: string
+          empresa_id: string
+          esguicho: boolean
+          id: string
+          localizacao: string
+          mangueira1_tipo: string
+          mangueira1_vencimento_teste_hidrostatico: string
+          mangueira2_tipo: string | null
+          mangueira2_vencimento_teste_hidrostatico: string | null
+          numero: string
+          status: string | null
+          tipo_hidrante: string
+          updated_at: string
+        }
+        Insert: {
+          chave_mangueira?: boolean
+          created_at?: string
+          empresa_id: string
+          esguicho?: boolean
+          id?: string
+          localizacao: string
+          mangueira1_tipo: string
+          mangueira1_vencimento_teste_hidrostatico: string
+          mangueira2_tipo?: string | null
+          mangueira2_vencimento_teste_hidrostatico?: string | null
+          numero: string
+          status?: string | null
+          tipo_hidrante: string
+          updated_at?: string
+        }
+        Update: {
+          chave_mangueira?: boolean
+          created_at?: string
+          empresa_id?: string
+          esguicho?: boolean
+          id?: string
+          localizacao?: string
+          mangueira1_tipo?: string
+          mangueira1_vencimento_teste_hidrostatico?: string
+          mangueira2_tipo?: string | null
+          mangueira2_vencimento_teste_hidrostatico?: string | null
+          numero?: string
+          status?: string | null
+          tipo_hidrante?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_hidrantes_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresa"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       empresa_checklist_respostas: {
         Row: {
           checklist_item_id: string

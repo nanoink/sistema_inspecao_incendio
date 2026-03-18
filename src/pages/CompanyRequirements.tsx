@@ -354,7 +354,6 @@ const CompanyRequirements = () => {
 
   const renderRequirementGroups = (
     sectionTitle: string,
-    sectionDescription: string,
     itemsByCategory: Record<string, Exigencia[]>,
   ) => {
     const entries = Object.entries(itemsByCategory);
@@ -371,7 +370,6 @@ const CompanyRequirements = () => {
       <div className="space-y-6">
         <div className="rounded-lg border bg-card p-4">
           <h3 className="text-lg font-semibold">{sectionTitle}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{sectionDescription}</p>
         </div>
 
         {entries.map(([categoria, exigs]) => (
@@ -482,30 +480,17 @@ const CompanyRequirements = () => {
 
       {company && (
         <div className="mb-6 p-4 bg-card rounded-lg border">
-          <h2 className="text-xl font-semibold mb-2">{company.razao_social}</h2>
           <div className="grid gap-2 text-sm text-muted-foreground md:grid-cols-2 xl:grid-cols-3">
             <p>Divisao: {company.divisao || "-"}</p>
             <p>Area total: {company.area_m2} m2</p>
-            <p>Area do maior pavimento: {company.area_maior_pavimento_m2 ?? "-"} m2</p>
-            <p>Area de depositos: {company.area_depositos_m2 ?? "-"} m2</p>
             <p>Altura classificada: {company.altura_descricao || company.altura_tipo || "-"}</p>
-            <p>Altura real: {company.altura_real_m ?? "-"} m</p>
-            <p>Possui atrio: {company.possui_atrio ? "Sim" : "Nao"}</p>
           </div>
         </div>
       )}
 
-      <div className="mb-6 grid gap-4 md:grid-cols-1">
-        <div className="rounded-lg border bg-card p-4">
-          <p className="text-xs uppercase text-muted-foreground">Total</p>
-          <p className="mt-2 text-3xl font-bold">{exigencias.length}</p>
-        </div>
-      </div>
-
       <div className="space-y-8">
         {renderRequirementGroups(
-          "Exigencias aplicaveis",
-          "Lista consolidada das exigencias da empresa. Quando houver dependencia de validacao tecnica complementar, o item sera apenas sinalizado com selo de analise manual.",
+          "Medidas de Segurança contra Incêndio e Emergências",
           groupedRequirements,
         )}
       </div>

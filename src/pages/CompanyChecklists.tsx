@@ -20,6 +20,9 @@ import {
   Check,
   X,
   Minus,
+  Plus,
+  Pencil,
+  Trash2,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -43,6 +46,22 @@ import {
   saveChecklistResponses,
 } from "@/lib/checklist-source";
 import { isMissingRelationError } from "@/lib/supabase-errors";
+import { ExtinguisherDialog } from "@/components/checklists/ExtinguisherDialog";
+import { HydrantDialog } from "@/components/checklists/HydrantDialog";
+import {
+  buildExtinguisherSummary,
+  buildHydrantSummary,
+  deleteExtinguisher,
+  deleteHydrant,
+  formatMonthYear,
+  getExtinguisherRuleEvaluation,
+  isDateExpired,
+  isHydroYearExpired,
+  loadChecklistEquipmentData,
+  sortByEquipmentNumber,
+  type ExtinguisherRecord,
+  type HydrantRecord,
+} from "@/lib/checklist-equipment";
 
 interface Company {
   id: string;
@@ -123,13 +142,74 @@ const CompanyChecklists = () => {
   const [responses, setResponses] = useState<
     Map<string, ChecklistResponseShape>
   >(new Map());
+  const [extinguishers, setExtinguishers] = useState<ExtinguisherRecord[]>([]);
+  const [hydrants, setHydrants] = useState<HydrantRecord[]>([]);
+  const [equipmentSchemaPending, setEquipmentSchemaPending] =
+    useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [openInspection, setOpenInspection] = useState<string | null>(null);
+  const [extinguisherDialogOpen, setExtinguisherDialogOpen] =
+    useState(false);
+  const [hydrantDialogOpen, setHydrantDialogOpen] = useState(false);
+  const [editingExtinguisher, setEditingExtinguisher] =
+    useState<ExtinguisherRecord | null>(null);
+  const [editingHydrant, setEditingHydrant] =
+    useState<HydrantRecord | null>(null);
   const { rowsByInspection, evaluableIds: evaluableItemIds } = useMemo(
     () => buildChecklistTableRows(groupsByModel),
     [groupsByModel],
   );
+  const automaticResponses = useMemo(() => {
+    const next = new Map<string, ChecklistResponseShape>();
+
+    models.forEach((model) => {
+      if (model.codigo !== "A.23") {
+        return;
+      }
+
+      const rows = rowsByInspection.get(model.id) || [];
+      let currentSection = "";
+
+      rows.forEach((row) => {
+        if (row.type === "section") {
+          currentSection = row.title;
+          return;
+        }
+
+        if (row.type !== "item") {
+          return;
+        }
+
+        const evaluation = getExtinguisherRuleEvaluation({
+          sectionTitle: currentSection,
+          itemNumber: row.sourceItemNumber,
+          extinguishers,
+        });
+
+        if (!evaluation?.status) {
+          return;
+        }
+
+        next.set(row.itemId, {
+          checklist_item_id: row.itemId,
+          status: evaluation.status,
+          observacoes: evaluation.message,
+        });
+      });
+    });
+
+    return next;
+  }, [extinguishers, models, rowsByInspection]);
+  const mergedResponses = useMemo(() => {
+    const next = new Map(automaticResponses);
+
+    responses.forEach((value, key) => {
+      next.set(key, value);
+    });
+
+    return next;
+  }, [automaticResponses, responses]);
 
   const fetchData = useCallback(async () => {
     if (!id) {
@@ -153,12 +233,18 @@ const CompanyChecklists = () => {
         throw new Error("Empresa nao encontrada");
       }
 
-      const checklistData = await loadChecklistData(supabase, id);
+      const [checklistData, equipmentData] = await Promise.all([
+        loadChecklistData(supabase, id),
+        loadChecklistEquipmentData(supabase, id),
+      ]);
 
       setCompany(companyData);
       setModels(checklistData.models);
       setGroupsByModel(checklistData.groupsByModel);
       setResponses(checklistData.responses);
+      setExtinguishers(equipmentData.extinguishers);
+      setHydrants(equipmentData.hydrants);
+      setEquipmentSchemaPending(equipmentData.missingTables);
     } catch (error) {
       console.error("Error fetching data:", error);
       toast({
@@ -188,6 +274,72 @@ const CompanyChecklists = () => {
     });
   };
 
+  const handleExtinguisherSaved = (record: ExtinguisherRecord) => {
+    setExtinguishers((previous) =>
+      sortByEquipmentNumber([
+        ...previous.filter((item) => item.id !== record.id),
+        record,
+      ]),
+    );
+    setEditingExtinguisher(null);
+  };
+
+  const handleHydrantSaved = (record: HydrantRecord) => {
+    setHydrants((previous) =>
+      sortByEquipmentNumber([
+        ...previous.filter((item) => item.id !== record.id),
+        record,
+      ]),
+    );
+    setEditingHydrant(null);
+  };
+
+  const handleDeleteExtinguisher = async (record: ExtinguisherRecord) => {
+    if (!window.confirm(`Excluir o extintor ${record.numero}?`)) {
+      return;
+    }
+
+    try {
+      await deleteExtinguisher(supabase, record.id);
+      setExtinguishers((previous) =>
+        previous.filter((item) => item.id !== record.id),
+      );
+      toast({
+        title: "Extintor removido",
+        description: "O cadastro do extintor foi excluido.",
+      });
+    } catch (error) {
+      toast({
+        title: "Erro ao remover extintor",
+        description: "Nao foi possivel excluir o extintor.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteHydrant = async (record: HydrantRecord) => {
+    if (!window.confirm(`Excluir o hidrante ${record.numero}?`)) {
+      return;
+    }
+
+    try {
+      await deleteHydrant(supabase, record.id);
+      setHydrants((previous) =>
+        previous.filter((item) => item.id !== record.id),
+      );
+      toast({
+        title: "Hidrante removido",
+        description: "O cadastro do hidrante foi excluido.",
+      });
+    } catch (error) {
+      toast({
+        title: "Erro ao remover hidrante",
+        description: "Nao foi possivel excluir o hidrante.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const saveChecklistAndEnsureReport = async () => {
     if (!id) {
       return false;
@@ -197,14 +349,14 @@ const CompanyChecklists = () => {
       await saveChecklistResponses({
         supabase,
         companyId: id,
-        responses,
+        responses: mergedResponses,
         evaluableIds: evaluableItemIds,
       });
 
       const checklistSnapshot = buildChecklistSnapshot(
         models,
         groupsByModel,
-        responses,
+        mergedResponses,
       );
 
       const { error: reportError } = await supabase
@@ -299,6 +451,32 @@ const CompanyChecklists = () => {
     : [];
   const checklistTitle =
     openInspectionData?.titulo || `CHECKLIST DE ${openInspectionData?.nome || ""}`;
+  const isExtinguisherInspection = openInspectionData?.codigo === "A.23";
+  const isHydrantInspection = openInspectionData?.codigo === "A.25";
+  const extinguisherSummary = buildExtinguisherSummary(extinguishers);
+  const hydrantSummary = buildHydrantSummary(hydrants);
+  const getEquipmentRuleHint = (
+    sectionTitle: string,
+    sourceItemNumber?: string | null,
+  ) => {
+    if (isExtinguisherInspection) {
+      return (
+        getExtinguisherRuleEvaluation({
+          sectionTitle,
+          itemNumber: sourceItemNumber,
+          extinguishers,
+        }) || null
+      );
+    }
+
+    if (isHydrantInspection && sourceItemNumber === "3") {
+      return {
+        message: `${hydrantSummary.total} hidrante(s), ${hydrantSummary.expiredHoses} mangueira(s) vencida(s) e ${hydrantSummary.missingComponents} cadastro(s) com componentes pendentes.`,
+      };
+    }
+
+    return null;
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -377,6 +555,314 @@ const CompanyChecklists = () => {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0 md:p-6">
+              {(isExtinguisherInspection || isHydrantInspection) && (
+                <div className="border-b px-4 py-4 md:px-0 md:pt-0 md:pb-6">
+                  <div className="rounded-xl border bg-muted/10 p-4 space-y-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="space-y-1">
+                        <h3 className="text-base font-semibold">
+                          {isExtinguisherInspection
+                            ? "Cadastro de extintores"
+                            : "Cadastro de hidrantes"}
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          {isExtinguisherInspection
+                            ? "Cadastre os extintores vistoriados para apoiar a avaliacao de quantidade, tipo, localizacao e vencimentos."
+                            : "Cadastre os hidrantes e seus componentes para apoiar a avaliacao das mangueiras e acessorios."}
+                        </p>
+                      </div>
+
+                      <Button
+                        type="button"
+                        onClick={() => {
+                          if (isExtinguisherInspection) {
+                            setEditingExtinguisher(null);
+                            setExtinguisherDialogOpen(true);
+                            return;
+                          }
+
+                          setEditingHydrant(null);
+                          setHydrantDialogOpen(true);
+                        }}
+                        disabled={equipmentSchemaPending}
+                        className="w-full md:w-auto"
+                      >
+                        <Plus className="mr-2 h-4 w-4" />
+                        {isExtinguisherInspection
+                          ? "Cadastrar Extintor"
+                          : "Cadastrar Hidrante"}
+                      </Button>
+                    </div>
+
+                    {equipmentSchemaPending ? (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                        As tabelas de equipamentos ainda nao existem no banco conectado. A migracao foi criada no projeto e precisa ser aplicada para liberar este cadastro.
+                      </div>
+                    ) : (
+                      <>
+                        {isExtinguisherInspection && (
+                          <>
+                            <div className="grid gap-3 md:grid-cols-3">
+                              <div className="rounded-lg border bg-background p-4">
+                                <p className="text-xs uppercase text-muted-foreground">
+                                  Total
+                                </p>
+                                <p className="mt-2 text-2xl font-bold">
+                                  {extinguisherSummary.total}
+                                </p>
+                              </div>
+                              <div className="rounded-lg border bg-background p-4">
+                                <p className="text-xs uppercase text-muted-foreground">
+                                  Cargas vencidas
+                                </p>
+                                <p className="mt-2 text-2xl font-bold text-red-600">
+                                  {extinguisherSummary.expiredRecharge}
+                                </p>
+                              </div>
+                              <div className="rounded-lg border bg-background p-4">
+                                <p className="text-xs uppercase text-muted-foreground">
+                                  Testes vencidos
+                                </p>
+                                <p className="mt-2 text-2xl font-bold text-red-600">
+                                  {extinguisherSummary.expiredHydroTest}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="overflow-x-auto rounded-lg border bg-background">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>No.</TableHead>
+                                    <TableHead>Localizacao</TableHead>
+                                    <TableHead>Tipo</TableHead>
+                                    <TableHead>Carga</TableHead>
+                                    <TableHead>Venc. Carga</TableHead>
+                                    <TableHead>Venc. Teste Hidrost.</TableHead>
+                                    <TableHead className="text-right">
+                                      Acoes
+                                    </TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {extinguishers.length === 0 ? (
+                                    <TableRow>
+                                      <TableCell
+                                        colSpan={7}
+                                        className="text-center text-muted-foreground"
+                                      >
+                                        Nenhum extintor cadastrado.
+                                      </TableCell>
+                                    </TableRow>
+                                  ) : (
+                                    extinguishers.map((record) => (
+                                      <TableRow key={record.id}>
+                                        <TableCell className="font-medium">
+                                          {record.numero}
+                                        </TableCell>
+                                        <TableCell>{record.localizacao}</TableCell>
+                                        <TableCell>{record.tipo}</TableCell>
+                                        <TableCell>{record.carga_nominal}</TableCell>
+                                        <TableCell
+                                          className={cn(
+                                            isDateExpired(record.vencimento_carga) &&
+                                              "font-medium text-red-600",
+                                          )}
+                                        >
+                                          {formatMonthYear(record.vencimento_carga)}
+                                        </TableCell>
+                                        <TableCell
+                                          className={cn(
+                                            isHydroYearExpired(
+                                              record.vencimento_teste_hidrostatico_ano,
+                                            ) && "font-medium text-red-600",
+                                          )}
+                                        >
+                                          {record.vencimento_teste_hidrostatico_ano}
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                          <div className="flex justify-end gap-2">
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={() => {
+                                                setEditingExtinguisher(record);
+                                                setExtinguisherDialogOpen(true);
+                                              }}
+                                            >
+                                              <Pencil className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={() =>
+                                                handleDeleteExtinguisher(record)
+                                              }
+                                            >
+                                              <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                          </div>
+                                        </TableCell>
+                                      </TableRow>
+                                    ))
+                                  )}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </>
+                        )}
+
+                        {isHydrantInspection && (
+                          <>
+                            <div className="grid gap-3 md:grid-cols-3">
+                              <div className="rounded-lg border bg-background p-4">
+                                <p className="text-xs uppercase text-muted-foreground">
+                                  Total
+                                </p>
+                                <p className="mt-2 text-2xl font-bold">
+                                  {hydrantSummary.total}
+                                </p>
+                              </div>
+                              <div className="rounded-lg border bg-background p-4">
+                                <p className="text-xs uppercase text-muted-foreground">
+                                  Mangueiras vencidas
+                                </p>
+                                <p className="mt-2 text-2xl font-bold text-red-600">
+                                  {hydrantSummary.expiredHoses}
+                                </p>
+                              </div>
+                              <div className="rounded-lg border bg-background p-4">
+                                <p className="text-xs uppercase text-muted-foreground">
+                                  Componentes faltantes
+                                </p>
+                                <p className="mt-2 text-2xl font-bold text-amber-600">
+                                  {hydrantSummary.missingComponents}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="overflow-x-auto rounded-lg border bg-background">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>No.</TableHead>
+                                    <TableHead>Localizacao</TableHead>
+                                    <TableHead>Tipo de Hidrante</TableHead>
+                                    <TableHead>Mangueira 1</TableHead>
+                                    <TableHead>Mangueira 2</TableHead>
+                                    <TableHead>Esguicho</TableHead>
+                                    <TableHead>Chave</TableHead>
+                                    <TableHead>Status</TableHead>
+                                    <TableHead className="text-right">
+                                      Acoes
+                                    </TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {hydrants.length === 0 ? (
+                                    <TableRow>
+                                      <TableCell
+                                        colSpan={9}
+                                        className="text-center text-muted-foreground"
+                                      >
+                                        Nenhum hidrante cadastrado.
+                                      </TableCell>
+                                    </TableRow>
+                                  ) : (
+                                    hydrants.map((record) => (
+                                      <TableRow key={record.id}>
+                                        <TableCell className="font-medium">
+                                          {record.numero}
+                                        </TableCell>
+                                        <TableCell>{record.localizacao}</TableCell>
+                                        <TableCell>{record.tipo_hidrante}</TableCell>
+                                        <TableCell>
+                                          <div>{record.mangueira1_tipo}</div>
+                                          <p
+                                            className={cn(
+                                              "text-xs text-muted-foreground",
+                                              isDateExpired(
+                                                record.mangueira1_vencimento_teste_hidrostatico,
+                                              ) && "font-medium text-red-600",
+                                            )}
+                                          >
+                                            {formatMonthYear(
+                                              record.mangueira1_vencimento_teste_hidrostatico,
+                                            )}
+                                          </p>
+                                        </TableCell>
+                                        <TableCell>
+                                          {record.mangueira2_tipo ? (
+                                            <>
+                                              <div>{record.mangueira2_tipo}</div>
+                                              <p
+                                                className={cn(
+                                                  "text-xs text-muted-foreground",
+                                                  isDateExpired(
+                                                    record.mangueira2_vencimento_teste_hidrostatico,
+                                                  ) &&
+                                                    "font-medium text-red-600",
+                                                )}
+                                              >
+                                                {formatMonthYear(
+                                                  record.mangueira2_vencimento_teste_hidrostatico,
+                                                )}
+                                              </p>
+                                            </>
+                                          ) : (
+                                            <span className="text-muted-foreground">
+                                              -
+                                            </span>
+                                          )}
+                                        </TableCell>
+                                        <TableCell>
+                                          {record.esguicho ? "Sim" : "Nao"}
+                                        </TableCell>
+                                        <TableCell>
+                                          {record.chave_mangueira ? "Sim" : "Nao"}
+                                        </TableCell>
+                                        <TableCell>{record.status || "-"}</TableCell>
+                                        <TableCell className="text-right">
+                                          <div className="flex justify-end gap-2">
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={() => {
+                                                setEditingHydrant(record);
+                                                setHydrantDialogOpen(true);
+                                              }}
+                                            >
+                                              <Pencil className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={() =>
+                                                handleDeleteHydrant(record)
+                                              }
+                                            >
+                                              <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                          </div>
+                                        </TableCell>
+                                      </TableRow>
+                                    ))
+                                  )}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="px-4 pt-4 md:px-0 md:pt-0">
                 <div className="flex flex-wrap items-center gap-2 text-xs md:text-sm">
                   <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-700">
@@ -403,8 +889,12 @@ const CompanyChecklists = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {checklistRows.map((row) => {
+                    {(() => {
+                      let currentSection = "";
+
+                      return checklistRows.map((row) => {
                       if (row.type === "section") {
+                        currentSection = row.title;
                         return (
                           <TableRow key={row.key} className="bg-muted/25">
                             <TableCell className="font-medium whitespace-nowrap text-xs md:text-sm">
@@ -443,7 +933,13 @@ const CompanyChecklists = () => {
                         );
                       }
 
-                      const response = responses.get(row.itemId);
+                      const manualResponse = responses.get(row.itemId);
+                      const automaticResponse = automaticResponses.get(row.itemId);
+                      const response = mergedResponses.get(row.itemId);
+                      const equipmentRuleHint = getEquipmentRuleHint(
+                        currentSection,
+                        row.sourceItemNumber,
+                      );
 
                       return (
                         <TableRow key={row.key}>
@@ -456,6 +952,22 @@ const CompanyChecklists = () => {
                               <p className="mt-2 text-muted-foreground">
                                 {row.complement}
                               </p>
+                            )}
+                            {equipmentRuleHint && (
+                              <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+                                <span className="font-semibold">
+                                  {equipmentRuleHint.status
+                                    ? "Regra automatica"
+                                    : "Base de avaliacao"}
+                                  :
+                                </span>{" "}
+                                {equipmentRuleHint.message}
+                                {automaticResponse && !manualResponse && (
+                                  <span className="ml-2 inline-flex rounded-full border border-blue-300 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+                                    Status automatico
+                                  </span>
+                                )}
+                              </div>
                             )}
                           </TableCell>
                           {STATUS_ORDER.map((statusValue) => {
@@ -487,17 +999,54 @@ const CompanyChecklists = () => {
                                     {meta.shortLabel}
                                   </span>
                                 </button>
+                                {automaticResponse?.status === statusValue &&
+                                  !manualResponse && (
+                                    <div className="mt-1 text-[10px] font-medium uppercase text-blue-700">
+                                      Auto
+                                    </div>
+                                  )}
                               </TableCell>
                             );
                           })}
                         </TableRow>
                       );
-                    })}
+                    });
+                    })()}
                   </TableBody>
                 </Table>
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {id && (
+          <>
+            <ExtinguisherDialog
+              companyId={id}
+              open={extinguisherDialogOpen}
+              record={editingExtinguisher}
+              onOpenChange={(open) => {
+                setExtinguisherDialogOpen(open);
+                if (!open) {
+                  setEditingExtinguisher(null);
+                }
+              }}
+              onSaved={handleExtinguisherSaved}
+            />
+
+            <HydrantDialog
+              companyId={id}
+              open={hydrantDialogOpen}
+              record={editingHydrant}
+              onOpenChange={(open) => {
+                setHydrantDialogOpen(open);
+                if (!open) {
+                  setEditingHydrant(null);
+                }
+              }}
+              onSaved={handleHydrantSaved}
+            />
+          </>
         )}
       </div>
     </div>

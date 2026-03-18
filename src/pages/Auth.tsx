@@ -158,6 +158,7 @@ export default function Auth() {
                   id="login-email"
                   type="email"
                   placeholder="seu@email.com"
+                  autoComplete="email"
                   {...loginForm.register('email')}
                   disabled={isLoading}
                 />
@@ -172,6 +173,7 @@ export default function Auth() {
                   id="login-password"
                   type="password"
                   placeholder="••••••"
+                  autoComplete="current-password"
                   {...loginForm.register('password')}
                   disabled={isLoading}
                 />
@@ -204,6 +206,7 @@ export default function Auth() {
                   id="signup-nome"
                   type="text"
                   placeholder="Seu nome completo"
+                  autoComplete="name"
                   {...signupForm.register('nome')}
                   disabled={isLoading}
                 />
@@ -218,6 +221,7 @@ export default function Auth() {
                   id="signup-email"
                   type="email"
                   placeholder="seu@email.com"
+                  autoComplete="email"
                   {...signupForm.register('email')}
                   disabled={isLoading}
                 />
@@ -232,6 +236,7 @@ export default function Auth() {
                   id="signup-password"
                   type="password"
                   placeholder="••••••"
+                  autoComplete="new-password"
                   {...signupForm.register('password')}
                   disabled={isLoading}
                 />
@@ -246,6 +251,7 @@ export default function Auth() {
                   id="signup-confirm"
                   type="password"
                   placeholder="••••••"
+                  autoComplete="new-password"
                   {...signupForm.register('confirmPassword')}
                   disabled={isLoading}
                 />
