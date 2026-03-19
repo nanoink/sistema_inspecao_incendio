@@ -42,6 +42,27 @@ const buildResponsesMap = (
   return responses;
 };
 
+export const loadChecklistResponses = async (
+  supabase: AppSupabaseClient,
+  companyId?: string,
+) => {
+  if (!companyId) {
+    return new Map<string, ChecklistResponseShape>();
+  }
+
+  const responsesResult = await supabase
+    .from("empresa_checklist_respostas")
+    .select("checklist_item_id, status, observacoes, updated_at")
+    .eq("empresa_id", companyId)
+    .order("updated_at", { ascending: false });
+
+  if (responsesResult.error) {
+    throw responsesResult.error;
+  }
+
+  return buildResponsesMap(responsesResult.data as ChecklistResponseRow[] | null);
+};
+
 export const loadChecklistData = async (
   supabase: AppSupabaseClient,
   companyId?: string,
@@ -99,18 +120,6 @@ export const loadChecklistData = async (
     throw itemsResult.error;
   }
 
-  const responsesResult = companyId
-    ? await supabase
-        .from("empresa_checklist_respostas")
-        .select("checklist_item_id, status, observacoes, updated_at")
-        .eq("empresa_id", companyId)
-        .order("updated_at", { ascending: false })
-    : { data: null, error: null };
-
-  if (responsesResult.error) {
-    throw responsesResult.error;
-  }
-
   const itemsByGroup = new Map<string, ChecklistItemShape[]>();
   (itemsResult.data || []).forEach((item) => {
     const current = itemsByGroup.get(item.grupo_id) || [];
@@ -144,7 +153,7 @@ export const loadChecklistData = async (
   return {
     models,
     groupsByModel,
-    responses: buildResponsesMap(responsesResult.data as ChecklistResponseRow[] | null),
+    responses: await loadChecklistResponses(supabase, companyId),
   };
 };
 

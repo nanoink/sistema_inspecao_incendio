@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -7,6 +7,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import {
   EXTINGUISHER_TYPE_OPTIONS,
+  getNextEquipmentNumber,
+  type EquipmentChecklistSnapshot,
   monthInputToDateValue,
   saveExtinguisher,
   toMonthInputValue,
@@ -56,6 +58,7 @@ type ExtinguisherFormValues = z.infer<typeof extinguisherFormSchema>;
 
 interface ExtinguisherDialogProps {
   companyId: string;
+  checklistSnapshot: EquipmentChecklistSnapshot;
   open: boolean;
   record: ExtinguisherRecord | null;
   onOpenChange: (open: boolean) => void;
@@ -64,12 +67,14 @@ interface ExtinguisherDialogProps {
 
 export const ExtinguisherDialog = ({
   companyId,
+  checklistSnapshot,
   open,
   record,
   onOpenChange,
   onSaved,
 }: ExtinguisherDialogProps) => {
   const { toast } = useToast();
+  const [loadingNumber, setLoadingNumber] = useState(false);
   const form = useForm<ExtinguisherFormValues>({
     resolver: zodResolver(extinguisherFormSchema),
     defaultValues: {
@@ -88,6 +93,7 @@ export const ExtinguisherDialog = ({
     }
 
     if (record) {
+      setLoadingNumber(false);
       form.reset({
         numero: record.numero,
         localizacao: record.localizacao,
@@ -100,6 +106,7 @@ export const ExtinguisherDialog = ({
       return;
     }
 
+    setLoadingNumber(true);
     form.reset({
       numero: "",
       localizacao: "",
@@ -108,7 +115,33 @@ export const ExtinguisherDialog = ({
       vencimento_carga: "",
       vencimento_teste_hidrostatico_ano: new Date().getFullYear(),
     });
-  }, [form, open, record]);
+
+    const loadNextNumber = async () => {
+      try {
+        const nextNumber = await getNextEquipmentNumber(
+          supabase,
+          companyId,
+          "extintor",
+        );
+        form.setValue("numero", nextNumber, {
+          shouldDirty: false,
+          shouldTouch: false,
+          shouldValidate: true,
+        });
+      } catch (error) {
+        toast({
+          title: "Erro ao gerar numero do extintor",
+          description:
+            "Nao foi possivel consultar a proxima numeracao automatica.",
+          variant: "destructive",
+        });
+      } finally {
+        setLoadingNumber(false);
+      }
+    };
+
+    void loadNextNumber();
+  }, [companyId, form, open, record, toast]);
 
   const selectedType = form.watch("tipo");
   const selectedTypeConfig = EXTINGUISHER_TYPE_OPTIONS.find(
@@ -141,12 +174,20 @@ export const ExtinguisherDialog = ({
           vencimento_teste_hidrostatico_ano:
             values.vencimento_teste_hidrostatico_ano,
         },
-        record?.id,
+        {
+          recordId: record?.id,
+          existingToken: record?.public_token,
+          existingSnapshot: record?.checklist_snapshot,
+          checklistSnapshot,
+        },
       );
 
       toast({
         title: record ? "Extintor atualizado" : "Extintor cadastrado",
-        description: "Os dados do extintor foram salvos com sucesso.",
+        description:
+          saved.qr_code_url && saved.qr_code_svg
+            ? "Os dados do extintor e o QR Code foram salvos com sucesso."
+            : "Os dados do extintor foram salvos, mas o QR Code depende da migration complementar no banco.",
       });
 
       onSaved(saved);
@@ -186,7 +227,12 @@ export const ExtinguisherDialog = ({
                   <FormItem>
                     <FormLabel>No. do Extintor</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder="Ex.: 1" />
+                      <Input
+                        {...field}
+                        placeholder={loadingNumber ? "Gerando..." : "Ex.: 1"}
+                        disabled
+                        className="cursor-not-allowed bg-muted"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -217,7 +263,7 @@ export const ExtinguisherDialog = ({
                     <FormLabel>Tipo</FormLabel>
                     <Select
                       onValueChange={field.onChange}
-                      value={field.value || undefined}
+                      value={field.value ?? ""}
                     >
                       <FormControl>
                         <SelectTrigger>
@@ -245,7 +291,7 @@ export const ExtinguisherDialog = ({
                     <FormLabel>Carga Nominal</FormLabel>
                     <Select
                       onValueChange={field.onChange}
-                      value={field.value || undefined}
+                      value={field.value ?? ""}
                       disabled={!selectedTypeConfig}
                     >
                       <FormControl>
@@ -313,7 +359,10 @@ export const ExtinguisherDialog = ({
               >
                 Cancelar
               </Button>
-              <Button type="submit" disabled={form.formState.isSubmitting}>
+              <Button
+                type="submit"
+                disabled={form.formState.isSubmitting || loadingNumber}
+              >
                 {form.formState.isSubmitting && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}

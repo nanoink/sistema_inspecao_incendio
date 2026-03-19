@@ -1,24 +1,74 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   Database,
+  Json,
   Tables,
   TablesInsert,
   TablesUpdate,
 } from "@/integrations/supabase/types";
-import { isMissingRelationError } from "@/lib/supabase-errors";
+import {
+  buildChecklistSnapshot,
+  type ChecklistGroupWithItems,
+  type ChecklistModelShape,
+  type ChecklistResponseShape,
+  type ChecklistSnapshotInspection,
+  type ChecklistSnapshotItem,
+  type ChecklistSnapshotStatus,
+} from "@/lib/checklist";
+import {
+  isMissingEquipmentQrSchemaError,
+  isMissingRelationError,
+} from "@/lib/supabase-errors";
 
 type AppSupabaseClient = SupabaseClient<Database>;
 
+export type EquipmentType = "extintor" | "hidrante";
 export type ExtinguisherRecord = Tables<"empresa_extintores">;
 export type HydrantRecord = Tables<"empresa_hidrantes">;
 export type ExtinguisherPayload = TablesInsert<"empresa_extintores">;
 export type HydrantPayload = TablesInsert<"empresa_hidrantes">;
+export type EquipmentPublicPageRecord =
+  Database["public"]["Functions"]["get_equipment_qr_page"]["Returns"][number];
 export type AutoChecklistStatus = "C" | "NC" | "NA";
+
+export interface EquipmentChecklistSnapshot {
+  generated_at: string | null;
+  inspection_code: string;
+  inspection_name: string;
+  total: number;
+  conforme: number;
+  nao_conforme: number;
+  nao_aplicavel: number;
+  pendentes: number;
+  items: ChecklistSnapshotItem[];
+}
 
 export interface EquipmentRuleEvaluation {
   status?: AutoChecklistStatus;
   message: string;
 }
+
+interface SaveEquipmentOptions {
+  recordId?: string;
+  existingToken?: string | null;
+  existingSnapshot?: Json | null;
+  checklistSnapshot?: EquipmentChecklistSnapshot;
+}
+
+const EXTINGUISHER_INSPECTION_CODE = "A.23";
+const HYDRANT_INSPECTION_CODE = "A.25";
+
+const EMPTY_EQUIPMENT_CHECKLIST_SNAPSHOT: EquipmentChecklistSnapshot = {
+  generated_at: null,
+  inspection_code: "",
+  inspection_name: "",
+  total: 0,
+  conforme: 0,
+  nao_conforme: 0,
+  nao_aplicavel: 0,
+  pendentes: 0,
+  items: [],
+};
 
 export const EXTINGUISHER_TYPE_OPTIONS = [
   {
@@ -34,12 +84,32 @@ export const EXTINGUISHER_TYPE_OPTIONS = [
   {
     value: "Po ABC",
     label: "Po Quimico Seco PQS - ABC",
-    loadOptions: ["2 kg", "4 kg", "6 kg", "8 kg", "12 kg", "20 kg", "25 kg", "50 kg", "75 kg"],
+    loadOptions: [
+      "2 kg",
+      "4 kg",
+      "6 kg",
+      "8 kg",
+      "12 kg",
+      "20 kg",
+      "25 kg",
+      "50 kg",
+      "75 kg",
+    ],
   },
   {
     value: "Po BC",
     label: "Po Quimico Seco PQS - BC",
-    loadOptions: ["2 kg", "4 kg", "6 kg", "8 kg", "12 kg", "20 kg", "25 kg", "50 kg", "75 kg"],
+    loadOptions: [
+      "2 kg",
+      "4 kg",
+      "6 kg",
+      "8 kg",
+      "12 kg",
+      "20 kg",
+      "25 kg",
+      "50 kg",
+      "75 kg",
+    ],
   },
   {
     value: "CO2",
@@ -102,6 +172,187 @@ const normalizeDate = (value?: string | null) => {
 
   return date;
 };
+
+const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const toStringValue = (value: unknown) =>
+  typeof value === "string" ? value : "";
+
+const toNullableStringValue = (value: unknown) =>
+  typeof value === "string" ? value : null;
+
+const toNumberValue = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value) ? value : 0;
+
+const toSnapshotItem = (value: unknown): ChecklistSnapshotItem | null => {
+  if (!isObjectRecord(value)) {
+    return null;
+  }
+
+  return {
+    checklist_item_id: toStringValue(value.checklist_item_id),
+    item_numero: toStringValue(value.item_numero),
+    item_exibicao: toStringValue(value.item_exibicao),
+    secao: toStringValue(value.secao),
+    descricao: toStringValue(value.descricao),
+    status:
+      value.status === "C" ||
+      value.status === "NC" ||
+      value.status === "NA" ||
+      value.status === "P"
+        ? value.status
+        : "P",
+    observacoes: toNullableStringValue(value.observacoes),
+  };
+};
+
+const getInspectionCodeForType = (equipmentType: EquipmentType) =>
+  equipmentType === "extintor"
+    ? EXTINGUISHER_INSPECTION_CODE
+    : HYDRANT_INSPECTION_CODE;
+
+const getTableNameForEquipmentType = (equipmentType: EquipmentType) =>
+  equipmentType === "extintor" ? "empresa_extintores" : "empresa_hidrantes";
+
+export const buildEquipmentChecklistSnapshotFromItems = ({
+  inspectionCode,
+  inspectionName,
+  items,
+  generatedAt = new Date().toISOString(),
+}: {
+  inspectionCode: string;
+  inspectionName: string;
+  items: ChecklistSnapshotItem[];
+  generatedAt?: string;
+}): EquipmentChecklistSnapshot => ({
+  generated_at: generatedAt,
+  inspection_code: inspectionCode,
+  inspection_name: inspectionName,
+  total: items.length,
+  conforme: items.filter((item) => item.status === "C").length,
+  nao_conforme: items.filter((item) => item.status === "NC").length,
+  nao_aplicavel: items.filter((item) => item.status === "NA").length,
+  pendentes: items.filter((item) => item.status === "P").length,
+  items,
+});
+
+const buildEquipmentChecklistSnapshotFromInspection = (
+  inspection: ChecklistSnapshotInspection | undefined,
+  generatedAt: string,
+): EquipmentChecklistSnapshot => {
+  if (!inspection) {
+    return {
+      ...EMPTY_EQUIPMENT_CHECKLIST_SNAPSHOT,
+      generated_at: generatedAt,
+    };
+  }
+
+  return buildEquipmentChecklistSnapshotFromItems({
+    inspectionCode: inspection.codigo,
+    inspectionName: inspection.nome,
+    items: inspection.itens,
+    generatedAt,
+  });
+};
+
+export const mergeEquipmentChecklistSnapshotWithTemplate = ({
+  existingSnapshot,
+  templateSnapshot,
+  mode = "preserve",
+}: {
+  existingSnapshot?: Json | EquipmentChecklistSnapshot | null;
+  templateSnapshot: EquipmentChecklistSnapshot;
+  mode?: "preserve" | "overwrite";
+}) => {
+  const normalizedExisting = normalizeEquipmentChecklistSnapshot(existingSnapshot);
+
+  if (normalizedExisting.items.length === 0) {
+    return buildEquipmentChecklistSnapshotFromItems({
+      inspectionCode: templateSnapshot.inspection_code,
+      inspectionName: templateSnapshot.inspection_name,
+      items: templateSnapshot.items,
+      generatedAt: templateSnapshot.generated_at || new Date().toISOString(),
+    });
+  }
+
+  const existingItemsById = new Map(
+    normalizedExisting.items.map((item) => [item.checklist_item_id, item]),
+  );
+
+  const mergedItems = templateSnapshot.items.map((templateItem) => {
+    const existingItem = existingItemsById.get(templateItem.checklist_item_id);
+    if (!existingItem || mode === "overwrite") {
+      return templateItem;
+    }
+
+    return {
+      ...templateItem,
+      status: existingItem.status,
+      observacoes: existingItem.observacoes,
+    };
+  });
+
+  return buildEquipmentChecklistSnapshotFromItems({
+    inspectionCode: templateSnapshot.inspection_code,
+    inspectionName: templateSnapshot.inspection_name,
+    items: mergedItems,
+  });
+};
+
+const buildEquipmentMetadata = async ({
+  equipmentType,
+  existingToken,
+  existingSnapshot,
+  checklistSnapshot,
+}: {
+  equipmentType: EquipmentType;
+  existingToken?: string | null;
+  existingSnapshot?: Json | null;
+  checklistSnapshot?: EquipmentChecklistSnapshot;
+}) => {
+  const publicToken = existingToken || crypto.randomUUID();
+  const qrCodeUrl = buildEquipmentPublicUrl(equipmentType, publicToken);
+  const qrCodeSvg = await generateEquipmentQrSvg(qrCodeUrl);
+  const nextChecklistSnapshot = checklistSnapshot
+    ? mergeEquipmentChecklistSnapshotWithTemplate({
+        existingSnapshot,
+        templateSnapshot: checklistSnapshot,
+        mode: "preserve",
+      })
+    : normalizeEquipmentChecklistSnapshot(existingSnapshot);
+
+  return {
+    public_token: publicToken,
+    qr_code_url: qrCodeUrl,
+    qr_code_svg: qrCodeSvg,
+    checklist_snapshot:
+      nextChecklistSnapshot.items.length > 0
+        ? nextChecklistSnapshot
+        : EMPTY_EQUIPMENT_CHECKLIST_SNAPSHOT,
+  };
+};
+
+const withQrFallbackDefaults = <T extends Record<string, unknown>>(
+  data: T,
+  options: SaveEquipmentOptions,
+) =>
+  ({
+    ...data,
+    public_token:
+      typeof data.public_token === "string"
+        ? data.public_token
+        : options.existingToken || "",
+    qr_code_url:
+      typeof data.qr_code_url === "string" ? data.qr_code_url : null,
+    qr_code_svg:
+      typeof data.qr_code_svg === "string" ? data.qr_code_svg : null,
+    checklist_snapshot:
+      data.checklist_snapshot ||
+      options.existingSnapshot ||
+      options.checklistSnapshot ||
+      EMPTY_EQUIPMENT_CHECKLIST_SNAPSHOT,
+  }) as T;
 
 export const toMonthInputValue = (value?: string | null) =>
   value ? value.slice(0, 7) : "";
@@ -201,6 +452,281 @@ const formatJoinedList = (values: string[]) => {
   return unique.join(", ");
 };
 
+export const buildEquipmentPublicUrl = (
+  equipmentType: EquipmentType,
+  token: string,
+  origin =
+    (typeof import.meta !== "undefined" &&
+      import.meta.env?.VITE_PUBLIC_APP_URL?.trim()) ||
+    (typeof window !== "undefined" && window.location.origin
+      ? window.location.origin
+      : ""),
+) => {
+  const path = `/equipamentos/${equipmentType}/${token}`;
+  return origin ? `${origin.replace(/\/$/, "")}${path}` : path;
+};
+
+export const generateEquipmentQrSvg = async (url: string) => {
+  const { toString } = await import("qrcode");
+
+  return toString(url, {
+    type: "svg",
+    margin: 1,
+    width: 256,
+    color: {
+      dark: "#111827",
+      light: "#FFFFFFFF",
+    },
+  });
+};
+
+export const normalizeEquipmentChecklistSnapshot = (
+  value?: Json | null,
+): EquipmentChecklistSnapshot => {
+  if (!isObjectRecord(value)) {
+    return EMPTY_EQUIPMENT_CHECKLIST_SNAPSHOT;
+  }
+
+  const items = Array.isArray(value.items)
+    ? value.items
+        .map((item) => toSnapshotItem(item))
+        .filter((item): item is ChecklistSnapshotItem => item !== null)
+    : [];
+
+  return {
+    generated_at: toNullableStringValue(value.generated_at),
+    inspection_code: toStringValue(value.inspection_code),
+    inspection_name: toStringValue(value.inspection_name),
+    total: toNumberValue(value.total),
+    conforme: toNumberValue(value.conforme),
+    nao_conforme: toNumberValue(value.nao_conforme),
+    nao_aplicavel: toNumberValue(value.nao_aplicavel),
+    pendentes: toNumberValue(value.pendentes),
+    items,
+  };
+};
+
+export const updateEquipmentChecklistSnapshotItemStatus = (
+  snapshot: EquipmentChecklistSnapshot,
+  itemId: string,
+  status: ChecklistSnapshotStatus,
+) =>
+  buildEquipmentChecklistSnapshotFromItems({
+    inspectionCode: snapshot.inspection_code,
+    inspectionName: snapshot.inspection_name,
+    items: snapshot.items.map((item) =>
+      item.checklist_item_id === itemId
+        ? {
+            ...item,
+            status,
+          }
+        : item,
+    ),
+  });
+
+export const buildEquipmentChecklistSnapshots = ({
+  models,
+  groupsByModel,
+  responses,
+}: {
+  models: ChecklistModelShape[];
+  groupsByModel: Map<string, ChecklistGroupWithItems[]>;
+  responses: Map<string, ChecklistResponseShape>;
+}) => {
+  const fullSnapshot = buildChecklistSnapshot(models, groupsByModel, responses);
+  const extinguisherInspection = fullSnapshot.inspections.find(
+    (inspection) => inspection.codigo === EXTINGUISHER_INSPECTION_CODE,
+  );
+  const hydrantInspection = fullSnapshot.inspections.find(
+    (inspection) => inspection.codigo === HYDRANT_INSPECTION_CODE,
+  );
+
+  return {
+    extintor: buildEquipmentChecklistSnapshotFromInspection(
+      extinguisherInspection,
+      fullSnapshot.generated_at,
+    ),
+    hidrante: buildEquipmentChecklistSnapshotFromInspection(
+      hydrantInspection,
+      fullSnapshot.generated_at,
+    ),
+  };
+};
+
+export const syncEquipmentChecklistSnapshots = async (
+  supabase: AppSupabaseClient,
+  {
+    companyId,
+    extinguisherSnapshot,
+    hydrantSnapshot,
+    mode = "preserve",
+  }: {
+    companyId: string;
+    extinguisherSnapshot: EquipmentChecklistSnapshot;
+    hydrantSnapshot: EquipmentChecklistSnapshot;
+    mode?: "preserve" | "overwrite";
+  },
+) => {
+  const [extinguishersResult, hydrantsResult] = await Promise.all([
+    supabase
+      .from("empresa_extintores")
+      .select("id, checklist_snapshot")
+      .eq("empresa_id", companyId),
+    supabase
+      .from("empresa_hidrantes")
+      .select("id, checklist_snapshot")
+      .eq("empresa_id", companyId),
+  ]);
+
+  if (extinguishersResult.error) {
+    if (isMissingEquipmentQrSchemaError(extinguishersResult.error)) {
+      return false;
+    }
+    throw extinguishersResult.error;
+  }
+
+  if (hydrantsResult.error) {
+    if (isMissingEquipmentQrSchemaError(hydrantsResult.error)) {
+      return false;
+    }
+    throw hydrantsResult.error;
+  }
+
+  const extUpdates = (extinguishersResult.data || []).map((record) =>
+    supabase
+      .from("empresa_extintores")
+      .update({
+        checklist_snapshot: mergeEquipmentChecklistSnapshotWithTemplate({
+          existingSnapshot: record.checklist_snapshot,
+          templateSnapshot: extinguisherSnapshot,
+          mode,
+        }),
+      })
+      .eq("id", record.id),
+  );
+
+  const hydrantUpdates = (hydrantsResult.data || []).map((record) =>
+    supabase
+      .from("empresa_hidrantes")
+      .update({
+        checklist_snapshot: mergeEquipmentChecklistSnapshotWithTemplate({
+          existingSnapshot: record.checklist_snapshot,
+          templateSnapshot: hydrantSnapshot,
+          mode,
+        }),
+      })
+      .eq("id", record.id),
+  );
+
+  const updateResults = await Promise.all([...extUpdates, ...hydrantUpdates]);
+
+  const failedUpdate = updateResults.find((result) => result.error);
+  if (failedUpdate?.error) {
+    if (isMissingEquipmentQrSchemaError(failedUpdate.error)) {
+      return false;
+    }
+
+    throw failedUpdate.error;
+  }
+
+  return true;
+};
+
+export const ensureEquipmentQrCodes = async (
+  supabase: AppSupabaseClient,
+  {
+    extinguishers,
+    hydrants,
+    extinguisherSnapshot,
+    hydrantSnapshot,
+  }: {
+    extinguishers: ExtinguisherRecord[];
+    hydrants: HydrantRecord[];
+    extinguisherSnapshot: EquipmentChecklistSnapshot;
+    hydrantSnapshot: EquipmentChecklistSnapshot;
+  },
+) => {
+  const extinguisherUpdates = await Promise.all(
+    extinguishers
+      .filter((record) => !record.qr_code_svg || !record.qr_code_url)
+      .map((record) =>
+        saveExtinguisher(
+          supabase,
+          {
+            empresa_id: record.empresa_id,
+            numero: record.numero,
+            localizacao: record.localizacao,
+            tipo: record.tipo,
+            carga_nominal: record.carga_nominal,
+            vencimento_carga: record.vencimento_carga,
+            vencimento_teste_hidrostatico_ano:
+              record.vencimento_teste_hidrostatico_ano,
+          },
+          {
+            recordId: record.id,
+            existingToken: record.public_token,
+            existingSnapshot: record.checklist_snapshot,
+            checklistSnapshot: extinguisherSnapshot,
+          },
+        ),
+      ),
+  );
+
+  const hydrantUpdates = await Promise.all(
+    hydrants
+      .filter((record) => !record.qr_code_svg || !record.qr_code_url)
+      .map((record) =>
+        saveHydrant(
+          supabase,
+          {
+            empresa_id: record.empresa_id,
+            numero: record.numero,
+            localizacao: record.localizacao,
+            tipo_hidrante: record.tipo_hidrante,
+            mangueira1_tipo: record.mangueira1_tipo,
+            mangueira1_vencimento_teste_hidrostatico:
+              record.mangueira1_vencimento_teste_hidrostatico,
+            mangueira2_tipo: record.mangueira2_tipo,
+            mangueira2_vencimento_teste_hidrostatico:
+              record.mangueira2_vencimento_teste_hidrostatico,
+            esguicho: record.esguicho,
+            chave_mangueira: record.chave_mangueira,
+            status: record.status,
+          },
+          {
+            recordId: record.id,
+            existingToken: record.public_token,
+            existingSnapshot: record.checklist_snapshot,
+            checklistSnapshot: hydrantSnapshot,
+          },
+        ),
+      ),
+  );
+
+  return {
+    extinguishers:
+      extinguisherUpdates.length === 0
+        ? extinguishers
+        : sortByEquipmentNumber([
+            ...extinguishers.filter(
+              (record) =>
+                !extinguisherUpdates.some((updated) => updated.id === record.id),
+            ),
+            ...extinguisherUpdates,
+          ]),
+    hydrants:
+      hydrantUpdates.length === 0
+        ? hydrants
+        : sortByEquipmentNumber([
+            ...hydrants.filter(
+              (record) =>
+                !hydrantUpdates.some((updated) => updated.id === record.id),
+            ),
+            ...hydrantUpdates,
+          ]),
+  };
+};
+
 export const getExtinguisherRuleEvaluation = ({
   sectionTitle,
   itemNumber,
@@ -268,7 +794,8 @@ export const getExtinguisherRuleEvaluation = ({
     if (wheeledExtinguishers.length === 0) {
       return {
         status: "NA",
-        message: "Nenhum extintor sobre rodas cadastrado. Item tratado como nao aplicavel.",
+        message:
+          "Nenhum extintor sobre rodas cadastrado. Item tratado como nao aplicavel.",
       };
     }
 
@@ -287,7 +814,8 @@ export const getExtinguisherRuleEvaluation = ({
 
     return {
       status: "C",
-      message: "Nenhum vencimento de carga em aberto entre os extintores cadastrados. Item sinalizado automaticamente como conforme.",
+      message:
+        "Nenhum vencimento de carga em aberto entre os extintores cadastrados. Item sinalizado automaticamente como conforme.",
     };
   }
 
@@ -308,7 +836,8 @@ export const getExtinguisherRuleEvaluation = ({
     if (wheeledExtinguishers.length === 0) {
       return {
         status: "NA",
-        message: "Nenhum extintor sobre rodas cadastrado. Item tratado como nao aplicavel.",
+        message:
+          "Nenhum extintor sobre rodas cadastrado. Item tratado como nao aplicavel.",
       };
     }
 
@@ -369,38 +898,144 @@ export const loadChecklistEquipmentData = async (
   };
 };
 
-export const saveExtinguisher = async (
+export const loadEquipmentQrPage = async (
   supabase: AppSupabaseClient,
-  payload: ExtinguisherPayload,
-  recordId?: string,
+  token: string,
 ) => {
-  if (recordId) {
-    const updatePayload: TablesUpdate<"empresa_extintores"> = payload;
-    const { data, error } = await supabase
-      .from("empresa_extintores")
-      .update(updatePayload)
-      .eq("id", recordId)
-      .select()
-      .single();
-
-    if (error) {
-      throw error;
-    }
-
-    return data;
-  }
-
   const { data, error } = await supabase
-    .from("empresa_extintores")
-    .insert(payload)
-    .select()
-    .single();
+    .rpc("get_equipment_qr_page", { p_token: token })
+    .maybeSingle();
 
   if (error) {
     throw error;
   }
 
   return data;
+};
+
+export const saveEquipmentQrChecklist = async (
+  supabase: AppSupabaseClient,
+  {
+    token,
+    checklistSnapshot,
+  }: {
+    token: string;
+    checklistSnapshot: EquipmentChecklistSnapshot;
+  },
+) => {
+  const { data, error } = await supabase
+    .rpc("save_equipment_qr_checklist", {
+      p_token: token,
+      p_checklist_snapshot: checklistSnapshot,
+    })
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+};
+
+export const getNextEquipmentNumber = async (
+  supabase: AppSupabaseClient,
+  companyId: string,
+  equipmentType: EquipmentType,
+) => {
+  const tableName = getTableNameForEquipmentType(equipmentType);
+  const { data, count, error } = await supabase
+    .from(tableName)
+    .select("numero", { count: "exact" })
+    .eq("empresa_id", companyId);
+
+  if (error) {
+    throw error;
+  }
+
+  const existingNumbers = new Set(
+    (data || []).map((item) => item.numero.trim()).filter(Boolean),
+  );
+  let nextNumber = (count ?? data?.length ?? 0) + 1;
+
+  while (existingNumbers.has(String(nextNumber))) {
+    nextNumber += 1;
+  }
+
+  return String(nextNumber);
+};
+
+export const saveExtinguisher = async (
+  supabase: AppSupabaseClient,
+  payload: ExtinguisherPayload,
+  options: SaveEquipmentOptions = {},
+) => {
+  const metadata = await buildEquipmentMetadata({
+    equipmentType: "extintor",
+    existingToken: options.existingToken,
+    existingSnapshot: options.existingSnapshot,
+    checklistSnapshot: options.checklistSnapshot,
+  });
+  const nextPayload: ExtinguisherPayload = {
+    ...payload,
+    ...metadata,
+  };
+
+  if (options.recordId) {
+    const updatePayload: TablesUpdate<"empresa_extintores"> = nextPayload;
+    const result = await supabase
+      .from("empresa_extintores")
+      .update(updatePayload)
+      .eq("id", options.recordId)
+      .select()
+      .single();
+
+    if (!result.error) {
+      return result.data;
+    }
+
+    if (!isMissingEquipmentQrSchemaError(result.error)) {
+      throw result.error;
+    }
+
+    const fallbackResult = await supabase
+      .from("empresa_extintores")
+      .update(payload)
+      .eq("id", options.recordId)
+      .select()
+      .single();
+
+    if (fallbackResult.error) {
+      throw fallbackResult.error;
+    }
+
+    return withQrFallbackDefaults(fallbackResult.data, options);
+  }
+
+  const result = await supabase
+    .from("empresa_extintores")
+    .insert(nextPayload)
+    .select()
+    .single();
+
+  if (!result.error) {
+    return result.data;
+  }
+
+  if (!isMissingEquipmentQrSchemaError(result.error)) {
+    throw result.error;
+  }
+
+  const fallbackResult = await supabase
+    .from("empresa_extintores")
+    .insert(payload)
+    .select()
+    .single();
+
+  if (fallbackResult.error) {
+    throw fallbackResult.error;
+  }
+
+  return withQrFallbackDefaults(fallbackResult.data, options);
 };
 
 export const deleteExtinguisher = async (
@@ -420,35 +1055,75 @@ export const deleteExtinguisher = async (
 export const saveHydrant = async (
   supabase: AppSupabaseClient,
   payload: HydrantPayload,
-  recordId?: string,
+  options: SaveEquipmentOptions = {},
 ) => {
-  if (recordId) {
-    const updatePayload: TablesUpdate<"empresa_hidrantes"> = payload;
-    const { data, error } = await supabase
+  const metadata = await buildEquipmentMetadata({
+    equipmentType: "hidrante",
+    existingToken: options.existingToken,
+    existingSnapshot: options.existingSnapshot,
+    checklistSnapshot: options.checklistSnapshot,
+  });
+  const nextPayload: HydrantPayload = {
+    ...payload,
+    ...metadata,
+  };
+
+  if (options.recordId) {
+    const updatePayload: TablesUpdate<"empresa_hidrantes"> = nextPayload;
+    const result = await supabase
       .from("empresa_hidrantes")
       .update(updatePayload)
-      .eq("id", recordId)
+      .eq("id", options.recordId)
       .select()
       .single();
 
-    if (error) {
-      throw error;
+    if (!result.error) {
+      return result.data;
     }
 
-    return data;
+    if (!isMissingEquipmentQrSchemaError(result.error)) {
+      throw result.error;
+    }
+
+    const fallbackResult = await supabase
+      .from("empresa_hidrantes")
+      .update(payload)
+      .eq("id", options.recordId)
+      .select()
+      .single();
+
+    if (fallbackResult.error) {
+      throw fallbackResult.error;
+    }
+
+    return withQrFallbackDefaults(fallbackResult.data, options);
   }
 
-  const { data, error } = await supabase
+  const result = await supabase
+    .from("empresa_hidrantes")
+    .insert(nextPayload)
+    .select()
+    .single();
+
+  if (!result.error) {
+    return result.data;
+  }
+
+  if (!isMissingEquipmentQrSchemaError(result.error)) {
+    throw result.error;
+  }
+
+  const fallbackResult = await supabase
     .from("empresa_hidrantes")
     .insert(payload)
     .select()
     .single();
 
-  if (error) {
-    throw error;
+  if (fallbackResult.error) {
+    throw fallbackResult.error;
   }
 
-  return data;
+  return withQrFallbackDefaults(fallbackResult.data, options);
 };
 
 export const deleteHydrant = async (
@@ -463,4 +1138,18 @@ export const deleteHydrant = async (
   if (error) {
     throw error;
   }
+};
+
+export const getEquipmentChecklistSnapshotForType = (
+  equipmentType: EquipmentType,
+  snapshot?: Json | null,
+) => {
+  const normalized = normalizeEquipmentChecklistSnapshot(snapshot);
+  const expectedCode = getInspectionCodeForType(equipmentType);
+
+  if (normalized.inspection_code && normalized.inspection_code !== expectedCode) {
+    return EMPTY_EQUIPMENT_CHECKLIST_SNAPSHOT;
+  }
+
+  return normalized;
 };

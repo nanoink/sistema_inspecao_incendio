@@ -290,11 +290,15 @@ export type Database = {
       empresa_extintores: {
         Row: {
           carga_nominal: string
+          checklist_snapshot: Json
           created_at: string
           empresa_id: string
           id: string
           localizacao: string
           numero: string
+          public_token: string
+          qr_code_svg: string | null
+          qr_code_url: string | null
           tipo: string
           updated_at: string
           vencimento_carga: string
@@ -302,11 +306,15 @@ export type Database = {
         }
         Insert: {
           carga_nominal: string
+          checklist_snapshot?: Json
           created_at?: string
           empresa_id: string
           id?: string
           localizacao: string
           numero: string
+          public_token?: string
+          qr_code_svg?: string | null
+          qr_code_url?: string | null
           tipo: string
           updated_at?: string
           vencimento_carga: string
@@ -314,11 +322,15 @@ export type Database = {
         }
         Update: {
           carga_nominal?: string
+          checklist_snapshot?: Json
           created_at?: string
           empresa_id?: string
           id?: string
           localizacao?: string
           numero?: string
+          public_token?: string
+          qr_code_svg?: string | null
+          qr_code_url?: string | null
           tipo?: string
           updated_at?: string
           vencimento_carga?: string
@@ -337,6 +349,7 @@ export type Database = {
       empresa_hidrantes: {
         Row: {
           chave_mangueira: boolean
+          checklist_snapshot: Json
           created_at: string
           empresa_id: string
           esguicho: boolean
@@ -347,12 +360,16 @@ export type Database = {
           mangueira2_tipo: string | null
           mangueira2_vencimento_teste_hidrostatico: string | null
           numero: string
+          public_token: string
+          qr_code_svg: string | null
+          qr_code_url: string | null
           status: string | null
           tipo_hidrante: string
           updated_at: string
         }
         Insert: {
           chave_mangueira?: boolean
+          checklist_snapshot?: Json
           created_at?: string
           empresa_id: string
           esguicho?: boolean
@@ -363,12 +380,16 @@ export type Database = {
           mangueira2_tipo?: string | null
           mangueira2_vencimento_teste_hidrostatico?: string | null
           numero: string
+          public_token?: string
+          qr_code_svg?: string | null
+          qr_code_url?: string | null
           status?: string | null
           tipo_hidrante: string
           updated_at?: string
         }
         Update: {
           chave_mangueira?: boolean
+          checklist_snapshot?: Json
           created_at?: string
           empresa_id?: string
           esguicho?: boolean
@@ -379,6 +400,9 @@ export type Database = {
           mangueira2_tipo?: string | null
           mangueira2_vencimento_teste_hidrostatico?: string | null
           numero?: string
+          public_token?: string
+          qr_code_svg?: string | null
+          qr_code_url?: string | null
           status?: string | null
           tipo_hidrante?: string
           updated_at?: string
@@ -742,9 +766,35 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_equipment_qr_page: {
+        Args: { p_token: string }
+        Returns: {
+          checklist_snapshot: Json
+          empresa_id: string
+          empresa_razao_social: string
+          equipment_data: Json
+          equipment_id: string
+          equipment_type: string
+          localizacao: string
+          numero: string
+          qr_code_svg: string | null
+          qr_code_url: string | null
+          subtitulo: string
+          titulo: string
+        }[]
+      }
       normalize_divisao_codigo: {
         Args: { p_value: string | null }
         Returns: string | null
+      }
+      save_equipment_qr_checklist: {
+        Args: { p_checklist_snapshot: Json; p_token: string }
+        Returns: {
+          checklist_snapshot: Json
+          empresa_id: string
+          equipment_id: string
+          equipment_type: string
+        }[]
       }
       resolve_exigencias_empresa: {
         Args: {

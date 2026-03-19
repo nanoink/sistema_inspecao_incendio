@@ -9,6 +9,7 @@ import Index from "./pages/Index";
 import CompanyRequirements from "./pages/CompanyRequirements";
 import CompanyChecklists from "./pages/CompanyChecklists";
 import CompanyReport from "./pages/CompanyReport";
+import EquipmentChecklistPage from "./pages/EquipmentChecklistPage";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
@@ -19,7 +20,12 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <BrowserRouter>
+      <BrowserRouter
+        future={{
+          v7_startTransition: true,
+          v7_relativeSplatPath: true,
+        }}
+      >
         <Routes>
           <Route path="/auth" element={<Auth />} />
           <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
@@ -27,6 +33,7 @@ const App = () => (
           <Route path="/exigencias/:id" element={<ProtectedRoute><CompanyRequirements /></ProtectedRoute>} />
           <Route path="/checklists/:id" element={<ProtectedRoute><CompanyChecklists /></ProtectedRoute>} />
           <Route path="/relatorios/:id" element={<ProtectedRoute><CompanyReport /></ProtectedRoute>} />
+          <Route path="/equipamentos/:kind/:token" element={<EquipmentChecklistPage />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

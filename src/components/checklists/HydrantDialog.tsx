@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -6,8 +6,10 @@ import { Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import {
+  getNextEquipmentNumber,
   HOSE_TYPE_OPTIONS,
   HYDRANT_TYPE_OPTIONS,
+  type EquipmentChecklistSnapshot,
   YES_NO_OPTIONS,
   monthInputToDateValue,
   saveHydrant,
@@ -81,6 +83,7 @@ type HydrantFormValues = z.infer<typeof hydrantFormSchema>;
 
 interface HydrantDialogProps {
   companyId: string;
+  checklistSnapshot: EquipmentChecklistSnapshot;
   open: boolean;
   record: HydrantRecord | null;
   onOpenChange: (open: boolean) => void;
@@ -89,12 +92,14 @@ interface HydrantDialogProps {
 
 export const HydrantDialog = ({
   companyId,
+  checklistSnapshot,
   open,
   record,
   onOpenChange,
   onSaved,
 }: HydrantDialogProps) => {
   const { toast } = useToast();
+  const [loadingNumber, setLoadingNumber] = useState(false);
   const form = useForm<HydrantFormValues>({
     resolver: zodResolver(hydrantFormSchema),
     defaultValues: {
@@ -117,6 +122,7 @@ export const HydrantDialog = ({
     }
 
     if (record) {
+      setLoadingNumber(false);
       form.reset({
         numero: record.numero,
         localizacao: record.localizacao,
@@ -136,6 +142,7 @@ export const HydrantDialog = ({
       return;
     }
 
+    setLoadingNumber(true);
     form.reset({
       numero: "",
       localizacao: "",
@@ -148,7 +155,33 @@ export const HydrantDialog = ({
       chave_mangueira: "true",
       status: "",
     });
-  }, [form, open, record]);
+
+    const loadNextNumber = async () => {
+      try {
+        const nextNumber = await getNextEquipmentNumber(
+          supabase,
+          companyId,
+          "hidrante",
+        );
+        form.setValue("numero", nextNumber, {
+          shouldDirty: false,
+          shouldTouch: false,
+          shouldValidate: true,
+        });
+      } catch (error) {
+        toast({
+          title: "Erro ao gerar numero do hidrante",
+          description:
+            "Nao foi possivel consultar a proxima numeracao automatica.",
+          variant: "destructive",
+        });
+      } finally {
+        setLoadingNumber(false);
+      }
+    };
+
+    void loadNextNumber();
+  }, [companyId, form, open, record, toast]);
 
   const handleSubmit = async (values: HydrantFormValues) => {
     try {
@@ -173,12 +206,20 @@ export const HydrantDialog = ({
           chave_mangueira: values.chave_mangueira === "true",
           status: values.status?.trim() || null,
         },
-        record?.id,
+        {
+          recordId: record?.id,
+          existingToken: record?.public_token,
+          existingSnapshot: record?.checklist_snapshot,
+          checklistSnapshot,
+        },
       );
 
       toast({
         title: record ? "Hidrante atualizado" : "Hidrante cadastrado",
-        description: "Os dados do hidrante foram salvos com sucesso.",
+        description:
+          saved.qr_code_url && saved.qr_code_svg
+            ? "Os dados do hidrante e o QR Code foram salvos com sucesso."
+            : "Os dados do hidrante foram salvos, mas o QR Code depende da migration complementar no banco.",
       });
 
       onSaved(saved);
@@ -218,7 +259,12 @@ export const HydrantDialog = ({
                   <FormItem>
                     <FormLabel>No.</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder="Ex.: 1" />
+                      <Input
+                        {...field}
+                        placeholder={loadingNumber ? "Gerando..." : "Ex.: 1"}
+                        disabled
+                        className="cursor-not-allowed bg-muted"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -248,7 +294,7 @@ export const HydrantDialog = ({
                   <FormLabel>Tipo de Hidrante</FormLabel>
                   <Select
                     onValueChange={field.onChange}
-                    value={field.value || undefined}
+                    value={field.value ?? ""}
                   >
                     <FormControl>
                       <SelectTrigger>
@@ -279,7 +325,7 @@ export const HydrantDialog = ({
                       <FormLabel>Tipo</FormLabel>
                       <Select
                         onValueChange={field.onChange}
-                        value={field.value || undefined}
+                        value={field.value ?? ""}
                       >
                         <FormControl>
                           <SelectTrigger>
@@ -326,7 +372,7 @@ export const HydrantDialog = ({
                       <FormLabel>Tipo</FormLabel>
                       <Select
                         onValueChange={field.onChange}
-                        value={field.value || undefined}
+                        value={field.value ?? ""}
                       >
                         <FormControl>
                           <SelectTrigger>
@@ -371,7 +417,7 @@ export const HydrantDialog = ({
                     <FormLabel>Esguicho</FormLabel>
                     <Select
                       onValueChange={field.onChange}
-                      value={field.value || undefined}
+                      value={field.value ?? ""}
                     >
                       <FormControl>
                         <SelectTrigger>
@@ -399,7 +445,7 @@ export const HydrantDialog = ({
                     <FormLabel>Chave de Mangueira</FormLabel>
                     <Select
                       onValueChange={field.onChange}
-                      value={field.value || undefined}
+                      value={field.value ?? ""}
                     >
                       <FormControl>
                         <SelectTrigger>
@@ -442,7 +488,10 @@ export const HydrantDialog = ({
               >
                 Cancelar
               </Button>
-              <Button type="submit" disabled={form.formState.isSubmitting}>
+              <Button
+                type="submit"
+                disabled={form.formState.isSubmitting || loadingNumber}
+              >
                 {form.formState.isSubmitting && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
