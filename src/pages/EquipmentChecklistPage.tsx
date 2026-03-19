@@ -4,6 +4,7 @@ import {
   Loader2,
   Flame,
   Droplets,
+  Lightbulb,
   ShieldCheck,
   Check,
   Minus,
@@ -18,12 +19,19 @@ import {
   getEquipmentChecklistSnapshotForType,
   loadEquipmentQrPage,
   saveEquipmentQrChecklist,
-  updateEquipmentChecklistSnapshotItemStatus,
+  updateEquipmentChecklistSnapshotItem,
   type EquipmentChecklistSnapshot,
   type EquipmentPublicPageRecord,
   type EquipmentType,
 } from "@/lib/checklist-equipment";
 import { broadcastEquipmentChecklistUpdate } from "@/lib/equipment-checklist-sync";
+import {
+  loadChecklistNonConformities,
+  mapChecklistNonConformitiesByItemId,
+  saveChecklistNonConformity,
+  type ChecklistNonConformityRecord,
+} from "@/lib/checklist-non-conformities";
+import { ChecklistNonConformityDialog } from "@/components/checklists/ChecklistNonConformityDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -127,6 +135,21 @@ const renderEquipmentDetails = (
     ];
   }
 
+  if (equipmentType === "luminaria") {
+    return [
+      { label: "Numero", value: String(equipmentData.numero || "-") },
+      { label: "Localizacao", value: String(equipmentData.localizacao || "-") },
+      {
+        label: "Tipo de luminaria",
+        value: String(equipmentData.tipo_luminaria || "-"),
+      },
+      {
+        label: "Status",
+        value: String(equipmentData.status || "-"),
+      },
+    ];
+  }
+
   return [
     { label: "Numero", value: String(equipmentData.numero || "-") },
     { label: "Localizacao", value: String(equipmentData.localizacao || "-") },
@@ -172,11 +195,26 @@ const renderEquipmentDetails = (
   ];
 };
 
+const applyNonConformityDescriptionsToSnapshot = (
+  snapshot: EquipmentChecklistSnapshot,
+  recordsMap: Map<string, ChecklistNonConformityRecord>,
+) =>
+  ({
+    ...snapshot,
+    items: snapshot.items.map((item) => ({
+      ...item,
+      observacoes:
+        item.status === "NC"
+          ? recordsMap.get(item.checklist_item_id)?.descricao || item.observacoes
+          : null,
+    })),
+  }) satisfies EquipmentChecklistSnapshot;
+
 const EquipmentChecklistPage = () => {
   const { kind, token } = useParams<{ kind: string; token: string }>();
   const { toast } = useToast();
   const equipmentType =
-    kind === "extintor" || kind === "hidrante"
+    kind === "extintor" || kind === "hidrante" || kind === "luminaria"
       ? (kind as EquipmentType)
       : null;
   const [record, setRecord] = useState<EquipmentPublicPageRecord | null>(null);
@@ -186,6 +224,14 @@ const EquipmentChecklistPage = () => {
   const [saveIndicator, setSaveIndicator] =
     useState<SaveIndicatorState>("idle");
   const [notFound, setNotFound] = useState(false);
+  const [nonConformities, setNonConformities] = useState<
+    Map<string, ChecklistNonConformityRecord>
+  >(new Map());
+  const [selectedNonConformityItem, setSelectedNonConformityItem] = useState<
+    EquipmentChecklistSnapshot["items"][number] | null
+  >(null);
+  const [nonConformityDialogOpen, setNonConformityDialogOpen] = useState(false);
+  const [savingNonConformity, setSavingNonConformity] = useState(false);
   const confirmedSnapshotRef = useRef<EquipmentChecklistSnapshot | null>(null);
   const activeSnapshotRef = useRef<EquipmentChecklistSnapshot | null>(null);
   const pendingSnapshotRef = useRef<EquipmentChecklistSnapshot | null>(null);
@@ -302,14 +348,30 @@ const EquipmentChecklistPage = () => {
           setNotFound(true);
           setRecord(null);
           setChecklistSnapshot(null);
+          setNonConformities(new Map());
           return;
         }
 
-        const nextSnapshot = getEquipmentChecklistSnapshotForType(
-          equipmentType,
-          data.checklist_snapshot,
+        const existingNonConformities = await loadChecklistNonConformities(
+          supabase,
+          {
+            companyId: data.empresa_id,
+            equipmentType,
+            equipmentRecordId: data.equipment_id,
+          },
+        );
+        const nonConformitiesMap = mapChecklistNonConformitiesByItemId(
+          existingNonConformities,
+        );
+        const nextSnapshot = applyNonConformityDescriptionsToSnapshot(
+          getEquipmentChecklistSnapshotForType(
+            equipmentType,
+            data.checklist_snapshot,
+          ),
+          nonConformitiesMap,
         );
         setRecord(data);
+        setNonConformities(nonConformitiesMap);
         setChecklistSnapshot(nextSnapshot);
         activeSnapshotRef.current = nextSnapshot;
         confirmedSnapshotRef.current = nextSnapshot;
@@ -321,6 +383,7 @@ const EquipmentChecklistPage = () => {
         setNotFound(true);
         setRecord(null);
         setChecklistSnapshot(null);
+        setNonConformities(new Map());
         activeSnapshotRef.current = null;
         confirmedSnapshotRef.current = null;
         pendingSnapshotRef.current = null;
@@ -332,6 +395,17 @@ const EquipmentChecklistPage = () => {
     void fetchRecord();
   }, [equipmentType, token]);
 
+  const queueSnapshotSave = useCallback(
+    (nextSnapshot: EquipmentChecklistSnapshot) => {
+      activeSnapshotRef.current = nextSnapshot;
+      setChecklistSnapshot(nextSnapshot);
+      pendingSnapshotRef.current = nextSnapshot;
+      setSaveIndicator("saving");
+      void flushPendingSave();
+    },
+    [flushPendingSave],
+  );
+
   const handleStatusChange = (
     itemId: string,
     status: EquipmentChecklistStatus,
@@ -342,17 +416,85 @@ const EquipmentChecklistPage = () => {
       return;
     }
 
-    const nextSnapshot = updateEquipmentChecklistSnapshotItemStatus(
+    const existingNonConformity = nonConformities.get(itemId);
+    const nextSnapshot = updateEquipmentChecklistSnapshotItem(
       currentSnapshot,
       itemId,
-      status,
+      {
+        status,
+        observacoes:
+          status === "NC" ? existingNonConformity?.descricao || null : null,
+      },
     );
 
-    activeSnapshotRef.current = nextSnapshot;
-    setChecklistSnapshot(nextSnapshot);
-    pendingSnapshotRef.current = nextSnapshot;
-    setSaveIndicator("saving");
-    void flushPendingSave();
+    queueSnapshotSave(nextSnapshot);
+  };
+
+  const openNonConformityDialog = (
+    item: EquipmentChecklistSnapshot["items"][number],
+  ) => {
+    if (item.status !== "NC") {
+      return;
+    }
+
+    setSelectedNonConformityItem(item);
+    setNonConformityDialogOpen(true);
+  };
+
+  const handleSaveNonConformity = async ({
+    description,
+    imageDataUrl,
+  }: {
+    description: string;
+    imageDataUrl: string;
+  }) => {
+    if (!record || !selectedNonConformityItem) {
+      return;
+    }
+
+    try {
+      setSavingNonConformity(true);
+      const savedRecord = await saveChecklistNonConformity(supabase, {
+        companyId: record.empresa_id,
+        checklistItemId: selectedNonConformityItem.checklist_item_id,
+        description,
+        imageDataUrl,
+        equipmentType,
+        equipmentRecordId: record.equipment_id,
+      });
+
+      if (savedRecord) {
+        setNonConformities((previous) => {
+          const next = new Map(previous);
+          next.set(savedRecord.checklist_item_id, savedRecord);
+          return next;
+        });
+      }
+
+      const currentSnapshot = activeSnapshotRef.current;
+      if (currentSnapshot) {
+        const nextSnapshot = updateEquipmentChecklistSnapshotItem(
+          currentSnapshot,
+          selectedNonConformityItem.checklist_item_id,
+          {
+            observacoes: description,
+          },
+        );
+        queueSnapshotSave(nextSnapshot);
+      }
+
+      setNonConformityDialogOpen(false);
+    } catch (error) {
+      console.error("Error saving equipment non conformity:", error);
+      toast({
+        title: "Erro ao salvar nao conformidade",
+        description:
+          "Nao foi possivel registrar a descricao e a imagem desta nao conformidade.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingNonConformity(false);
+    }
   };
 
   const equipmentData = isObjectRecord(record?.equipment_data)
@@ -396,7 +538,12 @@ const EquipmentChecklistPage = () => {
     );
   }
 
-  const Icon = equipmentType === "extintor" ? Flame : Droplets;
+  const Icon =
+    equipmentType === "extintor"
+      ? Flame
+      : equipmentType === "hidrante"
+        ? Droplets
+        : Lightbulb;
   const detailRows = renderEquipmentDetails(equipmentType, equipmentData);
 
   return (
@@ -534,6 +681,11 @@ const EquipmentChecklistPage = () => {
                           const showSectionHeader =
                             index === 0 ||
                             checklistSnapshot.items[index - 1]?.secao !== item.secao;
+                          const nonConformityRecord = nonConformities.get(
+                            item.checklist_item_id,
+                          );
+                          const canOpenNonConformityDialog =
+                            item.status === "NC";
 
                           return (
                             <Fragment key={item.checklist_item_id}>
@@ -557,7 +709,17 @@ const EquipmentChecklistPage = () => {
                                 </TableRow>
                               )}
 
-                              <TableRow>
+                              <TableRow
+                                onClick={
+                                  canOpenNonConformityDialog
+                                    ? () => openNonConformityDialog(item)
+                                    : undefined
+                                }
+                                className={cn(
+                                  canOpenNonConformityDialog &&
+                                    "cursor-pointer transition-colors hover:bg-red-50/40",
+                                )}
+                              >
                                 <TableCell className="font-medium whitespace-nowrap text-xs md:text-sm">
                                   {item.item_exibicao}
                                 </TableCell>
@@ -569,6 +731,18 @@ const EquipmentChecklistPage = () => {
                                     <p className="mt-2 text-xs text-muted-foreground">
                                       Obs.: {item.observacoes}
                                     </p>
+                                  )}
+                                  {canOpenNonConformityDialog && (
+                                    <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                                      <span className="font-semibold">
+                                        {nonConformityRecord
+                                          ? "Nao conformidade registrada:"
+                                          : "Registro pendente:"}
+                                      </span>{" "}
+                                      {nonConformityRecord
+                                        ? "clique na linha para editar a descricao e a imagem."
+                                        : "clique na linha para descrever e anexar a imagem desta nao conformidade."}
+                                    </div>
                                   )}
                                 </TableCell>
                                 {STATUS_ORDER.map((statusValue) => {
@@ -585,12 +759,13 @@ const EquipmentChecklistPage = () => {
                                         type="button"
                                         aria-pressed={isActive}
                                         aria-label={`${meta.label} para item ${item.item_exibicao}`}
-                                        onClick={() =>
+                                        onClick={(event) => {
+                                          event.stopPropagation();
                                           handleStatusChange(
                                             item.checklist_item_id,
                                             statusValue,
-                                          )
-                                        }
+                                          );
+                                        }}
                                         className={cn(
                                           "inline-flex min-h-9 min-w-9 items-center justify-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                                           isActive
@@ -619,6 +794,37 @@ const EquipmentChecklistPage = () => {
           </div>
         </div>
       </div>
+
+      <ChecklistNonConformityDialog
+        open={nonConformityDialogOpen}
+        onOpenChange={(open) => {
+          setNonConformityDialogOpen(open);
+          if (!open) {
+            setSelectedNonConformityItem(null);
+          }
+        }}
+        itemLabel={
+          selectedNonConformityItem
+            ? `Item ${selectedNonConformityItem.item_exibicao} - ${selectedNonConformityItem.secao}`
+            : undefined
+        }
+        initialDescription={
+          selectedNonConformityItem
+            ? nonConformities.get(selectedNonConformityItem.checklist_item_id)
+                ?.descricao ||
+              selectedNonConformityItem.observacoes ||
+              ""
+            : ""
+        }
+        initialImageDataUrl={
+          selectedNonConformityItem
+            ? nonConformities.get(selectedNonConformityItem.checklist_item_id)
+                ?.imagem_data_url || ""
+            : ""
+        }
+        saving={savingNonConformity}
+        onSave={handleSaveNonConformity}
+      />
     </div>
   );
 };

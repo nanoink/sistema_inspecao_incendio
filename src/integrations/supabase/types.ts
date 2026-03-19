@@ -417,6 +417,59 @@ export type Database = {
           },
         ]
       }
+      empresa_luminarias: {
+        Row: {
+          checklist_snapshot: Json
+          created_at: string
+          empresa_id: string
+          id: string
+          localizacao: string
+          numero: string
+          public_token: string
+          qr_code_svg: string | null
+          qr_code_url: string | null
+          status: string
+          tipo_luminaria: string
+          updated_at: string
+        }
+        Insert: {
+          checklist_snapshot?: Json
+          created_at?: string
+          empresa_id: string
+          id?: string
+          localizacao: string
+          numero: string
+          public_token?: string
+          qr_code_svg?: string | null
+          qr_code_url?: string | null
+          status: string
+          tipo_luminaria: string
+          updated_at?: string
+        }
+        Update: {
+          checklist_snapshot?: Json
+          created_at?: string
+          empresa_id?: string
+          id?: string
+          localizacao?: string
+          numero?: string
+          public_token?: string
+          qr_code_svg?: string | null
+          qr_code_url?: string | null
+          status?: string
+          tipo_luminaria?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_luminarias_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresa"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       empresa_checklist_respostas: {
         Row: {
           checklist_item_id: string
@@ -455,6 +508,60 @@ export type Database = {
           },
           {
             foreignKeyName: "empresa_checklist_respostas_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresa"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      empresa_checklist_nao_conformidades: {
+        Row: {
+          checklist_item_id: string
+          context_key: string
+          created_at: string
+          descricao: string
+          empresa_id: string
+          equipment_record_id: string | null
+          equipment_type: string | null
+          id: string
+          imagem_data_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          checklist_item_id: string
+          context_key: string
+          created_at?: string
+          descricao?: string
+          empresa_id: string
+          equipment_record_id?: string | null
+          equipment_type?: string | null
+          id?: string
+          imagem_data_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          checklist_item_id?: string
+          context_key?: string
+          created_at?: string
+          descricao?: string
+          empresa_id?: string
+          equipment_record_id?: string | null
+          equipment_type?: string | null
+          id?: string
+          imagem_data_url?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_checklist_nao_conformidades_checklist_item_id_fkey"
+            columns: ["checklist_item_id"]
+            isOneToOne: false
+            referencedRelation: "checklist_itens_modelo"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "empresa_checklist_nao_conformidades_empresa_id_fkey"
             columns: ["empresa_id"]
             isOneToOne: false
             referencedRelation: "empresa"

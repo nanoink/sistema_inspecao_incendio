@@ -57,12 +57,21 @@ import {
 } from "@/lib/supabase-errors";
 import { ExtinguisherDialog } from "@/components/checklists/ExtinguisherDialog";
 import { HydrantDialog } from "@/components/checklists/HydrantDialog";
+import { LuminaireDialog } from "@/components/checklists/LuminaireDialog";
 import { EquipmentQrDialog } from "@/components/checklists/EquipmentQrDialog";
+import { ChecklistNonConformityDialog } from "@/components/checklists/ChecklistNonConformityDialog";
+import {
+  EquipmentNonConformitiesDialog,
+  EquipmentNonConformityViewerDialog,
+  type EquipmentNonConformityEntry,
+} from "@/components/checklists/EquipmentNonConformitiesDialog";
 import {
   buildEquipmentChecklistSnapshots,
   buildEquipmentPublicUrl,
   buildExtinguisherSummary,
   buildHydrantSummary,
+  buildLuminaireSummary,
+  deleteLuminaire,
   deleteExtinguisher,
   deleteHydrant,
   ensureEquipmentQrCodes,
@@ -74,10 +83,20 @@ import {
   loadChecklistEquipmentData,
   normalizeEquipmentChecklistSnapshot,
   sortByEquipmentNumber,
+  type EquipmentChecklistSnapshot,
   type EquipmentType,
   type ExtinguisherRecord,
   type HydrantRecord,
+  type LuminaireRecord,
 } from "@/lib/checklist-equipment";
+import {
+  groupChecklistNonConformitiesByEquipmentRecordId,
+  loadEquipmentChecklistNonConformitiesByType,
+  loadChecklistNonConformities,
+  mapChecklistNonConformitiesByItemId,
+  saveChecklistNonConformity,
+  type ChecklistNonConformityRecord,
+} from "@/lib/checklist-non-conformities";
 
 interface Company {
   id: string;
@@ -149,6 +168,132 @@ const getInspectionIcon = (name: string) => {
 const buildEquipmentMirrorKey = (sectionTitle: string, itemDisplay: string) =>
   `${sectionTitle.trim()}::${itemDisplay.trim()}`;
 
+const buildMirroredEquipmentResponses = (
+  templateItems: EquipmentChecklistSnapshot["items"],
+  equipmentRecords: Array<{ checklist_snapshot: unknown }>,
+  nonConformingMessage: string,
+) => {
+  if (templateItems.length === 0) {
+    return new Map<string, ChecklistResponseShape>();
+  }
+
+  const equipmentItemMaps = equipmentRecords.map((record) => {
+    const snapshot = normalizeEquipmentChecklistSnapshot(record.checklist_snapshot);
+
+    return new Map(
+      snapshot.items.map((item) => [
+        buildEquipmentMirrorKey(item.secao, item.item_exibicao),
+        item.status,
+      ]),
+    );
+  });
+
+  const next = new Map<string, ChecklistResponseShape>();
+
+  templateItems.forEach((templateItem) => {
+    const templateKey = buildEquipmentMirrorKey(
+      templateItem.secao,
+      templateItem.item_exibicao,
+    );
+    const statuses = equipmentItemMaps
+      .map((itemsMap) => itemsMap.get(templateKey))
+      .filter(
+        (status): status is ChecklistStatus =>
+          status === "C" || status === "NC" || status === "NA",
+      );
+
+    if (statuses.some((status) => status === "NC")) {
+      next.set(templateItem.checklist_item_id, {
+        checklist_item_id: templateItem.checklist_item_id,
+        status: "NC",
+        observacoes: nonConformingMessage,
+      });
+      return;
+    }
+
+    if (statuses.length > 0 && statuses.every((status) => status === "NA")) {
+      next.set(templateItem.checklist_item_id, {
+        checklist_item_id: templateItem.checklist_item_id,
+        status: "NA",
+        observacoes: null,
+      });
+      return;
+    }
+
+    if (statuses.some((status) => status === "C")) {
+      next.set(templateItem.checklist_item_id, {
+        checklist_item_id: templateItem.checklist_item_id,
+        status: "C",
+        observacoes: null,
+      });
+    }
+  });
+
+  return next;
+};
+
+type CompanyEquipmentRecord =
+  | ExtinguisherRecord
+  | HydrantRecord
+  | LuminaireRecord;
+
+const getEquipmentTypeLabel = (equipmentType: EquipmentType) =>
+  equipmentType === "extintor"
+    ? "Extintor"
+    : equipmentType === "hidrante"
+      ? "Hidrante"
+      : "Luminaria";
+
+const buildEquipmentItemNonConformityEntries = ({
+  equipmentType,
+  equipmentRecords,
+  nonConformitiesByEquipment,
+  sectionTitle,
+  itemDisplay,
+}: {
+  equipmentType: EquipmentType;
+  equipmentRecords: CompanyEquipmentRecord[];
+  nonConformitiesByEquipment: Map<
+    string,
+    Map<string, ChecklistNonConformityRecord>
+  >;
+  sectionTitle: string;
+  itemDisplay: string;
+}) => {
+  const targetKey = buildEquipmentMirrorKey(sectionTitle, itemDisplay);
+
+  return equipmentRecords.flatMap((record) => {
+    const snapshot = normalizeEquipmentChecklistSnapshot(record.checklist_snapshot);
+    const snapshotItem = snapshot.items.find(
+      (item) =>
+        item.status === "NC" &&
+        buildEquipmentMirrorKey(item.secao, item.item_exibicao) === targetKey,
+    );
+
+    if (!snapshotItem) {
+      return [];
+    }
+
+    const nonConformity = nonConformitiesByEquipment
+      .get(record.id)
+      ?.get(snapshotItem.checklist_item_id);
+
+    if (!nonConformity) {
+      return [];
+    }
+
+    return [
+      {
+        equipmentTypeLabel: getEquipmentTypeLabel(equipmentType),
+        equipmentNumber: record.numero,
+        location: record.localizacao,
+        description: nonConformity.descricao,
+        imageDataUrl: nonConformity.imagem_data_url,
+      } satisfies EquipmentNonConformityEntry,
+    ];
+  });
+};
+
 const CompanyChecklists = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -161,6 +306,7 @@ const CompanyChecklists = () => {
   const [responses, setResponses] = useState<
     Map<string, ChecklistResponseShape>
   >(new Map());
+  const [luminaires, setLuminaires] = useState<LuminaireRecord[]>([]);
   const [extinguishers, setExtinguishers] = useState<ExtinguisherRecord[]>([]);
   const [hydrants, setHydrants] = useState<HydrantRecord[]>([]);
   const [equipmentSchemaPending, setEquipmentSchemaPending] =
@@ -173,6 +319,9 @@ const CompanyChecklists = () => {
   const [extinguisherDialogOpen, setExtinguisherDialogOpen] =
     useState(false);
   const [hydrantDialogOpen, setHydrantDialogOpen] = useState(false);
+  const [luminaireDialogOpen, setLuminaireDialogOpen] = useState(false);
+  const [editingLuminaire, setEditingLuminaire] =
+    useState<LuminaireRecord | null>(null);
   const [editingExtinguisher, setEditingExtinguisher] =
     useState<ExtinguisherRecord | null>(null);
   const [editingHydrant, setEditingHydrant] =
@@ -180,11 +329,43 @@ const CompanyChecklists = () => {
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
   const [qrDialogType, setQrDialogType] = useState<EquipmentType>("extintor");
   const [qrDialogRecord, setQrDialogRecord] = useState<
-    ExtinguisherRecord | HydrantRecord | null
+    LuminaireRecord | ExtinguisherRecord | HydrantRecord | null
   >(null);
+  const [principalNonConformities, setPrincipalNonConformities] = useState<
+    Map<string, ChecklistNonConformityRecord>
+  >(new Map());
+  const [luminaireNonConformities, setLuminaireNonConformities] = useState<
+    ChecklistNonConformityRecord[]
+  >([]);
+  const [extinguisherNonConformities, setExtinguisherNonConformities] =
+    useState<ChecklistNonConformityRecord[]>([]);
+  const [hydrantNonConformities, setHydrantNonConformities] = useState<
+    ChecklistNonConformityRecord[]
+  >([]);
+  const [selectedNonConformityItem, setSelectedNonConformityItem] = useState<{
+    itemId: string;
+    itemNumber: string;
+    sectionTitle: string;
+    itemDescription: string;
+  } | null>(null);
+  const [nonConformityDialogOpen, setNonConformityDialogOpen] = useState(false);
+  const [savingNonConformity, setSavingNonConformity] = useState(false);
+  const [equipmentNonConformitiesDialogOpen, setEquipmentNonConformitiesDialogOpen] =
+    useState(false);
+  const [selectedEquipmentNonConformityGroup, setSelectedEquipmentNonConformityGroup] =
+    useState<{
+      itemLabel: string;
+      entries: EquipmentNonConformityEntry[];
+    } | null>(null);
+  const [equipmentNonConformityViewerOpen, setEquipmentNonConformityViewerOpen] =
+    useState(false);
+  const [selectedEquipmentNonConformityEntry, setSelectedEquipmentNonConformityEntry] =
+    useState<EquipmentNonConformityEntry | null>(null);
   const initialEquipmentSyncDone = useRef(false);
   const responsesRefreshTimeoutRef = useRef<number | null>(null);
+  const luminaireRefreshTimeoutRef = useRef<number | null>(null);
   const extinguisherRefreshTimeoutRef = useRef<number | null>(null);
+  const hydrantRefreshTimeoutRef = useRef<number | null>(null);
   const { rowsByInspection, evaluableIds: evaluableItemIds } = useMemo(
     () => buildChecklistTableRows(groupsByModel),
     [groupsByModel],
@@ -193,7 +374,11 @@ const CompanyChecklists = () => {
     const next = new Set<string>();
 
     models.forEach((model) => {
-      if (model.codigo !== "A.23" && model.codigo !== "A.25") {
+      if (
+        model.codigo !== "A.19" &&
+        model.codigo !== "A.23" &&
+        model.codigo !== "A.25"
+      ) {
         return;
       }
 
@@ -215,6 +400,15 @@ const CompanyChecklists = () => {
       }),
     [groupsByModel, models],
   );
+  const luminaireInspectionItemIds = useMemo(
+    () =>
+      new Set(
+        equipmentChecklistTemplates.luminaria.items.map(
+          (item) => item.checklist_item_id,
+        ),
+      ),
+    [equipmentChecklistTemplates.luminaria.items],
+  );
   const extinguisherInspectionItemIds = useMemo(
     () =>
       new Set(
@@ -224,70 +418,79 @@ const CompanyChecklists = () => {
       ),
     [equipmentChecklistTemplates.extintor.items],
   );
+  const hydrantInspectionItemIds = useMemo(
+    () =>
+      new Set(
+        equipmentChecklistTemplates.hidrante.items.map(
+          (item) => item.checklist_item_id,
+        ),
+      ),
+    [equipmentChecklistTemplates.hidrante.items],
+  );
   const mirroredExtinguisherResponses = useMemo(() => {
-    const templateItems = equipmentChecklistTemplates.extintor.items;
-
-    if (templateItems.length === 0) {
-      return new Map<string, ChecklistResponseShape>();
-    }
-
-    const extinguisherItemMaps = extinguishers.map((record) => {
-      const snapshot = normalizeEquipmentChecklistSnapshot(record.checklist_snapshot);
-      return new Map(
-        snapshot.items.map((item) => [
-          buildEquipmentMirrorKey(item.secao, item.item_exibicao),
-          item.status,
-        ]),
-      );
-    });
-    const next = new Map<string, ChecklistResponseShape>();
-
-    templateItems.forEach((templateItem) => {
-      const templateKey = buildEquipmentMirrorKey(
-        templateItem.secao,
-        templateItem.item_exibicao,
-      );
-      const statuses = extinguisherItemMaps
-        .map((itemsMap) => itemsMap.get(templateKey))
-        .filter(
-          (status): status is ChecklistStatus =>
-            status === "C" || status === "NC" || status === "NA",
-        );
-
-      if (statuses.some((status) => status === "NC")) {
-        next.set(templateItem.checklist_item_id, {
-          checklist_item_id: templateItem.checklist_item_id,
-          status: "NC",
-          observacoes: "Nao conformidade identificada em ao menos um extintor.",
-        });
-        return;
-      }
-
-      if (statuses.length > 0 && statuses.every((status) => status === "NA")) {
-        next.set(templateItem.checklist_item_id, {
-          checklist_item_id: templateItem.checklist_item_id,
-          status: "NA",
-          observacoes: null,
-        });
-        return;
-      }
-
-      if (statuses.some((status) => status === "C")) {
-        next.set(templateItem.checklist_item_id, {
-          checklist_item_id: templateItem.checklist_item_id,
-          status: "C",
-          observacoes: null,
-        });
-      }
-    });
-
-    return next;
+    return buildMirroredEquipmentResponses(
+      equipmentChecklistTemplates.extintor.items,
+      extinguishers,
+      "Nao conformidade identificada em ao menos um extintor.",
+    );
   }, [equipmentChecklistTemplates.extintor.items, extinguishers]);
+  const mirroredLuminaireResponses = useMemo(
+    () =>
+      buildMirroredEquipmentResponses(
+        equipmentChecklistTemplates.luminaria.items,
+        luminaires,
+        "Nao conformidade identificada em ao menos uma luminaria.",
+      ),
+    [equipmentChecklistTemplates.luminaria.items, luminaires],
+  );
+  const mirroredHydrantResponses = useMemo(
+    () =>
+      buildMirroredEquipmentResponses(
+        equipmentChecklistTemplates.hidrante.items,
+        hydrants,
+        "Nao conformidade identificada em ao menos um hidrante.",
+      ),
+    [equipmentChecklistTemplates.hidrante.items, hydrants],
+  );
+  const mirroredEquipmentInspectionItemIds = useMemo(
+    () =>
+      new Set([
+        ...luminaireInspectionItemIds,
+        ...extinguisherInspectionItemIds,
+        ...hydrantInspectionItemIds,
+      ]),
+    [
+      extinguisherInspectionItemIds,
+      hydrantInspectionItemIds,
+      luminaireInspectionItemIds,
+    ],
+  );
+  const luminaireNonConformitiesByEquipment = useMemo(
+    () =>
+      groupChecklistNonConformitiesByEquipmentRecordId(luminaireNonConformities),
+    [luminaireNonConformities],
+  );
+  const extinguisherNonConformitiesByEquipment = useMemo(
+    () =>
+      groupChecklistNonConformitiesByEquipmentRecordId(
+        extinguisherNonConformities,
+      ),
+    [extinguisherNonConformities],
+  );
+  const hydrantNonConformitiesByEquipment = useMemo(
+    () =>
+      groupChecklistNonConformitiesByEquipmentRecordId(hydrantNonConformities),
+    [hydrantNonConformities],
+  );
   const automaticResponses = useMemo(() => {
     const next = new Map<string, ChecklistResponseShape>();
 
     models.forEach((model) => {
-      if (model.codigo === "A.23" || model.codigo === "A.25") {
+      if (
+        model.codigo === "A.19" ||
+        model.codigo === "A.23" ||
+        model.codigo === "A.25"
+      ) {
         return;
       }
 
@@ -328,7 +531,7 @@ const CompanyChecklists = () => {
     const next = new Map(automaticResponses);
 
     responses.forEach((value, key) => {
-      if (!extinguisherInspectionItemIds.has(key)) {
+      if (!mirroredEquipmentInspectionItemIds.has(key)) {
         next.set(key, value);
       }
     });
@@ -337,8 +540,23 @@ const CompanyChecklists = () => {
       next.set(key, value);
     });
 
+    mirroredLuminaireResponses.forEach((value, key) => {
+      next.set(key, value);
+    });
+
+    mirroredHydrantResponses.forEach((value, key) => {
+      next.set(key, value);
+    });
+
     return next;
-  }, [automaticResponses, extinguisherInspectionItemIds, mirroredExtinguisherResponses, responses]);
+  }, [
+    automaticResponses,
+    mirroredEquipmentInspectionItemIds,
+    mirroredExtinguisherResponses,
+    mirroredLuminaireResponses,
+    mirroredHydrantResponses,
+    responses,
+  ]);
   const equipmentChecklistSnapshots = useMemo(
     () =>
       buildEquipmentChecklistSnapshots({
@@ -371,15 +589,43 @@ const CompanyChecklists = () => {
         throw new Error("Empresa nao encontrada");
       }
 
-      const [checklistData, equipmentData] = await Promise.all([
+      const [
+        checklistData,
+        equipmentData,
+        principalNonConformityRecords,
+        luminaireNonConformityRecords,
+        extinguisherNonConformityRecords,
+        hydrantNonConformityRecords,
+      ] =
+        await Promise.all([
         loadChecklistData(supabase, id),
         loadChecklistEquipmentData(supabase, id),
+        loadChecklistNonConformities(supabase, { companyId: id }),
+        loadEquipmentChecklistNonConformitiesByType(supabase, {
+          companyId: id,
+          equipmentType: "luminaria",
+        }),
+        loadEquipmentChecklistNonConformitiesByType(supabase, {
+          companyId: id,
+          equipmentType: "extintor",
+        }),
+        loadEquipmentChecklistNonConformitiesByType(supabase, {
+          companyId: id,
+          equipmentType: "hidrante",
+        }),
       ]);
 
       setCompany(companyData);
       setModels(checklistData.models);
       setGroupsByModel(checklistData.groupsByModel);
       setResponses(checklistData.responses);
+      setPrincipalNonConformities(
+        mapChecklistNonConformitiesByItemId(principalNonConformityRecords),
+      );
+      setLuminaireNonConformities(luminaireNonConformityRecords);
+      setExtinguisherNonConformities(extinguisherNonConformityRecords);
+      setHydrantNonConformities(hydrantNonConformityRecords);
+      setLuminaires(equipmentData.luminaires);
       setExtinguishers(equipmentData.extinguishers);
       setHydrants(equipmentData.hydrants);
       setEquipmentSchemaPending(equipmentData.missingTables);
@@ -409,8 +655,14 @@ const CompanyChecklists = () => {
       if (responsesRefreshTimeoutRef.current !== null) {
         window.clearTimeout(responsesRefreshTimeoutRef.current);
       }
+      if (luminaireRefreshTimeoutRef.current !== null) {
+        window.clearTimeout(luminaireRefreshTimeoutRef.current);
+      }
       if (extinguisherRefreshTimeoutRef.current !== null) {
         window.clearTimeout(extinguisherRefreshTimeoutRef.current);
+      }
+      if (hydrantRefreshTimeoutRef.current !== null) {
+        window.clearTimeout(hydrantRefreshTimeoutRef.current);
       }
     },
     [],
@@ -432,6 +684,7 @@ const CompanyChecklists = () => {
       try {
         const synced = await syncEquipmentChecklistSnapshots(supabase, {
           companyId: id,
+          luminaireSnapshot: equipmentChecklistSnapshots.luminaria,
           extinguisherSnapshot: equipmentChecklistSnapshots.extintor,
           hydrantSnapshot: equipmentChecklistSnapshots.hidrante,
           mode: "preserve",
@@ -443,12 +696,15 @@ const CompanyChecklists = () => {
         }
 
         const updatedRecords = await ensureEquipmentQrCodes(supabase, {
+          luminaires,
           extinguishers,
           hydrants,
+          luminaireSnapshot: equipmentChecklistSnapshots.luminaria,
           extinguisherSnapshot: equipmentChecklistSnapshots.extintor,
           hydrantSnapshot: equipmentChecklistSnapshots.hidrante,
         });
 
+        setLuminaires(updatedRecords.luminaires);
         setExtinguishers(updatedRecords.extinguishers);
         setHydrants(updatedRecords.hydrants);
       } catch (error) {
@@ -462,9 +718,11 @@ const CompanyChecklists = () => {
 
     void synchronizeEquipmentAssets();
   }, [
+    equipmentChecklistSnapshots.luminaria,
     equipmentChecklistSnapshots.extintor,
     equipmentChecklistSnapshots.hidrante,
     equipmentSchemaPending,
+    luminaires,
     extinguishers,
     hydrants,
     id,
@@ -516,19 +774,84 @@ const CompanyChecklists = () => {
     }
 
     try {
-      const { data, error } = await supabase
-        .from("empresa_extintores")
-        .select("*")
-        .eq("empresa_id", id)
-        .order("numero", { ascending: true });
+      const [{ data, error }, nonConformityRecords] = await Promise.all([
+        supabase
+          .from("empresa_extintores")
+          .select("*")
+          .eq("empresa_id", id)
+          .order("numero", { ascending: true }),
+        loadEquipmentChecklistNonConformitiesByType(supabase, {
+          companyId: id,
+          equipmentType: "extintor",
+        }),
+      ]);
 
       if (error) {
         throw error;
       }
 
       setExtinguishers(sortByEquipmentNumber(data || []));
+      setExtinguisherNonConformities(nonConformityRecords);
     } catch (error) {
       console.error("Error refreshing extinguishers:", error);
+    }
+  }, [equipmentSchemaPending, id]);
+
+  const refreshLuminaires = useCallback(async () => {
+    if (!id || equipmentSchemaPending) {
+      return;
+    }
+
+    try {
+      const [{ data, error }, nonConformityRecords] = await Promise.all([
+        supabase
+          .from("empresa_luminarias")
+          .select("*")
+          .eq("empresa_id", id)
+          .order("numero", { ascending: true }),
+        loadEquipmentChecklistNonConformitiesByType(supabase, {
+          companyId: id,
+          equipmentType: "luminaria",
+        }),
+      ]);
+
+      if (error) {
+        throw error;
+      }
+
+      setLuminaires(sortByEquipmentNumber(data || []));
+      setLuminaireNonConformities(nonConformityRecords);
+    } catch (error) {
+      console.error("Error refreshing luminaires:", error);
+    }
+  }, [equipmentSchemaPending, id]);
+
+  const refreshHydrants = useCallback(async () => {
+    if (!id || equipmentSchemaPending) {
+      return;
+    }
+
+    try {
+      const [{ data, error }, nonConformityRecords] = await Promise.all([
+        supabase
+          .from("empresa_hidrantes")
+          .select("*")
+          .eq("empresa_id", id)
+          .order("numero", { ascending: true }),
+        loadEquipmentChecklistNonConformitiesByType(supabase, {
+          companyId: id,
+          equipmentType: "hidrante",
+        }),
+      ]);
+
+      if (error) {
+        throw error;
+      }
+
+      setHydrants(sortByEquipmentNumber(data || []));
+      setHydrantNonConformities(nonConformityRecords);
+    } catch (error) {
+      console.error("Error refreshing hydrants:", error);
     }
   }, [equipmentSchemaPending, id]);
 
@@ -542,6 +865,28 @@ const CompanyChecklists = () => {
       void refreshExtinguishers();
     }, 200);
   }, [refreshExtinguishers]);
+
+  const scheduleLuminaireRefresh = useCallback(() => {
+    if (luminaireRefreshTimeoutRef.current !== null) {
+      window.clearTimeout(luminaireRefreshTimeoutRef.current);
+    }
+
+    luminaireRefreshTimeoutRef.current = window.setTimeout(() => {
+      luminaireRefreshTimeoutRef.current = null;
+      void refreshLuminaires();
+    }, 200);
+  }, [refreshLuminaires]);
+
+  const scheduleHydrantRefresh = useCallback(() => {
+    if (hydrantRefreshTimeoutRef.current !== null) {
+      window.clearTimeout(hydrantRefreshTimeoutRef.current);
+    }
+
+    hydrantRefreshTimeoutRef.current = window.setTimeout(() => {
+      hydrantRefreshTimeoutRef.current = null;
+      void refreshHydrants();
+    }, 200);
+  }, [refreshHydrants]);
 
   useEffect(() => {
     if (!id) {
@@ -580,6 +925,37 @@ const CompanyChecklists = () => {
     }
 
     const channel = supabase
+      .channel(`company-luminaires-${id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "empresa_luminarias",
+          filter: `empresa_id=eq.${id}`,
+        },
+        () => {
+          scheduleLuminaireRefresh();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      if (luminaireRefreshTimeoutRef.current !== null) {
+        window.clearTimeout(luminaireRefreshTimeoutRef.current);
+        luminaireRefreshTimeoutRef.current = null;
+      }
+
+      void supabase.removeChannel(channel);
+    };
+  }, [equipmentSchemaPending, id, scheduleLuminaireRefresh]);
+
+  useEffect(() => {
+    if (!id || equipmentSchemaPending) {
+      return;
+    }
+
+    const channel = supabase
       .channel(`company-extinguishers-${id}`)
       .on(
         "postgres_changes",
@@ -604,6 +980,61 @@ const CompanyChecklists = () => {
       void supabase.removeChannel(channel);
     };
   }, [equipmentSchemaPending, id, scheduleExtinguisherRefresh]);
+
+  useEffect(() => {
+    if (!id || equipmentSchemaPending) {
+      return;
+    }
+
+    const channel = supabase
+      .channel(`company-hydrants-${id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "empresa_hidrantes",
+          filter: `empresa_id=eq.${id}`,
+        },
+        () => {
+          scheduleHydrantRefresh();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      if (hydrantRefreshTimeoutRef.current !== null) {
+        window.clearTimeout(hydrantRefreshTimeoutRef.current);
+        hydrantRefreshTimeoutRef.current = null;
+      }
+
+      void supabase.removeChannel(channel);
+    };
+  }, [equipmentSchemaPending, id, scheduleHydrantRefresh]);
+
+  useEffect(() => {
+    const currentInspectionCode = models.find(
+      (inspection) => inspection.id === openInspection,
+    )?.codigo;
+
+    if (
+      !id ||
+      equipmentSchemaPending ||
+      currentInspectionCode !== "A.19"
+    ) {
+      return;
+    }
+
+    void refreshLuminaires();
+
+    const intervalId = window.setInterval(() => {
+      void refreshLuminaires();
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [equipmentSchemaPending, id, models, openInspection, refreshLuminaires]);
 
   useEffect(() => {
     const currentInspectionCode = models.find(
@@ -631,6 +1062,31 @@ const CompanyChecklists = () => {
   }, [equipmentSchemaPending, id, models, openInspection, refreshExtinguishers]);
 
   useEffect(() => {
+    const currentInspectionCode = models.find(
+      (inspection) => inspection.id === openInspection,
+    )?.codigo;
+
+    if (
+      !id ||
+      equipmentSchemaPending ||
+      currentInspectionCode !== "A.25"
+    ) {
+      return;
+    }
+
+    // Keep the hydrant mirror hot while the principal A.25 checklist is open.
+    void refreshHydrants();
+
+    const intervalId = window.setInterval(() => {
+      void refreshHydrants();
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [equipmentSchemaPending, id, models, openInspection, refreshHydrants]);
+
+  useEffect(() => {
     if (!id) {
       return;
     }
@@ -638,13 +1094,17 @@ const CompanyChecklists = () => {
     const unsubscribe = subscribeEquipmentChecklistUpdates((event) => {
       if (event.companyId === id) {
         scheduleEquipmentInspectionRefresh();
+        scheduleLuminaireRefresh();
         scheduleExtinguisherRefresh();
+        scheduleHydrantRefresh();
       }
     });
 
     const handleVisibilityOrFocus = () => {
       scheduleEquipmentInspectionRefresh();
+      scheduleLuminaireRefresh();
       scheduleExtinguisherRefresh();
+      scheduleHydrantRefresh();
     };
 
     window.addEventListener("focus", handleVisibilityOrFocus);
@@ -655,16 +1115,26 @@ const CompanyChecklists = () => {
       window.removeEventListener("focus", handleVisibilityOrFocus);
       document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
     };
-  }, [id, scheduleEquipmentInspectionRefresh, scheduleExtinguisherRefresh]);
+  }, [
+    id,
+    scheduleEquipmentInspectionRefresh,
+    scheduleLuminaireRefresh,
+    scheduleExtinguisherRefresh,
+    scheduleHydrantRefresh,
+  ]);
 
   const handleStatusChange = (itemId: string, status: ChecklistStatus) => {
     setResponses((previous) => {
       const next = new Map(previous);
       const existing = previous.get(itemId);
+      const existingNonConformity = principalNonConformities.get(itemId);
       next.set(itemId, {
         checklist_item_id: itemId,
         status,
-        observacoes: existing?.observacoes || null,
+        observacoes:
+          status === "NC"
+            ? existingNonConformity?.descricao || existing?.observacoes || null
+            : null,
       });
       return next;
     });
@@ -672,7 +1142,7 @@ const CompanyChecklists = () => {
 
   const openEquipmentQrDialog = (
     equipmentType: EquipmentType,
-    record: ExtinguisherRecord | HydrantRecord,
+    record: LuminaireRecord | ExtinguisherRecord | HydrantRecord,
   ) => {
     setQrDialogType(equipmentType);
     setQrDialogRecord(record);
@@ -681,7 +1151,7 @@ const CompanyChecklists = () => {
 
   const openEquipmentPublicPage = (
     equipmentType: EquipmentType,
-    record: ExtinguisherRecord | HydrantRecord,
+    record: LuminaireRecord | ExtinguisherRecord | HydrantRecord,
   ) => {
     const url =
       record.qr_code_url || buildEquipmentPublicUrl(equipmentType, record.public_token);
@@ -701,6 +1171,19 @@ const CompanyChecklists = () => {
     setEditingExtinguisher(null);
   };
 
+  const handleLuminaireSaved = (record: LuminaireRecord) => {
+    if (!record.qr_code_url || !record.qr_code_svg) {
+      setEquipmentQrSchemaPending(true);
+    }
+    setLuminaires((previous) =>
+      sortByEquipmentNumber([
+        ...previous.filter((item) => item.id !== record.id),
+        record,
+      ]),
+    );
+    setEditingLuminaire(null);
+  };
+
   const handleHydrantSaved = (record: HydrantRecord) => {
     if (!record.qr_code_url || !record.qr_code_svg) {
       setEquipmentQrSchemaPending(true);
@@ -712,6 +1195,29 @@ const CompanyChecklists = () => {
       ]),
     );
     setEditingHydrant(null);
+  };
+
+  const handleDeleteLuminaire = async (record: LuminaireRecord) => {
+    if (!window.confirm(`Excluir a luminaria ${record.numero}?`)) {
+      return;
+    }
+
+    try {
+      await deleteLuminaire(supabase, record.id);
+      setLuminaires((previous) =>
+        previous.filter((item) => item.id !== record.id),
+      );
+      toast({
+        title: "Luminaria removida",
+        description: "O cadastro da luminaria foi excluido.",
+      });
+    } catch (error) {
+      toast({
+        title: "Erro ao remover luminaria",
+        description: "Nao foi possivel excluir a luminaria.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleDeleteExtinguisher = async (record: ExtinguisherRecord) => {
@@ -760,6 +1266,141 @@ const CompanyChecklists = () => {
     }
   };
 
+  const openPrincipalNonConformityDialog = ({
+    itemId,
+    itemNumber,
+    sectionTitle,
+    itemDescription,
+  }: {
+    itemId: string;
+    itemNumber: string;
+    sectionTitle: string;
+    itemDescription: string;
+  }) => {
+    setSelectedNonConformityItem({
+      itemId,
+      itemNumber,
+      sectionTitle,
+      itemDescription,
+    });
+    setNonConformityDialogOpen(true);
+  };
+
+  const handleSavePrincipalNonConformity = async ({
+    description,
+    imageDataUrl,
+  }: {
+    description: string;
+    imageDataUrl: string;
+  }) => {
+    if (!id || !selectedNonConformityItem) {
+      return;
+    }
+
+    try {
+      setSavingNonConformity(true);
+      const savedRecord = await saveChecklistNonConformity(supabase, {
+        companyId: id,
+        checklistItemId: selectedNonConformityItem.itemId,
+        description,
+        imageDataUrl,
+      });
+
+      if (savedRecord) {
+        setPrincipalNonConformities((previous) => {
+          const next = new Map(previous);
+          next.set(savedRecord.checklist_item_id, savedRecord);
+          return next;
+        });
+      }
+
+      setResponses((previous) => {
+        const next = new Map(previous);
+        const existing = next.get(selectedNonConformityItem.itemId);
+
+        if (existing?.status === "NC") {
+          next.set(selectedNonConformityItem.itemId, {
+            checklist_item_id: selectedNonConformityItem.itemId,
+            status: existing.status,
+            observacoes: description,
+          });
+        }
+
+        return next;
+      });
+
+      setNonConformityDialogOpen(false);
+    } catch (error) {
+      console.error("Error saving principal non conformity:", error);
+      toast({
+        title: "Erro ao salvar nao conformidade",
+        description:
+          "Nao foi possivel registrar a descricao e a imagem desta nao conformidade.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingNonConformity(false);
+    }
+  };
+
+  const openEquipmentNonConformitiesDialog = ({
+    itemNumber,
+    sectionTitle,
+  }: {
+    itemNumber: string;
+    sectionTitle: string;
+  }) => {
+    let entries: EquipmentNonConformityEntry[] = [];
+
+    if (isLuminaireInspection) {
+      entries = buildEquipmentItemNonConformityEntries({
+        equipmentType: "luminaria",
+        equipmentRecords: luminaires,
+        nonConformitiesByEquipment: luminaireNonConformitiesByEquipment,
+        sectionTitle,
+        itemDisplay: itemNumber,
+      });
+    } else if (isExtinguisherInspection) {
+      entries = buildEquipmentItemNonConformityEntries({
+        equipmentType: "extintor",
+        equipmentRecords: extinguishers,
+        nonConformitiesByEquipment: extinguisherNonConformitiesByEquipment,
+        sectionTitle,
+        itemDisplay: itemNumber,
+      });
+    } else if (isHydrantInspection) {
+      entries = buildEquipmentItemNonConformityEntries({
+        equipmentType: "hidrante",
+        equipmentRecords: hydrants,
+        nonConformitiesByEquipment: hydrantNonConformitiesByEquipment,
+        sectionTitle,
+        itemDisplay: itemNumber,
+      });
+    }
+
+    if (entries.length === 0) {
+      toast({
+        title: "Nenhuma nao conformidade registrada",
+        description:
+          "Ainda nao ha registro detalhado de nao conformidade para este item nos equipamentos.",
+      });
+      return;
+    }
+
+    setSelectedEquipmentNonConformityGroup({
+      itemLabel: `Item ${itemNumber} - ${sectionTitle}`,
+      entries,
+    });
+    setEquipmentNonConformitiesDialogOpen(true);
+  };
+
+  const handleSelectEquipmentNonConformityEntry = (
+    entry: EquipmentNonConformityEntry,
+  ) => {
+    setSelectedEquipmentNonConformityEntry(entry);
+    setEquipmentNonConformityViewerOpen(true);
+  };
+
   const saveChecklistAndEnsureReport = async () => {
     if (!id) {
       return false;
@@ -787,6 +1428,7 @@ const CompanyChecklists = () => {
       if (!equipmentSchemaPending) {
         const synced = await syncEquipmentChecklistSnapshots(supabase, {
           companyId: id,
+          luminaireSnapshot: equipmentSnapshots.luminaria,
           extinguisherSnapshot: equipmentSnapshots.extintor,
           hydrantSnapshot: equipmentSnapshots.hidrante,
           mode: "overwrite",
@@ -889,16 +1531,34 @@ const CompanyChecklists = () => {
     : [];
   const checklistTitle =
     openInspectionData?.titulo || `CHECKLIST DE ${openInspectionData?.nome || ""}`;
+  const isLuminaireInspection = openInspectionData?.codigo === "A.19";
   const isExtinguisherInspection = openInspectionData?.codigo === "A.23";
   const isHydrantInspection = openInspectionData?.codigo === "A.25";
   const isReadOnlyEquipmentInspection =
-    isExtinguisherInspection || isHydrantInspection;
+    isLuminaireInspection || isExtinguisherInspection || isHydrantInspection;
+  const luminaireSummary = buildLuminaireSummary(luminaires);
   const extinguisherSummary = buildExtinguisherSummary(extinguishers);
   const hydrantSummary = buildHydrantSummary(hydrants);
   const getEquipmentRuleHint = (
     sectionTitle: string,
     sourceItemNumber?: string | null,
   ) => {
+    if (isLuminaireInspection) {
+      if (sourceItemNumber === "2") {
+        return {
+          message: `${luminaireSummary.total} luminaria(s) cadastrada(s). Conferir posicoes e tipos previstos em planta.`,
+        };
+      }
+
+      if (sourceItemNumber === "3") {
+        return {
+          message: `${luminaireSummary.conformes} luminaria(s) com status conforme e ${luminaireSummary.naoConformes} com status nao conforme no cadastro.`,
+        };
+      }
+
+      return null;
+    }
+
     if (isExtinguisherInspection) {
       return (
         getExtinguisherRuleEvaluation({
@@ -995,18 +1655,24 @@ const CompanyChecklists = () => {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0 md:p-6">
-              {(isExtinguisherInspection || isHydrantInspection) && (
+              {(isLuminaireInspection ||
+                isExtinguisherInspection ||
+                isHydrantInspection) && (
                 <div className="border-b px-4 py-4 md:px-0 md:pt-0 md:pb-6">
                   <div className="rounded-xl border bg-muted/10 p-4 space-y-4">
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                       <div className="space-y-1">
                         <h3 className="text-base font-semibold">
-                          {isExtinguisherInspection
+                          {isLuminaireInspection
+                            ? "Cadastro de luminarias"
+                            : isExtinguisherInspection
                             ? "Cadastro de extintores"
                             : "Cadastro de hidrantes"}
                         </h3>
                         <p className="text-sm text-muted-foreground">
-                          {isExtinguisherInspection
+                          {isLuminaireInspection
+                            ? "Cadastre as luminarias vistoriadas para espelhar a avaliacao do checklist principal de iluminacao de emergencia."
+                            : isExtinguisherInspection
                             ? "Cadastre os extintores vistoriados para apoiar a avaliacao de quantidade, tipo, localizacao e vencimentos."
                             : "Cadastre os hidrantes e seus componentes para apoiar a avaliacao das mangueiras e acessorios."}
                         </p>
@@ -1015,6 +1681,12 @@ const CompanyChecklists = () => {
                       <Button
                         type="button"
                         onClick={() => {
+                          if (isLuminaireInspection) {
+                            setEditingLuminaire(null);
+                            setLuminaireDialogOpen(true);
+                            return;
+                          }
+
                           if (isExtinguisherInspection) {
                             setEditingExtinguisher(null);
                             setExtinguisherDialogOpen(true);
@@ -1028,7 +1700,9 @@ const CompanyChecklists = () => {
                         className="w-full md:w-auto"
                       >
                         <Plus className="mr-2 h-4 w-4" />
-                        {isExtinguisherInspection
+                        {isLuminaireInspection
+                          ? "Cadastrar Luminaria"
+                          : isExtinguisherInspection
                           ? "Cadastrar Extintor"
                           : "Cadastrar Hidrante"}
                       </Button>
@@ -1044,6 +1718,144 @@ const CompanyChecklists = () => {
                           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                             O cadastro continua funcionando, mas o QR Code e a ficha publica dos equipamentos ficam indisponiveis ate aplicar a migration de QR no banco conectado.
                           </div>
+                        )}
+
+                        {isLuminaireInspection && (
+                          <>
+                            <div className="grid gap-3 md:grid-cols-3">
+                              <div className="rounded-lg border bg-background p-4">
+                                <p className="text-xs uppercase text-muted-foreground">
+                                  Total
+                                </p>
+                                <p className="mt-2 text-2xl font-bold">
+                                  {luminaireSummary.total}
+                                </p>
+                              </div>
+                              <div className="rounded-lg border bg-background p-4">
+                                <p className="text-xs uppercase text-muted-foreground">
+                                  Conformes
+                                </p>
+                                <p className="mt-2 text-2xl font-bold text-emerald-600">
+                                  {luminaireSummary.conformes}
+                                </p>
+                              </div>
+                              <div className="rounded-lg border bg-background p-4">
+                                <p className="text-xs uppercase text-muted-foreground">
+                                  Nao conformes
+                                </p>
+                                <p className="mt-2 text-2xl font-bold text-red-600">
+                                  {luminaireSummary.naoConformes}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="overflow-x-auto rounded-lg border bg-background">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>No.</TableHead>
+                                    <TableHead>Localizacao</TableHead>
+                                    <TableHead>Tipo de Luminaria</TableHead>
+                                    <TableHead>Status</TableHead>
+                                    <TableHead className="text-right">
+                                      Acoes
+                                    </TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {luminaires.length === 0 ? (
+                                    <TableRow>
+                                      <TableCell
+                                        colSpan={5}
+                                        className="text-center text-muted-foreground"
+                                      >
+                                        Nenhuma luminaria cadastrada.
+                                      </TableCell>
+                                    </TableRow>
+                                  ) : (
+                                    luminaires.map((record) => (
+                                      <TableRow key={record.id}>
+                                        <TableCell className="font-medium">
+                                          {record.numero}
+                                        </TableCell>
+                                        <TableCell>{record.localizacao}</TableCell>
+                                        <TableCell>{record.tipo_luminaria}</TableCell>
+                                        <TableCell
+                                          className={cn(
+                                            record.status === "Nao Conforme" &&
+                                              "font-medium text-red-600",
+                                          )}
+                                        >
+                                          {record.status}
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                          <div className="flex justify-end gap-2">
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              size="sm"
+                                              disabled={
+                                                equipmentQrSchemaPending ||
+                                                !record.qr_code_svg
+                                              }
+                                              onClick={() =>
+                                                openEquipmentQrDialog(
+                                                  "luminaria",
+                                                  record,
+                                                )
+                                              }
+                                              aria-label={`Abrir QR da luminaria ${record.numero}`}
+                                            >
+                                              <QrCode className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              size="sm"
+                                              disabled={
+                                                equipmentQrSchemaPending ||
+                                                !record.qr_code_url
+                                              }
+                                              onClick={() =>
+                                                openEquipmentPublicPage(
+                                                  "luminaria",
+                                                  record,
+                                                )
+                                              }
+                                              aria-label={`Abrir ficha da luminaria ${record.numero}`}
+                                            >
+                                              <ExternalLink className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={() => {
+                                                setEditingLuminaire(record);
+                                                setLuminaireDialogOpen(true);
+                                              }}
+                                            >
+                                              <Pencil className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={() =>
+                                                handleDeleteLuminaire(record)
+                                              }
+                                            >
+                                              <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                          </div>
+                                        </TableCell>
+                                      </TableRow>
+                                    ))
+                                  )}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </>
                         )}
 
                         {isExtinguisherInspection && (
@@ -1459,13 +2271,76 @@ const CompanyChecklists = () => {
                       const manualResponse = responses.get(row.itemId);
                       const automaticResponse = automaticResponses.get(row.itemId);
                       const response = mergedResponses.get(row.itemId);
+                      const sectionTitleForRow = currentSection;
+                      const nonConformityRecord = principalNonConformities.get(
+                        row.itemId,
+                      );
+                      const isNonConformingItem = response?.status === "NC";
+                      const canOpenPrincipalNonConformityDialog =
+                        isNonConformingItem && !isReadOnlyEquipmentInspection;
+                      const equipmentItemNonConformityEntries =
+                        isReadOnlyEquipmentInspection
+                          ? isLuminaireInspection
+                            ? buildEquipmentItemNonConformityEntries({
+                                equipmentType: "luminaria",
+                                equipmentRecords: luminaires,
+                                nonConformitiesByEquipment:
+                                  luminaireNonConformitiesByEquipment,
+                                sectionTitle: sectionTitleForRow,
+                                itemDisplay: row.number,
+                              })
+                            : isExtinguisherInspection
+                              ? buildEquipmentItemNonConformityEntries({
+                                  equipmentType: "extintor",
+                                  equipmentRecords: extinguishers,
+                                  nonConformitiesByEquipment:
+                                    extinguisherNonConformitiesByEquipment,
+                                  sectionTitle: sectionTitleForRow,
+                                  itemDisplay: row.number,
+                                })
+                              : buildEquipmentItemNonConformityEntries({
+                                  equipmentType: "hidrante",
+                                  equipmentRecords: hydrants,
+                                  nonConformitiesByEquipment:
+                                    hydrantNonConformitiesByEquipment,
+                                  sectionTitle: sectionTitleForRow,
+                                  itemDisplay: row.number,
+                                })
+                          : [];
+                      const canOpenEquipmentNonConformityDialog =
+                        isReadOnlyEquipmentInspection &&
+                        equipmentItemNonConformityEntries.length > 0;
                       const equipmentRuleHint = getEquipmentRuleHint(
-                        currentSection,
+                        sectionTitleForRow,
                         row.sourceItemNumber,
                       );
 
                       return (
-                        <TableRow key={row.key}>
+                        <TableRow
+                          key={row.key}
+                          onClick={
+                            canOpenPrincipalNonConformityDialog
+                              ? () =>
+                                  openPrincipalNonConformityDialog({
+                                    itemId: row.itemId,
+                                    itemNumber: row.number,
+                                    sectionTitle: sectionTitleForRow,
+                                    itemDescription: row.description,
+                                  })
+                              : canOpenEquipmentNonConformityDialog
+                                ? () =>
+                                    openEquipmentNonConformitiesDialog({
+                                      itemNumber: row.number,
+                                      sectionTitle: sectionTitleForRow,
+                                    })
+                              : undefined
+                          }
+                          className={cn(
+                            (canOpenPrincipalNonConformityDialog ||
+                              canOpenEquipmentNonConformityDialog) &&
+                              "cursor-pointer transition-colors hover:bg-red-50/40",
+                          )}
+                        >
                           <TableCell className="font-medium whitespace-nowrap text-xs md:text-sm">
                             {row.number}
                           </TableCell>
@@ -1492,6 +2367,28 @@ const CompanyChecklists = () => {
                                 )}
                               </div>
                             )}
+                            {canOpenPrincipalNonConformityDialog && (
+                              <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                                <span className="font-semibold">
+                                  {nonConformityRecord
+                                    ? "Nao conformidade registrada:"
+                                    : "Registro pendente:"}
+                                </span>{" "}
+                                {nonConformityRecord
+                                  ? "clique na linha para editar a descricao e a imagem."
+                                  : "clique na linha para descrever e anexar a imagem desta nao conformidade."}
+                              </div>
+                            )}
+                            {canOpenEquipmentNonConformityDialog && (
+                              <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                                <span className="font-semibold">
+                                  Registros encontrados:
+                                </span>{" "}
+                                clique na linha para ver os{" "}
+                                {equipmentItemNonConformityEntries.length}{" "}
+                                equipamento(s) com nao conformidade registrada neste item.
+                              </div>
+                            )}
                           </TableCell>
                           {STATUS_ORDER.map((statusValue) => {
                             const meta = STATUS_META[statusValue];
@@ -1508,9 +2405,10 @@ const CompanyChecklists = () => {
                                   aria-pressed={isActive}
                                   aria-label={`${meta.ariaLabel} para item ${row.number}`}
                                   disabled={isReadOnlyEquipmentInspection}
-                                  onClick={() =>
-                                    handleStatusChange(row.itemId, statusValue)
-                                  }
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleStatusChange(row.itemId, statusValue);
+                                  }}
                                   className={cn(
                                     "inline-flex min-h-9 min-w-9 items-center justify-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-100",
                                     isActive
@@ -1545,6 +2443,20 @@ const CompanyChecklists = () => {
 
         {id && (
           <>
+            <LuminaireDialog
+              companyId={id}
+              checklistSnapshot={equipmentChecklistSnapshots.luminaria}
+              open={luminaireDialogOpen}
+              record={editingLuminaire}
+              onOpenChange={(open) => {
+                setLuminaireDialogOpen(open);
+                if (!open) {
+                  setEditingLuminaire(null);
+                }
+              }}
+              onSaved={handleLuminaireSaved}
+            />
+
             <ExtinguisherDialog
               companyId={id}
               checklistSnapshot={equipmentChecklistSnapshots.extintor}
@@ -1571,6 +2483,62 @@ const CompanyChecklists = () => {
                 }
               }}
               onSaved={handleHydrantSaved}
+            />
+
+            <ChecklistNonConformityDialog
+              open={nonConformityDialogOpen}
+              onOpenChange={(open) => {
+                setNonConformityDialogOpen(open);
+                if (!open) {
+                  setSelectedNonConformityItem(null);
+                }
+              }}
+              itemLabel={
+                selectedNonConformityItem
+                  ? `Item ${selectedNonConformityItem.itemNumber} - ${selectedNonConformityItem.sectionTitle}`
+                  : undefined
+              }
+              initialDescription={
+                selectedNonConformityItem
+                  ? principalNonConformities.get(
+                      selectedNonConformityItem.itemId,
+                    )?.descricao || ""
+                  : ""
+              }
+              initialImageDataUrl={
+                selectedNonConformityItem
+                  ? principalNonConformities.get(
+                      selectedNonConformityItem.itemId,
+                    )?.imagem_data_url || ""
+                  : ""
+              }
+              saving={savingNonConformity}
+              onSave={handleSavePrincipalNonConformity}
+            />
+
+            <EquipmentNonConformitiesDialog
+              open={equipmentNonConformitiesDialogOpen}
+              onOpenChange={(open) => {
+                setEquipmentNonConformitiesDialogOpen(open);
+                if (!open) {
+                  setSelectedEquipmentNonConformityGroup(null);
+                }
+              }}
+              itemLabel={selectedEquipmentNonConformityGroup?.itemLabel}
+              entries={selectedEquipmentNonConformityGroup?.entries || []}
+              onSelectEntry={handleSelectEquipmentNonConformityEntry}
+            />
+
+            <EquipmentNonConformityViewerDialog
+              open={equipmentNonConformityViewerOpen}
+              onOpenChange={(open) => {
+                setEquipmentNonConformityViewerOpen(open);
+                if (!open) {
+                  setSelectedEquipmentNonConformityEntry(null);
+                }
+              }}
+              itemLabel={selectedEquipmentNonConformityGroup?.itemLabel}
+              entry={selectedEquipmentNonConformityEntry}
             />
 
             <EquipmentQrDialog

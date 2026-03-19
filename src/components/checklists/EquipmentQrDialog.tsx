@@ -10,22 +10,25 @@ import type {
   EquipmentType,
   ExtinguisherRecord,
   HydrantRecord,
+  LuminaireRecord,
 } from "@/lib/checklist-equipment";
 
 interface EquipmentQrDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   equipmentType: EquipmentType;
-  record: ExtinguisherRecord | HydrantRecord | null;
+  record: LuminaireRecord | ExtinguisherRecord | HydrantRecord | null;
 }
 
 const getTitle = (
   equipmentType: EquipmentType,
-  record: ExtinguisherRecord | HydrantRecord,
+  record: LuminaireRecord | ExtinguisherRecord | HydrantRecord,
 ) =>
   equipmentType === "extintor"
     ? `QR do extintor ${record.numero}`
-    : `QR do hidrante ${record.numero}`;
+    : equipmentType === "hidrante"
+      ? `QR do hidrante ${record.numero}`
+      : `QR da luminaria ${record.numero}`;
 
 export const EquipmentQrDialog = ({
   open,
