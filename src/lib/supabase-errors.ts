@@ -102,3 +102,6 @@ export const isMissingEquipmentQrSchemaError = (error: unknown) =>
     "qr_code_svg",
     "checklist_snapshot",
   ]) || isMissingFunctionError(error, "get_equipment_qr_page");
+
+export const isMissingEquipmentChecklistSaveRpcError = (error: unknown) =>
+  isMissingFunctionError(error, "save_equipment_qr_checklist");

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Video Inspector</title>
+    <style>
+      body {
+        margin: 0;
+        background: #111827;
+        color: #f9fafb;
+        font-family: Arial, sans-serif;
+      }
+
+      main {
+        padding: 16px;
+      }
+
+      video {
+        width: 100%;
+        max-width: 1600px;
+        display: block;
+        margin: 0 auto;
+        background: black;
+      }
+
+      .meta {
+        max-width: 1600px;
+        margin: 0 auto 12px;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="meta">
+        <div id="status">Carregando...</div>
+      </div>
+      <video
+        id="video"
+        controls
+        crossorigin="anonymous"
+        src="../../Explicação%20de%20fucnionamento%20real%20dos%20checklists.mp4"
+      ></video>
+    </main>
+    <script>
+      const video = document.getElementById("video");
+      const status = document.getElementById("status");
+
+      const updateStatus = () => {
+        status.textContent = `Tempo: ${video.currentTime.toFixed(2)}s / ${video.duration.toFixed(2)}s`;
+      };
+
+      video.addEventListener("loadedmetadata", updateStatus);
+      video.addEventListener("timeupdate", updateStatus);
+      video.addEventListener("seeked", updateStatus);
+
+      window.seekVideo = async (time) => {
+        video.pause();
+        await new Promise((resolve) => {
+          const handleSeeked = () => {
+            video.removeEventListener("seeked", handleSeeked);
+            resolve();
+          };
+
+          video.addEventListener("seeked", handleSeeked, { once: true });
+          video.currentTime = time;
+        });
+      };
+    </script>
+  </body>
+</html>

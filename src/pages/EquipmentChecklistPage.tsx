@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { isMissingEquipmentChecklistSaveRpcError } from "@/lib/supabase-errors";
 import {
   formatMonthYear,
   getEquipmentChecklistSnapshotForType,
@@ -186,6 +187,7 @@ const EquipmentChecklistPage = () => {
     useState<SaveIndicatorState>("idle");
   const [notFound, setNotFound] = useState(false);
   const confirmedSnapshotRef = useRef<EquipmentChecklistSnapshot | null>(null);
+  const activeSnapshotRef = useRef<EquipmentChecklistSnapshot | null>(null);
   const pendingSnapshotRef = useRef<EquipmentChecklistSnapshot | null>(null);
   const saveInFlightRef = useRef(false);
   const mountedRef = useRef(true);
@@ -249,6 +251,7 @@ const EquipmentChecklistPage = () => {
         );
 
         if (!pendingSnapshotRef.current) {
+          activeSnapshotRef.current = nextConfirmedSnapshot;
           setChecklistSnapshot(nextConfirmedSnapshot);
           setSaveIndicator("saved");
         }
@@ -262,12 +265,15 @@ const EquipmentChecklistPage = () => {
       console.error("Error saving equipment checklist:", error);
 
       if (mountedRef.current) {
+        activeSnapshotRef.current = confirmedSnapshotRef.current;
         setChecklistSnapshot(confirmedSnapshotRef.current);
         setSaveIndicator("error");
         toast({
           title: "Erro ao salvar checklist",
           description:
-            "Nao foi possivel salvar o checklist deste equipamento.",
+            isMissingEquipmentChecklistSaveRpcError(error)
+              ? "A funcao save_equipment_qr_checklist nao existe no Supabase conectado. Aplique a migration 20260318123000_add_save_equipment_qr_checklist_rpc.sql."
+              : "Nao foi possivel salvar o checklist deste equipamento.",
           variant: "destructive",
         });
       }
@@ -305,6 +311,7 @@ const EquipmentChecklistPage = () => {
         );
         setRecord(data);
         setChecklistSnapshot(nextSnapshot);
+        activeSnapshotRef.current = nextSnapshot;
         confirmedSnapshotRef.current = nextSnapshot;
         pendingSnapshotRef.current = null;
         setSaveIndicator("idle");
@@ -314,6 +321,7 @@ const EquipmentChecklistPage = () => {
         setNotFound(true);
         setRecord(null);
         setChecklistSnapshot(null);
+        activeSnapshotRef.current = null;
         confirmedSnapshotRef.current = null;
         pendingSnapshotRef.current = null;
       } finally {
@@ -328,25 +336,20 @@ const EquipmentChecklistPage = () => {
     itemId: string,
     status: EquipmentChecklistStatus,
   ) => {
-    let nextSnapshot: EquipmentChecklistSnapshot | null = null;
+    const currentSnapshot = activeSnapshotRef.current;
 
-    setChecklistSnapshot((previous) => {
-      if (!previous) {
-        return previous;
-      }
-
-      nextSnapshot = updateEquipmentChecklistSnapshotItemStatus(
-        previous,
-        itemId,
-        status,
-      );
-      return nextSnapshot;
-    });
-
-    if (!nextSnapshot) {
+    if (!currentSnapshot) {
       return;
     }
 
+    const nextSnapshot = updateEquipmentChecklistSnapshotItemStatus(
+      currentSnapshot,
+      itemId,
+      status,
+    );
+
+    activeSnapshotRef.current = nextSnapshot;
+    setChecklistSnapshot(nextSnapshot);
     pendingSnapshotRef.current = nextSnapshot;
     setSaveIndicator("saving");
     void flushPendingSave();

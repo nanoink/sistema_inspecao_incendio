@@ -146,6 +146,9 @@ const getInspectionIcon = (name: string) => {
   return Shield;
 };
 
+const buildEquipmentMirrorKey = (sectionTitle: string, itemDisplay: string) =>
+  `${sectionTitle.trim()}::${itemDisplay.trim()}`;
+
 const CompanyChecklists = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -231,14 +234,21 @@ const CompanyChecklists = () => {
     const extinguisherItemMaps = extinguishers.map((record) => {
       const snapshot = normalizeEquipmentChecklistSnapshot(record.checklist_snapshot);
       return new Map(
-        snapshot.items.map((item) => [item.checklist_item_id, item.status]),
+        snapshot.items.map((item) => [
+          buildEquipmentMirrorKey(item.secao, item.item_exibicao),
+          item.status,
+        ]),
       );
     });
     const next = new Map<string, ChecklistResponseShape>();
 
     templateItems.forEach((templateItem) => {
+      const templateKey = buildEquipmentMirrorKey(
+        templateItem.secao,
+        templateItem.item_exibicao,
+      );
       const statuses = extinguisherItemMaps
-        .map((itemsMap) => itemsMap.get(templateItem.checklist_item_id))
+        .map((itemsMap) => itemsMap.get(templateKey))
         .filter(
           (status): status is ChecklistStatus =>
             status === "C" || status === "NC" || status === "NA",
@@ -594,6 +604,31 @@ const CompanyChecklists = () => {
       void supabase.removeChannel(channel);
     };
   }, [equipmentSchemaPending, id, scheduleExtinguisherRefresh]);
+
+  useEffect(() => {
+    const currentInspectionCode = models.find(
+      (inspection) => inspection.id === openInspection,
+    )?.codigo;
+
+    if (
+      !id ||
+      equipmentSchemaPending ||
+      currentInspectionCode !== "A.23"
+    ) {
+      return;
+    }
+
+    // Keep the extinguisher mirror hot while the principal A.23 checklist is open.
+    void refreshExtinguishers();
+
+    const intervalId = window.setInterval(() => {
+      void refreshExtinguishers();
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [equipmentSchemaPending, id, models, openInspection, refreshExtinguishers]);
 
   useEffect(() => {
     if (!id) {
