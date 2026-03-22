@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -8,11 +8,14 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import type {
-  EquipmentType,
-  ExtinguisherRecord,
-  HydrantRecord,
-  LuminaireRecord,
+import { Loader2 } from "lucide-react";
+import {
+  buildEquipmentPublicUrl,
+  generateEquipmentQrSvg,
+  type EquipmentType,
+  type ExtinguisherRecord,
+  type HydrantRecord,
+  type LuminaireRecord,
 } from "@/lib/checklist-equipment";
 
 interface EquipmentQrDialogProps {
@@ -82,14 +85,66 @@ export const EquipmentQrDialog = ({
 }: EquipmentQrDialogProps) => {
   const { toast } = useToast();
   const [downloading, setDownloading] = useState(false);
-  const qrCodeUrl = record?.qr_code_url || "";
-  const qrCodeSvg = record?.qr_code_svg || "";
+  const [qrCodeSvg, setQrCodeSvg] = useState("");
+  const [loadingQrCode, setLoadingQrCode] = useState(false);
+  const qrCodeUrl = useMemo(() => {
+    if (!record) {
+      return "";
+    }
+
+    return record.public_token
+      ? buildEquipmentPublicUrl(equipmentType, record.public_token)
+      : record.qr_code_url || "";
+  }, [equipmentType, record]);
   const downloadName = record
     ? `${equipmentType}-${record.numero}-qrcode.jpg`
     : "qrcode.jpg";
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const buildDynamicQrCode = async () => {
+      if (!open || !record) {
+        setQrCodeSvg("");
+        setLoadingQrCode(false);
+        return;
+      }
+
+      if (!qrCodeUrl) {
+        setQrCodeSvg(record.qr_code_svg || "");
+        setLoadingQrCode(false);
+        return;
+      }
+
+      try {
+        setLoadingQrCode(true);
+        const nextSvg = await generateEquipmentQrSvg(qrCodeUrl);
+
+        if (!cancelled) {
+          setQrCodeSvg(nextSvg);
+        }
+      } catch (error) {
+        console.error("Error generating dynamic QR code:", error);
+
+        if (!cancelled) {
+          setQrCodeSvg(record.qr_code_svg || "");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingQrCode(false);
+        }
+      }
+    };
+
+    void buildDynamicQrCode();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, qrCodeUrl, record]);
+
   const handleDownloadJpg = async () => {
-    if (!qrCodeSvg || downloading) {
+    if (!qrCodeSvg || downloading || loadingQrCode) {
       return;
     }
 
@@ -208,7 +263,11 @@ export const EquipmentQrDialog = ({
         {record ? (
           <div className="space-y-4">
             <div className="rounded-xl border bg-white p-4">
-              {qrCodeSvg ? (
+              {loadingQrCode ? (
+                <div className="flex aspect-square max-w-[240px] items-center justify-center mx-auto text-muted-foreground">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                </div>
+              ) : qrCodeSvg ? (
                 <div
                   className="mx-auto aspect-square max-w-[240px]"
                   dangerouslySetInnerHTML={{ __html: qrCodeSvg }}
@@ -237,8 +296,16 @@ export const EquipmentQrDialog = ({
                 </Button>
               )}
               {qrCodeSvg ? (
-                <Button type="button" onClick={() => void handleDownloadJpg()} disabled={downloading}>
-                  {downloading ? "Gerando JPG..." : "Baixar QR"}
+                <Button
+                  type="button"
+                  onClick={() => void handleDownloadJpg()}
+                  disabled={downloading || loadingQrCode}
+                >
+                  {loadingQrCode
+                    ? "Gerando QR..."
+                    : downloading
+                      ? "Gerando JPG..."
+                      : "Baixar QR"}
                 </Button>
               ) : (
                 <Button type="button" disabled>

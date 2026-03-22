@@ -502,10 +502,12 @@ export const buildEquipmentPublicUrl = (
   equipmentType: EquipmentType,
   token: string,
   origin =
-    (typeof import.meta !== "undefined" &&
-      import.meta.env?.VITE_PUBLIC_APP_URL?.trim()) ||
     (typeof window !== "undefined" && window.location.origin
       ? window.location.origin
+      : "") ||
+    (typeof import.meta !== "undefined" &&
+    import.meta.env?.VITE_PUBLIC_APP_URL?.trim()
+      ? import.meta.env.VITE_PUBLIC_APP_URL.trim()
       : ""),
 ) => {
   const path = `/equipamentos/${equipmentType}/${token}`;

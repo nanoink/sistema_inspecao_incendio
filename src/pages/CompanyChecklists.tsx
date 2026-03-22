@@ -1153,8 +1153,19 @@ const CompanyChecklists = () => {
     equipmentType: EquipmentType,
     record: LuminaireRecord | ExtinguisherRecord | HydrantRecord,
   ) => {
-    const url =
-      record.qr_code_url || buildEquipmentPublicUrl(equipmentType, record.public_token);
+    const url = record.public_token
+      ? buildEquipmentPublicUrl(equipmentType, record.public_token)
+      : record.qr_code_url || "";
+
+    if (!url) {
+      toast({
+        title: "Link indisponivel",
+        description: "Nao foi possivel montar o link publico deste equipamento.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
@@ -1796,7 +1807,8 @@ const CompanyChecklists = () => {
                                               size="sm"
                                               disabled={
                                                 equipmentQrSchemaPending ||
-                                                !record.qr_code_svg
+                                                (!record.public_token &&
+                                                  !record.qr_code_svg)
                                               }
                                               onClick={() =>
                                                 openEquipmentQrDialog(
@@ -1814,7 +1826,8 @@ const CompanyChecklists = () => {
                                               size="sm"
                                               disabled={
                                                 equipmentQrSchemaPending ||
-                                                !record.qr_code_url
+                                                (!record.public_token &&
+                                                  !record.qr_code_url)
                                               }
                                               onClick={() =>
                                                 openEquipmentPublicPage(
@@ -1946,7 +1959,8 @@ const CompanyChecklists = () => {
                                               size="sm"
                                               disabled={
                                                 equipmentQrSchemaPending ||
-                                                !record.qr_code_svg
+                                                (!record.public_token &&
+                                                  !record.qr_code_svg)
                                               }
                                               onClick={() =>
                                                 openEquipmentQrDialog(
@@ -1964,7 +1978,8 @@ const CompanyChecklists = () => {
                                               size="sm"
                                               disabled={
                                                 equipmentQrSchemaPending ||
-                                                !record.qr_code_url
+                                                (!record.public_token &&
+                                                  !record.qr_code_url)
                                               }
                                               onClick={() =>
                                                 openEquipmentPublicPage(
@@ -2126,7 +2141,8 @@ const CompanyChecklists = () => {
                                               size="sm"
                                               disabled={
                                                 equipmentQrSchemaPending ||
-                                                !record.qr_code_svg
+                                                (!record.public_token &&
+                                                  !record.qr_code_svg)
                                               }
                                               onClick={() =>
                                                 openEquipmentQrDialog(
@@ -2144,7 +2160,8 @@ const CompanyChecklists = () => {
                                               size="sm"
                                               disabled={
                                                 equipmentQrSchemaPending ||
-                                                !record.qr_code_url
+                                                (!record.public_token &&
+                                                  !record.qr_code_url)
                                               }
                                               onClick={() =>
                                                 openEquipmentPublicPage(
