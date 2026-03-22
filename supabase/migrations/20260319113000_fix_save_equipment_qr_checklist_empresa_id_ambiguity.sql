@@ -150,4 +150,4 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.save_equipment_qr_checklist(UUID, JSONB)
-TO anon, authenticated;
+TO authenticated;

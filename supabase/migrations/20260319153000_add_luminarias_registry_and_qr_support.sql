@@ -215,7 +215,7 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.get_equipment_qr_page(UUID) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.get_equipment_qr_page(UUID) TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.save_equipment_qr_checklist(
   p_token UUID,
@@ -421,4 +421,4 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.save_equipment_qr_checklist(UUID, JSONB)
-TO anon, authenticated;
+TO authenticated;

@@ -132,6 +132,55 @@ export const loadEquipmentChecklistNonConformitiesByType = async (
   return data || [];
 };
 
+export const loadEquipmentQrNonConformities = async (
+  supabase: AppSupabaseClient,
+  { token }: { token: string },
+) => {
+  const { data, error } = await supabase.rpc(
+    "get_equipment_qr_non_conformities",
+    {
+      p_token: token,
+    },
+  );
+
+  if (error) {
+    throw error;
+  }
+
+  return (data || []) as ChecklistNonConformityRecord[];
+};
+
+export const saveEquipmentQrNonConformity = async (
+  supabase: AppSupabaseClient,
+  {
+    token,
+    checklistItemId,
+    description,
+    imageDataUrl,
+  }: {
+    token: string;
+    checklistItemId: string;
+    description: string;
+    imageDataUrl?: string | null;
+  },
+) => {
+  const { data, error } = await supabase.rpc(
+    "save_equipment_qr_non_conformity",
+    {
+      p_token: token,
+      p_checklist_item_id: checklistItemId,
+      p_descricao: description.trim(),
+      p_imagem_data_url: imageDataUrl?.trim() || null,
+    },
+  );
+
+  if (error) {
+    throw error;
+  }
+
+  return (data?.[0] || null) as ChecklistNonConformityRecord | null;
+};
+
 export const saveChecklistNonConformity = async (
   supabase: AppSupabaseClient,
   {

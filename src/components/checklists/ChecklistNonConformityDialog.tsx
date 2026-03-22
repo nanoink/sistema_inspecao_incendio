@@ -3,6 +3,7 @@ import { Camera, ImagePlus, Loader2, Trash2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -162,6 +163,9 @@ export const ChecklistNonConformityDialog = ({
           <DialogTitle className="text-2xl font-bold uppercase tracking-tight">
             Nao conformidade
           </DialogTitle>
+          <DialogDescription className="text-sm text-muted-foreground">
+            Registre a descricao e a imagem da nao conformidade para este item.
+          </DialogDescription>
           {itemLabel ? (
             <p className="text-sm text-muted-foreground">{itemLabel}</p>
           ) : null}

@@ -873,6 +873,21 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_equipment_qr_non_conformities: {
+        Args: { p_token: string }
+        Returns: {
+          checklist_item_id: string
+          context_key: string
+          created_at: string
+          descricao: string
+          empresa_id: string
+          equipment_record_id: string | null
+          equipment_type: string | null
+          id: string
+          imagem_data_url: string | null
+          updated_at: string
+        }[]
+      }
       get_equipment_qr_page: {
         Args: { p_token: string }
         Returns: {
@@ -901,6 +916,26 @@ export type Database = {
           empresa_id: string
           equipment_id: string
           equipment_type: string
+        }[]
+      }
+      save_equipment_qr_non_conformity: {
+        Args: {
+          p_checklist_item_id: string
+          p_descricao: string
+          p_imagem_data_url?: string | null
+          p_token: string
+        }
+        Returns: {
+          checklist_item_id: string
+          context_key: string
+          created_at: string
+          descricao: string
+          empresa_id: string
+          equipment_record_id: string | null
+          equipment_type: string | null
+          id: string
+          imagem_data_url: string | null
+          updated_at: string
         }[]
       }
       resolve_exigencias_empresa: {

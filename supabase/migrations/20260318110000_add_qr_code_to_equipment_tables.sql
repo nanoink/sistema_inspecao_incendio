@@ -95,4 +95,4 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.get_equipment_qr_page(UUID) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.get_equipment_qr_page(UUID) TO authenticated;

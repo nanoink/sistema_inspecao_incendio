@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { isMissingEquipmentChecklistSaveRpcError } from "@/lib/supabase-errors";
 import {
   formatMonthYear,
@@ -26,9 +27,9 @@ import {
 } from "@/lib/checklist-equipment";
 import { broadcastEquipmentChecklistUpdate } from "@/lib/equipment-checklist-sync";
 import {
-  loadChecklistNonConformities,
+  loadEquipmentQrNonConformities,
   mapChecklistNonConformitiesByItemId,
-  saveChecklistNonConformity,
+  saveEquipmentQrNonConformity,
   type ChecklistNonConformityRecord,
 } from "@/lib/checklist-non-conformities";
 import { ChecklistNonConformityDialog } from "@/components/checklists/ChecklistNonConformityDialog";
@@ -42,6 +43,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { EquipmentQrLoginDialog } from "@/components/auth/EquipmentQrLoginDialog";
 import { cn } from "@/lib/utils";
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
@@ -213,6 +215,7 @@ const applyNonConformityDescriptionsToSnapshot = (
 const EquipmentChecklistPage = () => {
   const { kind, token } = useParams<{ kind: string; token: string }>();
   const { toast } = useToast();
+  const { user, loading: authLoading, signIn } = useAuth();
   const equipmentType =
     kind === "extintor" || kind === "hidrante" || kind === "luminaria"
       ? (kind as EquipmentType)
@@ -232,6 +235,7 @@ const EquipmentChecklistPage = () => {
   >(null);
   const [nonConformityDialogOpen, setNonConformityDialogOpen] = useState(false);
   const [savingNonConformity, setSavingNonConformity] = useState(false);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
   const confirmedSnapshotRef = useRef<EquipmentChecklistSnapshot | null>(null);
   const activeSnapshotRef = useRef<EquipmentChecklistSnapshot | null>(null);
   const pendingSnapshotRef = useRef<EquipmentChecklistSnapshot | null>(null);
@@ -247,7 +251,7 @@ const EquipmentChecklistPage = () => {
   }, []);
 
   const flushPendingSave = useCallback(async () => {
-    if (!token || !equipmentType || saveInFlightRef.current) {
+    if (!token || !equipmentType || !user || saveInFlightRef.current) {
       return;
     }
 
@@ -330,10 +334,32 @@ const EquipmentChecklistPage = () => {
         void flushPendingSave();
       }
     }
-  }, [equipmentType, toast, token]);
+  }, [equipmentType, toast, token, user]);
+
+  useEffect(() => {
+    if (authLoading || user) {
+      return;
+    }
+
+    setLoading(false);
+    setNotFound(false);
+    setRecord(null);
+    setChecklistSnapshot(null);
+    setNonConformities(new Map());
+    setSelectedNonConformityItem(null);
+    setNonConformityDialogOpen(false);
+    setSaveIndicator("idle");
+    activeSnapshotRef.current = null;
+    confirmedSnapshotRef.current = null;
+    pendingSnapshotRef.current = null;
+  }, [authLoading, user]);
 
   useEffect(() => {
     const fetchRecord = async () => {
+      if (authLoading || !user) {
+        return;
+      }
+
       if (!equipmentType || !token) {
         setNotFound(true);
         setLoading(false);
@@ -352,13 +378,9 @@ const EquipmentChecklistPage = () => {
           return;
         }
 
-        const existingNonConformities = await loadChecklistNonConformities(
+        const existingNonConformities = await loadEquipmentQrNonConformities(
           supabase,
-          {
-            companyId: data.empresa_id,
-            equipmentType,
-            equipmentRecordId: data.equipment_id,
-          },
+          { token },
         );
         const nonConformitiesMap = mapChecklistNonConformitiesByItemId(
           existingNonConformities,
@@ -393,7 +415,7 @@ const EquipmentChecklistPage = () => {
     };
 
     void fetchRecord();
-  }, [equipmentType, token]);
+  }, [authLoading, equipmentType, token, user]);
 
   const queueSnapshotSave = useCallback(
     (nextSnapshot: EquipmentChecklistSnapshot) => {
@@ -454,13 +476,11 @@ const EquipmentChecklistPage = () => {
 
     try {
       setSavingNonConformity(true);
-      const savedRecord = await saveChecklistNonConformity(supabase, {
-        companyId: record.empresa_id,
+      const savedRecord = await saveEquipmentQrNonConformity(supabase, {
+        token,
         checklistItemId: selectedNonConformityItem.checklist_item_id,
         description,
         imageDataUrl,
-        equipmentType,
-        equipmentRecordId: record.equipment_id,
       });
 
       if (savedRecord) {
@@ -497,6 +517,38 @@ const EquipmentChecklistPage = () => {
     }
   };
 
+  const handleQrLogin = useCallback(
+    async ({
+      email,
+      password,
+    }: {
+      email: string;
+      password: string;
+    }) => {
+      setAuthSubmitting(true);
+
+      try {
+        const { error } = await signIn(email, password);
+
+        if (error) {
+          if (error.message.includes("Invalid login credentials")) {
+            throw new Error("Email ou senha incorretos.");
+          }
+
+          throw new Error(error.message);
+        }
+
+        toast({
+          title: "Login realizado com sucesso",
+          description: "Checklist do equipamento liberado para consulta e preenchimento.",
+        });
+      } finally {
+        setAuthSubmitting(false);
+      }
+    },
+    [signIn, toast],
+  );
+
   const equipmentData = isObjectRecord(record?.equipment_data)
     ? record.equipment_data
     : {};
@@ -515,11 +567,50 @@ const EquipmentChecklistPage = () => {
           ? "Erro ao salvar"
           : "Autosave ativo";
 
-  if (loading) {
+  const loginRequired = !authLoading && !user;
+
+  if (authLoading || (user && loading)) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
+    );
+  }
+
+  if (loginRequired) {
+    return (
+      <>
+        <div className="min-h-screen bg-muted/20">
+          <div className="container mx-auto flex min-h-screen max-w-3xl items-center justify-center px-4 py-8">
+            <Card className="w-full border-none shadow-sm">
+              <CardContent className="flex flex-col items-center gap-4 px-6 py-12 text-center">
+                <div className="rounded-3xl bg-primary/10 p-4 text-primary">
+                  <ShieldCheck className="h-8 w-8" />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm uppercase tracking-[0.24em] text-muted-foreground">
+                    Checklist via QR Code
+                  </p>
+                  <h1 className="text-2xl font-bold">
+                    Acesso restrito a usuarios autenticados
+                  </h1>
+                  <p className="mx-auto max-w-xl text-sm text-muted-foreground">
+                    Faça login para visualizar o checklist do equipamento, registrar
+                    nao conformidades e sincronizar as informacoes com o checklist
+                    principal da empresa.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        <EquipmentQrLoginDialog
+          open={loginRequired}
+          submitting={authSubmitting}
+          onSubmit={handleQrLogin}
+        />
+      </>
     );
   }
 
