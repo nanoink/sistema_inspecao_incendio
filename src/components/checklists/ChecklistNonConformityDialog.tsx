@@ -11,13 +11,30 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-const fileToDataUrl = (file: File) =>
+const blobToDataUrl = (blob: Blob) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
     reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(blob);
   });
+
+const fileToDataUrl = (file: File) => blobToDataUrl(file);
+
+const canvasToJpegDataUrl = async (
+  canvas: HTMLCanvasElement,
+  quality: number,
+) => {
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob(resolve, "image/jpeg", quality);
+  });
+
+  if (!blob) {
+    throw new Error("Nao foi possivel converter a imagem para JPEG.");
+  }
+
+  return blobToDataUrl(blob);
+};
 
 const downscaleImage = async (file: File) => {
   const originalDataUrl = await fileToDataUrl(file);
@@ -33,22 +50,43 @@ const downscaleImage = async (file: File) => {
     element.src = originalDataUrl;
   });
 
-  const maxDimension = 1600;
-  const ratio = Math.min(1, maxDimension / image.width, maxDimension / image.height);
-  const width = Math.max(1, Math.round(image.width * ratio));
-  const height = Math.max(1, Math.round(image.height * ratio));
+  const maxDimension = 1280;
+  const maxDataUrlLength = 550_000;
+  const qualitySteps = [0.8, 0.72, 0.64, 0.56, 0.48];
+  let ratio = Math.min(1, maxDimension / image.width, maxDimension / image.height);
+  let width = Math.max(1, Math.round(image.width * ratio));
+  let height = Math.max(1, Math.round(image.height * ratio));
 
   const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-
   const context = canvas.getContext("2d");
   if (!context) {
     return originalDataUrl;
   }
 
-  context.drawImage(image, 0, 0, width, height);
-  return canvas.toDataURL("image/jpeg", 0.82);
+  let fallbackDataUrl = originalDataUrl;
+
+  while (true) {
+    canvas.width = width;
+    canvas.height = height;
+    context.clearRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+
+    for (const quality of qualitySteps) {
+      const compressedDataUrl = await canvasToJpegDataUrl(canvas, quality);
+      fallbackDataUrl = compressedDataUrl;
+
+      if (compressedDataUrl.length <= maxDataUrlLength) {
+        return compressedDataUrl;
+      }
+    }
+
+    if (Math.max(width, height) <= 720) {
+      return fallbackDataUrl;
+    }
+
+    width = Math.max(1, Math.round(width * 0.82));
+    height = Math.max(1, Math.round(height * 0.82));
+  }
 };
 
 interface ChecklistNonConformityDialogProps {

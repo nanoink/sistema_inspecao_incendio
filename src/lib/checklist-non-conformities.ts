@@ -168,12 +168,19 @@ export const saveChecklistNonConformity = async (
   const { data, error } = await supabase
     .from("empresa_checklist_nao_conformidades")
     .upsert(payload, { onConflict: "context_key" })
-    .select("*")
+    .select(
+      "id, context_key, empresa_id, checklist_item_id, equipment_type, equipment_record_id, descricao, created_at, updated_at",
+    )
     .maybeSingle();
 
   if (error) {
     throw error;
   }
 
-  return data;
+  return data
+    ? ({
+        ...data,
+        imagem_data_url: payload.imagem_data_url,
+      } satisfies ChecklistNonConformityRecord)
+    : null;
 };
