@@ -111,9 +111,15 @@ export const ChecklistNonConformityDialog = ({
     description.trim().length > 0 &&
     imageDataUrl.trim().length > 0;
 
+  const handleSubmit = () =>
+    onSave({
+      description: description.trim(),
+      imageDataUrl,
+    });
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md rounded-3xl border-0 p-0 shadow-2xl">
+      <DialogContent className="max-h-[calc(100vh-1rem)] max-w-md overflow-y-auto rounded-3xl border-0 p-0 shadow-2xl sm:max-h-[90vh]">
         <DialogHeader className="space-y-2 px-6 pb-0 pt-12 text-center">
           <DialogTitle className="text-2xl font-bold uppercase tracking-tight">
             Nao conformidade
@@ -225,17 +231,35 @@ export const ChecklistNonConformityDialog = ({
           <Button
             type="button"
             disabled={!canSubmit}
-            className="h-12 w-full rounded-2xl bg-pink-300 text-base font-semibold text-white hover:bg-pink-400"
-            onClick={() =>
-              onSave({
-                description: description.trim(),
-                imageDataUrl,
-              })
-            }
+            className="hidden h-12 w-full rounded-2xl bg-pink-300 text-base font-semibold text-white hover:bg-pink-400 sm:inline-flex"
+            onClick={handleSubmit}
           >
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Salvar
           </Button>
+
+          <div className="-mx-6 sticky bottom-0 border-t bg-white/95 px-6 pb-6 pt-4 backdrop-blur sm:hidden">
+            <div className="flex gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-12 flex-1 rounded-2xl"
+                disabled={saving || processingImage}
+                onClick={() => onOpenChange(false)}
+              >
+                Voltar
+              </Button>
+              <Button
+                type="button"
+                disabled={!canSubmit}
+                className="h-12 flex-1 rounded-2xl bg-pink-300 text-base font-semibold text-white hover:bg-pink-400"
+                onClick={handleSubmit}
+              >
+                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Salvar
+              </Button>
+            </div>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
