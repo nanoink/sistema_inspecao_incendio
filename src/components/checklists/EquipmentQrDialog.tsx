@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -6,6 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 import type {
   EquipmentType,
   ExtinguisherRecord,
@@ -19,6 +21,48 @@ interface EquipmentQrDialogProps {
   equipmentType: EquipmentType;
   record: LuminaireRecord | ExtinguisherRecord | HydrantRecord | null;
 }
+
+const getEquipmentLabel = (
+  equipmentType: EquipmentType,
+  record: LuminaireRecord | ExtinguisherRecord | HydrantRecord,
+) =>
+  equipmentType === "extintor"
+    ? `Extintor ${record.numero}`
+    : equipmentType === "hidrante"
+      ? `Hidrante ${record.numero}`
+      : `Luminaria ${record.numero}`;
+
+const wrapCanvasText = ({
+  context,
+  text,
+  maxWidth,
+}: {
+  context: CanvasRenderingContext2D;
+  text: string;
+  maxWidth: number;
+}) => {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) {
+    return [""];
+  }
+
+  const lines: string[] = [];
+  let currentLine = words[0];
+
+  for (let index = 1; index < words.length; index += 1) {
+    const candidate = `${currentLine} ${words[index]}`;
+    if (context.measureText(candidate).width <= maxWidth) {
+      currentLine = candidate;
+      continue;
+    }
+
+    lines.push(currentLine);
+    currentLine = words[index];
+  }
+
+  lines.push(currentLine);
+  return lines;
+};
 
 const getTitle = (
   equipmentType: EquipmentType,
@@ -36,11 +80,118 @@ export const EquipmentQrDialog = ({
   equipmentType,
   record,
 }: EquipmentQrDialogProps) => {
+  const { toast } = useToast();
+  const [downloading, setDownloading] = useState(false);
   const qrCodeUrl = record?.qr_code_url || "";
   const qrCodeSvg = record?.qr_code_svg || "";
   const downloadName = record
-    ? `${equipmentType}-${record.numero}-qrcode.svg`
-    : "qrcode.svg";
+    ? `${equipmentType}-${record.numero}-qrcode.jpg`
+    : "qrcode.jpg";
+
+  const handleDownloadJpg = async () => {
+    if (!qrCodeSvg || downloading) {
+      return;
+    }
+
+    try {
+      setDownloading(true);
+
+      const svgBlob = new Blob([qrCodeSvg], {
+        type: "image/svg+xml;charset=utf-8",
+      });
+      const svgUrl = URL.createObjectURL(svgBlob);
+
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const nextImage = new Image();
+        nextImage.onload = () => resolve(nextImage);
+        nextImage.onerror = () =>
+          reject(new Error("Nao foi possivel carregar o SVG do QR Code."));
+        nextImage.src = svgUrl;
+      });
+
+      const equipmentLabel = record
+        ? getEquipmentLabel(equipmentType, record)
+        : "Equipamento";
+      const equipmentLocation = record?.localizacao?.trim()
+        ? `Localizacao: ${record.localizacao.trim()}`
+        : "Localizacao nao informada";
+
+      const canvasWidth = 1200;
+      const qrSize = 820;
+      const padding = 120;
+      const footerHeight = 210;
+      const canvas = document.createElement("canvas");
+      canvas.width = canvasWidth;
+      canvas.height = padding + qrSize + 40 + footerHeight;
+
+      const context = canvas.getContext("2d");
+      if (!context) {
+        throw new Error("Nao foi possivel preparar o canvas para download.");
+      }
+
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(
+        image,
+        (canvas.width - qrSize) / 2,
+        padding,
+        qrSize,
+        qrSize,
+      );
+
+      const footerTop = padding + qrSize + 55;
+      const maxTextWidth = canvas.width - padding * 2;
+
+      context.textAlign = "center";
+      context.fillStyle = "#111111";
+      context.font = "bold 42px Arial";
+      context.fillText(equipmentLabel, canvas.width / 2, footerTop);
+
+      context.fillStyle = "#444444";
+      context.font = "30px Arial";
+      const locationLines = wrapCanvasText({
+        context,
+        text: equipmentLocation,
+        maxWidth: maxTextWidth,
+      });
+
+      locationLines.slice(0, 2).forEach((line, lineIndex) => {
+        context.fillText(
+          line,
+          canvas.width / 2,
+          footerTop + 52 + lineIndex * 38,
+        );
+      });
+
+      const jpgBlob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob(resolve, "image/jpeg", 0.96);
+      });
+
+      if (!jpgBlob) {
+        throw new Error("Nao foi possivel converter o QR Code para JPG.");
+      }
+
+      const jpgUrl = URL.createObjectURL(jpgBlob);
+      const link = document.createElement("a");
+      link.href = jpgUrl;
+      link.download = downloadName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      URL.revokeObjectURL(svgUrl);
+      URL.revokeObjectURL(jpgUrl);
+    } catch (error) {
+      console.error("Error downloading QR Code JPG:", error);
+      toast({
+        title: "Erro ao baixar QR",
+        description: "Nao foi possivel gerar a imagem JPG do QR Code.",
+        variant: "destructive",
+      });
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -86,13 +237,8 @@ export const EquipmentQrDialog = ({
                 </Button>
               )}
               {qrCodeSvg ? (
-                <Button type="button" asChild>
-                  <a
-                    href={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(qrCodeSvg)}`}
-                    download={downloadName}
-                  >
-                    Baixar QR
-                  </a>
+                <Button type="button" onClick={() => void handleDownloadJpg()} disabled={downloading}>
+                  {downloading ? "Gerando JPG..." : "Baixar QR"}
                 </Button>
               ) : (
                 <Button type="button" disabled>
