@@ -27,9 +27,9 @@ import {
 } from "@/lib/checklist-equipment";
 import { broadcastEquipmentChecklistUpdate } from "@/lib/equipment-checklist-sync";
 import {
-  loadEquipmentQrNonConformities,
+  loadChecklistNonConformities,
   mapChecklistNonConformitiesByItemId,
-  saveEquipmentQrNonConformity,
+  saveChecklistNonConformity,
   type ChecklistNonConformityRecord,
 } from "@/lib/checklist-non-conformities";
 import { ChecklistNonConformityDialog } from "@/components/checklists/ChecklistNonConformityDialog";
@@ -378,10 +378,30 @@ const EquipmentChecklistPage = () => {
           return;
         }
 
-        const existingNonConformities = await loadEquipmentQrNonConformities(
-          supabase,
-          { token },
-        );
+        let existingNonConformities: ChecklistNonConformityRecord[] = [];
+
+        try {
+          existingNonConformities = await loadChecklistNonConformities(
+            supabase,
+            {
+              companyId: data.empresa_id,
+              equipmentType,
+              equipmentRecordId: data.equipment_id,
+            },
+          );
+        } catch (nonConformityError) {
+          console.error(
+            "Error loading equipment non conformities:",
+            nonConformityError,
+          );
+          toast({
+            title: "Nao foi possivel carregar as nao conformidades",
+            description:
+              "O checklist do equipamento foi carregado, mas os registros detalhados de nao conformidade nao puderam ser consultados neste momento.",
+            variant: "destructive",
+          });
+        }
+
         const nonConformitiesMap = mapChecklistNonConformitiesByItemId(
           existingNonConformities,
         );
@@ -415,7 +435,7 @@ const EquipmentChecklistPage = () => {
     };
 
     void fetchRecord();
-  }, [authLoading, equipmentType, token, user]);
+  }, [authLoading, equipmentType, toast, token, user]);
 
   const queueSnapshotSave = useCallback(
     (nextSnapshot: EquipmentChecklistSnapshot) => {
@@ -470,17 +490,19 @@ const EquipmentChecklistPage = () => {
     description: string;
     imageDataUrl: string;
   }) => {
-    if (!record || !selectedNonConformityItem) {
+    if (!record || !selectedNonConformityItem || !equipmentType) {
       return;
     }
 
     try {
       setSavingNonConformity(true);
-      const savedRecord = await saveEquipmentQrNonConformity(supabase, {
-        token,
+      const savedRecord = await saveChecklistNonConformity(supabase, {
+        companyId: record.empresa_id,
         checklistItemId: selectedNonConformityItem.checklist_item_id,
         description,
         imageDataUrl,
+        equipmentType,
+        equipmentRecordId: record.equipment_id,
       });
 
       if (savedRecord) {
