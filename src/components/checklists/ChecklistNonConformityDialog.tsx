@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 const blobToDataUrl = (blob: Blob) =>
@@ -19,8 +20,6 @@ const blobToDataUrl = (blob: Blob) =>
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(blob);
   });
-
-const fileToDataUrl = (file: File) => blobToDataUrl(file);
 
 const canvasToJpegDataUrl = async (
   canvas: HTMLCanvasElement,
@@ -37,23 +36,39 @@ const canvasToJpegDataUrl = async (
   return blobToDataUrl(blob);
 };
 
-const downscaleImage = async (file: File) => {
-  const originalDataUrl = await fileToDataUrl(file);
+const loadImageFromFile = (file: File) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
 
-  if (typeof window === "undefined") {
-    return originalDataUrl;
-  }
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
 
-  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const element = new Image();
-    element.onload = () => resolve(element);
-    element.onerror = () => reject(new Error("Nao foi possivel carregar a imagem."));
-    element.src = originalDataUrl;
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(
+        new Error(
+          "Nao foi possivel abrir a foto capturada. Tente novamente ou use uma imagem da galeria.",
+        ),
+      );
+    };
+
+    image.src = objectUrl;
   });
 
+const downscaleImage = async (file: File) => {
+  if (typeof window === "undefined") {
+    return blobToDataUrl(file);
+  }
+
+  const image = await loadImageFromFile(file);
+
   const maxDimension = 1280;
-  const maxDataUrlLength = 550_000;
-  const qualitySteps = [0.8, 0.72, 0.64, 0.56, 0.48];
+  const minDimension = 320;
+  const maxDataUrlLength = 320_000;
+  const qualitySteps = [0.82, 0.72, 0.62, 0.52, 0.42, 0.32];
   let ratio = Math.min(1, maxDimension / image.width, maxDimension / image.height);
   let width = Math.max(1, Math.round(image.width * ratio));
   let height = Math.max(1, Math.round(image.height * ratio));
@@ -61,10 +76,13 @@ const downscaleImage = async (file: File) => {
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
   if (!context) {
-    return originalDataUrl;
+    return blobToDataUrl(file);
   }
 
-  let fallbackDataUrl = originalDataUrl;
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+
+  let fallbackDataUrl = "";
 
   while (true) {
     canvas.width = width;
@@ -81,13 +99,21 @@ const downscaleImage = async (file: File) => {
       }
     }
 
-    if (Math.max(width, height) <= 720) {
-      return fallbackDataUrl;
+    if (Math.max(width, height) <= minDimension) {
+      break;
     }
 
-    width = Math.max(1, Math.round(width * 0.82));
-    height = Math.max(1, Math.round(height * 0.82));
+    width = Math.max(1, Math.round(width * 0.78));
+    height = Math.max(1, Math.round(height * 0.78));
   }
+
+  if (fallbackDataUrl && fallbackDataUrl.length <= maxDataUrlLength) {
+    return fallbackDataUrl;
+  }
+
+  throw new Error(
+    "A foto capturada ficou muito grande para salvar. Tente aproximar a camera do ponto da nao conformidade ou use uma imagem ja salva no aparelho.",
+  );
 };
 
 interface ChecklistNonConformityDialogProps {
@@ -109,6 +135,7 @@ export const ChecklistNonConformityDialog = ({
   saving = false,
   onSave,
 }: ChecklistNonConformityDialogProps) => {
+  const { toast } = useToast();
   const [description, setDescription] = useState("");
   const [imageDataUrl, setImageDataUrl] = useState("");
   const [processingImage, setProcessingImage] = useState(false);
@@ -138,6 +165,16 @@ export const ChecklistNonConformityDialog = ({
       setProcessingImage(true);
       const nextImageDataUrl = await downscaleImage(file);
       setImageDataUrl(nextImageDataUrl);
+    } catch (error) {
+      console.error("Error processing non conformity image:", error);
+      toast({
+        title: "Erro ao processar a imagem",
+        description:
+          error instanceof Error && error.message
+            ? error.message
+            : "Nao foi possivel preparar a foto para salvar a nao conformidade.",
+        variant: "destructive",
+      });
     } finally {
       setProcessingImage(false);
       event.target.value = "";
