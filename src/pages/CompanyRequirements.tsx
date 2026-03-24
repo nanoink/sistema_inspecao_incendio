@@ -414,7 +414,8 @@ const CompanyRequirements = () => {
                               ? "bg-green-500 text-white"
                               : "bg-gray-200 text-gray-400 hover:bg-green-100"
                           }`}
-                          title="Atende"
+                          title="Existente"
+                          aria-label="Existente"
                         >
                           <Check className="h-4 w-4" />
                         </button>
@@ -425,7 +426,8 @@ const CompanyRequirements = () => {
                               ? "bg-red-500 text-white"
                               : "bg-gray-200 text-gray-400 hover:bg-red-100"
                           }`}
-                          title="Nao atende"
+                          title="Nao existente"
+                          aria-label="Nao existente"
                         >
                           <X className="h-4 w-4" />
                         </button>

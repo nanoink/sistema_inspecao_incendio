@@ -170,6 +170,18 @@ interface InspectionSummaryLine {
   pendentes: number;
 }
 
+interface ReportRequirementMeasureEntry {
+  id: string;
+  sequence: number;
+  code: string;
+  category: string;
+  name: string;
+  detail: string | null;
+  requiredLabel: string;
+  existingLabel: string;
+  statusLabel: string;
+}
+
 const getToday = () => new Date().toISOString().slice(0, 10);
 
 const emptyForm = (): ReportFormState => ({
@@ -545,6 +557,45 @@ const buildInspectionSummaryLines = (snapshot: ChecklistSnapshot): InspectionSum
     pendentes: inspection.pendentes,
   }));
 
+const buildRequirementMeasureEntries = (
+  requirements: ReportRequirement[],
+): ReportRequirementMeasureEntry[] =>
+  requirements
+    .slice()
+    .sort((left, right) => {
+      const categoryCompare = left.categoria.localeCompare(right.categoria, "pt-BR", {
+        sensitivity: "base",
+      });
+
+      if (categoryCompare !== 0) {
+        return categoryCompare;
+      }
+
+      const codeCompare = left.codigo.localeCompare(right.codigo, "pt-BR", {
+        numeric: true,
+        sensitivity: "base",
+      });
+
+      if (codeCompare !== 0) {
+        return codeCompare;
+      }
+
+      return left.nome.localeCompare(right.nome, "pt-BR", {
+        sensitivity: "base",
+      });
+    })
+    .map((requirement, index) => ({
+      id: requirement.id,
+      sequence: index + 1,
+      code: requirement.codigo,
+      category: requirement.categoria,
+      name: requirement.nome,
+      detail: requirement.criterioTexto || requirement.observacoes || null,
+      requiredLabel: "SIM",
+      existingLabel: requirement.atende ? "EXISTENTE" : "NAO EXISTENTE",
+      statusLabel: requirement.atende ? "ATENDE" : "NAO ATENDE",
+    }));
+
 const TopCornerArt = () => (
   <svg width="122" height="86" viewBox="0 0 122 86" fill="none" xmlns="http://www.w3.org/2000/svg">
     <polygon points="0,0 63,0 24,40 0,40" fill="#ff1616" />
@@ -647,6 +698,26 @@ const DataCell = ({
     </div>
     <div className="mt-1 text-[13px] font-semibold uppercase text-zinc-900">{value}</div>
   </div>
+);
+
+const RequirementStatusBadge = ({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: "neutral" | "success" | "danger";
+}) => (
+  <span
+    className={
+      tone === "success"
+        ? "inline-flex items-center rounded-full border border-emerald-300 bg-emerald-50 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-emerald-800"
+        : tone === "danger"
+          ? "inline-flex items-center rounded-full border border-red-300 bg-red-50 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-red-800"
+          : "inline-flex items-center rounded-full border border-zinc-300 bg-zinc-100 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-zinc-700"
+    }
+  >
+    {label}
+  </span>
 );
 
 const RiskMatrix = () => (
@@ -1134,6 +1205,27 @@ const CompanyReport = () => {
     groupedObservationLines.push(form.observacoesGerais.trim());
   }
 
+  const requirementMeasureEntries = buildRequirementMeasureEntries(reportRequirements);
+  const requirementMeasureChunks = chunkArray(
+    requirementMeasureEntries.length > 0
+      ? requirementMeasureEntries
+      : [
+          {
+            id: "placeholder-requirement",
+            sequence: 1,
+            code: "-",
+            category: "Sem exigencias registradas",
+            name: "Nenhuma exigencia aplicavel foi encontrada para esta empresa.",
+            detail:
+              "Cadastre ou sincronize as exigencias da empresa para que a secao 3 seja preenchida no relatorio.",
+            requiredLabel: "NAO",
+            existingLabel: "-",
+            statusLabel: "PENDENTE",
+          },
+        ],
+    8,
+  );
+
   const conclusionParagraphs = form.conclusao.trim()
     ? form.conclusao
         .split(/\n{2,}/)
@@ -1144,60 +1236,6 @@ const CompanyReport = () => {
         `Os registros detalhados com comentarios e imagens foram incorporados ao presente relatorio e estruturados em anexo fotografico e plano de correcao, permitindo rastreabilidade das medidas corretivas recomendadas.`,
         `A adocao tempestiva das acoes propostas e a reavaliacao tecnica dos itens corrigidos sao essenciais para a manutencao das condicoes de seguranca contra incendios e emergencias da edificacao.`,
       ];
-
-  const categoryBulletGroups = [
-    {
-      title: "I. Restricao ao surgimento e a propagacao de incendio",
-      items: [
-        "Compartimentacao Horizontal e Vertical",
-        "Controle de Materiais de Acabamento e Revestimento (CMAR)",
-        "Sistema de Protecao Contra Descargas Atmosfericas (SPDA)",
-      ],
-    },
-    {
-      title: "II. Controle de crescimento e supressao de incendio",
-      items: [
-        "Sistemas de Extintores de Incendio",
-        "Sistema de Hidrantes e Mangotinhos",
-        "Sistema de Chuveiros Automaticos",
-        "Sistema de Supressao de Incendio",
-        "Sistema de Espuma",
-      ],
-    },
-    {
-      title: "III. Meios de aviso",
-      items: ["Sistema de Deteccao de Incendio", "Sistema de Alarme de Incendio"],
-    },
-    {
-      title: "IV. Facilidades no abandono",
-      items: [
-        "Saidas de Emergencia",
-        "Iluminacao de Emergencia",
-        "Sinalizacao de Emergencia",
-      ],
-    },
-    {
-      title: "V. Acesso e facilidades para as operacoes de socorro",
-      items: ["Acesso de Viatura na Edificacao"],
-    },
-    {
-      title: "VI. Protecao estrutural em situacoes de incendio",
-      items: ["Seguranca Estrutural Contra Incendio"],
-    },
-    {
-      title: "VII. Gerenciamento de risco de incendio",
-      items: [
-        "Brigada de Incendio",
-        "Brigada Profissional",
-        "Programa de Seguranca Contra Incendio e Emergencias (PSIE)",
-        "Plano de Emergencia Contra Incendio",
-      ],
-    },
-    {
-      title: "VIII. Controle de fumaca e gases",
-      items: ["Sistema de Controle de Fumaca"],
-    },
-  ];
 
   const pages: ReactNode[] = [];
 
@@ -1238,55 +1276,86 @@ const CompanyReport = () => {
         <p className="text-[13px] leading-7 text-zinc-800">{form.objetivo}</p>
         <p className="text-[13px] leading-7 text-zinc-800">{form.escopo}</p>
       </section>
-
-      <section className="space-y-3">
-        <SectionHeading index="3" title="Criterio para Estabelecimento de Plano de Correcao" />
-        <p className="text-[13px] leading-7 text-zinc-800">
-          As inconformidades identificadas sao classificadas de acordo com uma matriz de risco, determinando a gravidade e a probabilidade de ocorrencia de falhas ou ausencias das medidas de seguranca contra incendios e emergencias consideradas, definindo o nivel de probabilidade de ocorrencia (baixa, media ou alta) e o grau de inconformidade (leve, moderado ou grave), servindo de base para definicao do plano de correcao eficaz.
-        </p>
-      </section>
     </div>,
   );
 
-  pages.push(
-    <div className="space-y-6 text-[12.5px] leading-6 text-zinc-800">
-      <section className="space-y-3">
-        <h3 className="text-[14px] font-bold uppercase text-zinc-900">3.1 Matriz de Risco</h3>
-        <p>
-          A presente metodologia estabelece o criterio de avaliacao, classificacao e priorizacao das acoes corretivas decorrentes do Relatorio de Inspecao Tecnica Preventiva (RITP). A classificacao e baseada na analise de risco das inconformidades identificadas nos elementos do sistema global de seguranca contra incendios e emergencias, conforme diretrizes aplicadas ao processo de seguranca da edificacao.
-        </p>
-        <p>
-          A matriz de risco utilizada considera dois criterios principais: I. grau de inconformidade, classificado como leve, moderado ou grave; e II. nivel de probabilidade de ocorrencia, classificado como baixa, media ou alta.
-        </p>
-        <p>
-          A classificacao das inconformidades segue o seguinte criterio: a) correcao imediata, quando a inconformidade apresenta alto risco a seguranca dos ocupantes; b) correcao prioritaria, quando a inconformidade pode comprometer a seguranca em medio prazo; e c) correcao programada, quando a inconformidade e leve e nao impacta diretamente na seguranca.
-        </p>
-      </section>
-
-      <section className="space-y-4">
-        <h3 className="text-[14px] font-bold uppercase text-zinc-900">
-          3.2 Classificacao das Medidas de Seguranca Contra Incendios e Emergencias
-        </h3>
-        <div className="grid gap-4 md:grid-cols-2">
-          {categoryBulletGroups.map((group) => (
-            <div key={group.title} className="space-y-2">
-              <p className="font-semibold">{group.title}</p>
-              <ul className="list-disc pl-5">
-                {group.items.map((item) => (
-                  <li key={`${group.title}-${item}`}>{item}</li>
-                ))}
-              </ul>
+  requirementMeasureChunks.forEach((chunk, chunkIndex) => {
+    pages.push(
+      <div className="space-y-5">
+        <section className="space-y-3">
+          <SectionHeading index="3" title="Medidas de Seguranca Contra Incendios da Edificacao" />
+          {chunkIndex === 0 ? (
+            <div className="rounded-sm border border-zinc-300 bg-zinc-50 px-4 py-4 text-[12px] leading-6 text-zinc-800">
+              <p>
+                As medidas abaixo correspondem as exigencias aplicaveis da empresa e indicam, de forma objetiva,
+                se cada medida existe na edificacao e se atende ao enquadramento registrado no sistema.
+              </p>
             </div>
-          ))}
+          ) : null}
+        </section>
+
+        <div className="overflow-hidden border border-zinc-300">
+          <table className="w-full border-collapse text-[10.5px] leading-5 text-zinc-900">
+            <thead>
+              <tr className="bg-zinc-100 text-center uppercase">
+                <th className="w-[34px] border border-zinc-300 px-2 py-3 font-bold">No</th>
+                <th className="border border-zinc-300 px-3 py-3 font-bold">
+                  Medidas de Seguranca Contra Incendios
+                </th>
+                <th className="w-[70px] border border-zinc-300 px-2 py-3 font-bold">Exigida</th>
+                <th className="w-[92px] border border-zinc-300 px-2 py-3 font-bold">Existente</th>
+                <th className="w-[82px] border border-zinc-300 px-2 py-3 font-bold">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {chunk.map((entry) => (
+                <tr key={entry.id} className="align-top">
+                  <td className="border border-zinc-300 px-2 py-3 text-center font-bold">
+                    {entry.sequence}
+                  </td>
+                  <td className="border border-zinc-300 px-3 py-3">
+                    <div className="space-y-2">
+                      <div className="space-y-1">
+                        <p className="text-[11px] font-bold uppercase text-zinc-900">
+                          {entry.name}
+                        </p>
+                        <p className="text-[9px] font-semibold uppercase tracking-[0.06em] text-zinc-500">
+                          {entry.code} | {entry.category}
+                        </p>
+                      </div>
+                      {entry.detail ? (
+                        <div className="rounded-sm border border-zinc-200 bg-zinc-50 px-2.5 py-2 text-[9.5px] leading-4 text-zinc-700">
+                          {entry.detail}
+                        </div>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td className="border border-zinc-300 px-2 py-3 text-center">
+                    <RequirementStatusBadge label={entry.requiredLabel} tone="neutral" />
+                  </td>
+                  <td className="border border-zinc-300 px-2 py-3 text-center">
+                    <RequirementStatusBadge
+                      label={entry.existingLabel}
+                      tone={entry.existingLabel === "EXISTENTE" ? "success" : "danger"}
+                    />
+                  </td>
+                  <td className="border border-zinc-300 px-2 py-3 text-center">
+                    <RequirementStatusBadge
+                      label={entry.statusLabel}
+                      tone={entry.statusLabel === "ATENDE" ? "success" : "danger"}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      </section>
-    </div>,
-  );
+      </div>,
+    );
+  });
 
   pages.push(
     <div className="space-y-8">
-      <RiskMatrix />
-
       <section className="space-y-4">
         <SectionHeading index="4" title="Resultado da Avaliacao" />
         <div className="grid grid-cols-4 gap-3">
