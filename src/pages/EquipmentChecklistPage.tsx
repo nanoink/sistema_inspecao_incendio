@@ -1,4 +1,12 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useParams } from "react-router-dom";
 import {
   Loader2,
@@ -32,7 +40,6 @@ import {
   saveChecklistNonConformity,
   type ChecklistNonConformityRecord,
 } from "@/lib/checklist-non-conformities";
-import { ChecklistNonConformityDialog } from "@/components/checklists/ChecklistNonConformityDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -45,6 +52,12 @@ import {
 } from "@/components/ui/table";
 import { EquipmentQrLoginDialog } from "@/components/auth/EquipmentQrLoginDialog";
 import { cn } from "@/lib/utils";
+
+const ChecklistNonConformityDialog = lazy(() =>
+  import("@/components/checklists/ChecklistNonConformityDialog").then(
+    (module) => ({ default: module.ChecklistNonConformityDialog }),
+  ),
+);
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -227,6 +240,7 @@ const EquipmentChecklistPage = () => {
   const [saveIndicator, setSaveIndicator] =
     useState<SaveIndicatorState>("idle");
   const [notFound, setNotFound] = useState(false);
+  const [loadingNonConformities, setLoadingNonConformities] = useState(false);
   const [nonConformities, setNonConformities] = useState<
     Map<string, ChecklistNonConformityRecord>
   >(new Map());
@@ -378,48 +392,71 @@ const EquipmentChecklistPage = () => {
           return;
         }
 
-        let existingNonConformities: ChecklistNonConformityRecord[] = [];
-
-        try {
-          existingNonConformities = await loadChecklistNonConformities(
-            supabase,
-            {
-              companyId: data.empresa_id,
-              equipmentType,
-              equipmentRecordId: data.equipment_id,
-            },
-          );
-        } catch (nonConformityError) {
-          console.error(
-            "Error loading equipment non conformities:",
-            nonConformityError,
-          );
-          toast({
-            title: "Nao foi possivel carregar as nao conformidades",
-            description:
-              "O checklist do equipamento foi carregado, mas os registros detalhados de nao conformidade nao puderam ser consultados neste momento.",
-            variant: "destructive",
-          });
-        }
-
-        const nonConformitiesMap = mapChecklistNonConformitiesByItemId(
-          existingNonConformities,
-        );
-        const nextSnapshot = applyNonConformityDescriptionsToSnapshot(
-          getEquipmentChecklistSnapshotForType(
-            equipmentType,
-            data.checklist_snapshot,
-          ),
-          nonConformitiesMap,
+        const baseSnapshot = getEquipmentChecklistSnapshotForType(
+          equipmentType,
+          data.checklist_snapshot,
         );
         setRecord(data);
-        setNonConformities(nonConformitiesMap);
-        setChecklistSnapshot(nextSnapshot);
-        activeSnapshotRef.current = nextSnapshot;
-        confirmedSnapshotRef.current = nextSnapshot;
+        setNonConformities(new Map());
+        setChecklistSnapshot(baseSnapshot);
+        activeSnapshotRef.current = baseSnapshot;
+        confirmedSnapshotRef.current = baseSnapshot;
         pendingSnapshotRef.current = null;
         setSaveIndicator("idle");
         setNotFound(false);
+        setLoadingNonConformities(true);
+
+        void (async () => {
+          try {
+            const existingNonConformities = await loadChecklistNonConformities(
+              supabase,
+              {
+                companyId: data.empresa_id,
+                equipmentType,
+                equipmentRecordId: data.equipment_id,
+              },
+            );
+            const nonConformitiesMap = mapChecklistNonConformitiesByItemId(
+              existingNonConformities,
+            );
+            const currentSnapshot = activeSnapshotRef.current ?? baseSnapshot;
+            const nextSnapshot = applyNonConformityDescriptionsToSnapshot(
+              currentSnapshot,
+              nonConformitiesMap,
+            );
+
+            if (!mountedRef.current) {
+              return;
+            }
+
+            setNonConformities(nonConformitiesMap);
+            setChecklistSnapshot(nextSnapshot);
+            activeSnapshotRef.current = nextSnapshot;
+            if (!pendingSnapshotRef.current && !saveInFlightRef.current) {
+              confirmedSnapshotRef.current = nextSnapshot;
+            }
+          } catch (nonConformityError) {
+            console.error(
+              "Error loading equipment non conformities:",
+              nonConformityError,
+            );
+
+            if (!mountedRef.current) {
+              return;
+            }
+
+            toast({
+              title: "Nao foi possivel carregar as nao conformidades",
+              description:
+                "O checklist do equipamento foi carregado, mas os registros detalhados de nao conformidade nao puderam ser consultados neste momento.",
+              variant: "destructive",
+            });
+          } finally {
+            if (mountedRef.current) {
+              setLoadingNonConformities(false);
+            }
+          }
+        })();
       } catch (error) {
         console.error("Error loading equipment QR page:", error);
         setNotFound(true);
@@ -429,6 +466,7 @@ const EquipmentChecklistPage = () => {
         activeSnapshotRef.current = null;
         confirmedSnapshotRef.current = null;
         pendingSnapshotRef.current = null;
+        setLoadingNonConformities(false);
       } finally {
         setLoading(false);
       }
@@ -740,6 +778,12 @@ const EquipmentChecklistPage = () => {
                   status por item em tempo real.
                 </div>
 
+                {loadingNonConformities ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                    Carregando registros detalhados de nao conformidade...
+                  </div>
+                ) : null}
+
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   <div className="rounded-xl border bg-background p-4">
                     <p className="text-xs uppercase text-muted-foreground">
@@ -908,36 +952,40 @@ const EquipmentChecklistPage = () => {
         </div>
       </div>
 
-      <ChecklistNonConformityDialog
-        open={nonConformityDialogOpen}
-        onOpenChange={(open) => {
-          setNonConformityDialogOpen(open);
-          if (!open) {
-            setSelectedNonConformityItem(null);
-          }
-        }}
-        itemLabel={
-          selectedNonConformityItem
-            ? `Item ${selectedNonConformityItem.item_exibicao} - ${selectedNonConformityItem.secao}`
-            : undefined
-        }
-        initialDescription={
-          selectedNonConformityItem
-            ? nonConformities.get(selectedNonConformityItem.checklist_item_id)
-                ?.descricao ||
-              selectedNonConformityItem.observacoes ||
-              ""
-            : ""
-        }
-        initialImageDataUrl={
-          selectedNonConformityItem
-            ? nonConformities.get(selectedNonConformityItem.checklist_item_id)
-                ?.imagem_data_url || ""
-            : ""
-        }
-        saving={savingNonConformity}
-        onSave={handleSaveNonConformity}
-      />
+      {nonConformityDialogOpen ? (
+        <Suspense fallback={null}>
+          <ChecklistNonConformityDialog
+            open={nonConformityDialogOpen}
+            onOpenChange={(open) => {
+              setNonConformityDialogOpen(open);
+              if (!open) {
+                setSelectedNonConformityItem(null);
+              }
+            }}
+            itemLabel={
+              selectedNonConformityItem
+                ? `Item ${selectedNonConformityItem.item_exibicao} - ${selectedNonConformityItem.secao}`
+                : undefined
+            }
+            initialDescription={
+              selectedNonConformityItem
+                ? nonConformities.get(selectedNonConformityItem.checklist_item_id)
+                    ?.descricao ||
+                  selectedNonConformityItem.observacoes ||
+                  ""
+                : ""
+            }
+            initialImageDataUrl={
+              selectedNonConformityItem
+                ? nonConformities.get(selectedNonConformityItem.checklist_item_id)
+                    ?.imagem_data_url || ""
+                : ""
+            }
+            saving={savingNonConformity}
+            onSave={handleSaveNonConformity}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 };
