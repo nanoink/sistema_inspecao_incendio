@@ -61,6 +61,79 @@ const EXTINGUISHER_INSPECTION_CODE = "A.23";
 const HYDRANT_INSPECTION_CODE = "A.25";
 const LUMINAIRE_INSPECTION_CODE = "A.19";
 
+const normalizeChecklistSectionTitleKey = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+const buildChecklistSectionTitleSet = (titles: string[]) =>
+  new Set(titles.map(normalizeChecklistSectionTitleKey));
+
+// These sections are general system checks that must stay only on the
+// principal checklist, not inside each individual equipment checklist.
+const PRINCIPAL_ONLY_EQUIPMENT_SECTIONS: Record<string, Set<string>> = {
+  [EXTINGUISHER_INSPECTION_CODE]: buildChecklistSectionTitleSet([
+    "Documentacoes",
+  ]),
+  [HYDRANT_INSPECTION_CODE]: buildChecklistSectionTitleSet([
+    "Reserva Tecnica de Incendio (RTI)",
+    "Tubulacao da RTI a entrada da BCI - Succao",
+    "Bombas de Combate a Incendio (BCI)",
+    "Recalque (tubulacao da BCI aos hidrantes de parede/recalque)",
+    "Procedimento de Testes",
+    "Procedimento de teste quando houver uma unica BCI",
+    "Procedimento de teste quando houver uma BCI e uma bomba de pressurizacao (joquei)",
+    "Procedimento de teste apenas quando houver uma BCI Principal, uma BCI Reserva e uma bomba de pressurizacao (joquei)",
+    "Notas Fiscais",
+  ]),
+  [LUMINAIRE_INSPECTION_CODE]: buildChecklistSectionTitleSet([
+    "Sistema centralizado com baterias recarregaveis",
+    "Sistema centralizado com grupo moto gerador (GMG)",
+    "Teste do sistema centralizado com grupo moto gerador (GMG)",
+    "ART/RRT",
+    "Notas Fiscais",
+    "Documentacoes especificos",
+  ]),
+};
+
+const isPrincipalOnlyEquipmentChecklistSection = (
+  inspectionCode: string,
+  sectionTitle: string,
+) => {
+  const normalizedSectionTitle = normalizeChecklistSectionTitleKey(sectionTitle);
+
+  if (!normalizedSectionTitle) {
+    return false;
+  }
+
+  if (
+    normalizedSectionTitle.startsWith("documentacao") &&
+    normalizedSectionTitle.includes("art/rrt") &&
+    (inspectionCode === HYDRANT_INSPECTION_CODE ||
+      inspectionCode === LUMINAIRE_INSPECTION_CODE)
+  ) {
+    return true;
+  }
+
+  return (
+    PRINCIPAL_ONLY_EQUIPMENT_SECTIONS[inspectionCode]?.has(
+      normalizedSectionTitle,
+    ) || false
+  );
+};
+
+const filterEquipmentChecklistItemsForIndividualInspection = (
+  inspectionCode: string,
+  items: ChecklistSnapshotItem[],
+) =>
+  items.filter(
+    (item) =>
+      !isPrincipalOnlyEquipmentChecklistSection(inspectionCode, item.secao),
+  );
+
 const EMPTY_EQUIPMENT_CHECKLIST_SNAPSHOT: EquipmentChecklistSnapshot = {
   generated_at: null,
   inspection_code: "",
@@ -213,9 +286,6 @@ const toStringValue = (value: unknown) =>
 const toNullableStringValue = (value: unknown) =>
   typeof value === "string" ? value : null;
 
-const toNumberValue = (value: unknown) =>
-  typeof value === "number" && Number.isFinite(value) ? value : 0;
-
 const toSnapshotItem = (value: unknown): ChecklistSnapshotItem | null => {
   if (!isObjectRecord(value)) {
     return null;
@@ -288,7 +358,10 @@ const buildEquipmentChecklistSnapshotFromInspection = (
   return buildEquipmentChecklistSnapshotFromItems({
     inspectionCode: inspection.codigo,
     inspectionName: inspection.nome,
-    items: inspection.itens,
+    items: filterEquipmentChecklistItemsForIndividualInspection(
+      inspection.codigo,
+      inspection.itens,
+    ),
     generatedAt,
   });
 };
@@ -535,22 +608,28 @@ export const normalizeEquipmentChecklistSnapshot = (
     return EMPTY_EQUIPMENT_CHECKLIST_SNAPSHOT;
   }
 
+  const inspectionCode = toStringValue(value.inspection_code);
+  const inspectionName = toStringValue(value.inspection_name);
   const items = Array.isArray(value.items)
     ? value.items
         .map((item) => toSnapshotItem(item))
         .filter((item): item is ChecklistSnapshotItem => item !== null)
     : [];
+  const filteredItems = filterEquipmentChecklistItemsForIndividualInspection(
+    inspectionCode,
+    items,
+  );
 
   return {
     generated_at: toNullableStringValue(value.generated_at),
-    inspection_code: toStringValue(value.inspection_code),
-    inspection_name: toStringValue(value.inspection_name),
-    total: toNumberValue(value.total),
-    conforme: toNumberValue(value.conforme),
-    nao_conforme: toNumberValue(value.nao_conforme),
-    nao_aplicavel: toNumberValue(value.nao_aplicavel),
-    pendentes: toNumberValue(value.pendentes),
-    items,
+    inspection_code: inspectionCode,
+    inspection_name: inspectionName,
+    total: filteredItems.length,
+    conforme: filteredItems.filter((item) => item.status === "C").length,
+    nao_conforme: filteredItems.filter((item) => item.status === "NC").length,
+    nao_aplicavel: filteredItems.filter((item) => item.status === "NA").length,
+    pendentes: filteredItems.filter((item) => item.status === "P").length,
+    items: filteredItems,
   };
 };
 

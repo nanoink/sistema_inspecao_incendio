@@ -1545,7 +1545,7 @@ const CompanyChecklists = () => {
   const isLuminaireInspection = openInspectionData?.codigo === "A.19";
   const isExtinguisherInspection = openInspectionData?.codigo === "A.23";
   const isHydrantInspection = openInspectionData?.codigo === "A.25";
-  const isReadOnlyEquipmentInspection =
+  const isEquipmentInspection =
     isLuminaireInspection || isExtinguisherInspection || isHydrantInspection;
   const luminaireSummary = buildLuminaireSummary(luminaires);
   const extinguisherSummary = buildExtinguisherSummary(extinguishers);
@@ -2225,9 +2225,9 @@ const CompanyChecklists = () => {
                     NA = Nao Aplicavel
                   </span>
                 </div>
-                {isReadOnlyEquipmentInspection && (
+                {isEquipmentInspection && (
                   <p className="mt-3 text-xs text-muted-foreground">
-                    Neste checklist principal, os status apenas refletem os checklists individuais dos equipamentos.
+                    Neste checklist principal, os itens por equipamento refletem os checklists individuais, enquanto os itens gerais permanecem liberados para marcacao aqui.
                   </p>
                 )}
               </div>
@@ -2292,11 +2292,15 @@ const CompanyChecklists = () => {
                       const nonConformityRecord = principalNonConformities.get(
                         row.itemId,
                       );
+                      const isMirroredEquipmentItem =
+                        isEquipmentInspection &&
+                        mirroredEquipmentInspectionItemIds.has(row.itemId);
+                      const canEditPrincipalStatus = !isMirroredEquipmentItem;
                       const isNonConformingItem = response?.status === "NC";
                       const canOpenPrincipalNonConformityDialog =
-                        isNonConformingItem && !isReadOnlyEquipmentInspection;
+                        isNonConformingItem && canEditPrincipalStatus;
                       const equipmentItemNonConformityEntries =
-                        isReadOnlyEquipmentInspection
+                        isMirroredEquipmentItem
                           ? isLuminaireInspection
                             ? buildEquipmentItemNonConformityEntries({
                                 equipmentType: "luminaria",
@@ -2321,11 +2325,11 @@ const CompanyChecklists = () => {
                                   nonConformitiesByEquipment:
                                     hydrantNonConformitiesByEquipment,
                                   sectionTitle: sectionTitleForRow,
-                                  itemDisplay: row.number,
-                                })
+                                itemDisplay: row.number,
+                              })
                           : [];
                       const canOpenEquipmentNonConformityDialog =
-                        isReadOnlyEquipmentInspection &&
+                        isMirroredEquipmentItem &&
                         equipmentItemNonConformityEntries.length > 0;
                       const equipmentRuleHint = getEquipmentRuleHint(
                         sectionTitleForRow,
@@ -2421,7 +2425,7 @@ const CompanyChecklists = () => {
                                   type="button"
                                   aria-pressed={isActive}
                                   aria-label={`${meta.ariaLabel} para item ${row.number}`}
-                                  disabled={isReadOnlyEquipmentInspection}
+                                  disabled={!canEditPrincipalStatus}
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     handleStatusChange(row.itemId, statusValue);
