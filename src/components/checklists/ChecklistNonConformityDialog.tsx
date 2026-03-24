@@ -123,6 +123,7 @@ interface ChecklistNonConformityDialogProps {
   initialDescription?: string | null;
   initialImageDataUrl?: string | null;
   saving?: boolean;
+  loading?: boolean;
   onSave: (values: { description: string; imageDataUrl: string }) => Promise<void> | void;
 }
 
@@ -133,6 +134,7 @@ export const ChecklistNonConformityDialog = ({
   initialDescription,
   initialImageDataUrl,
   saving = false,
+  loading = false,
   onSave,
 }: ChecklistNonConformityDialogProps) => {
   const { toast } = useToast();
@@ -183,6 +185,7 @@ export const ChecklistNonConformityDialog = ({
 
   const canSubmit =
     !saving &&
+    !loading &&
     !processingImage &&
     description.trim().length > 0 &&
     imageDataUrl.trim().length > 0;
@@ -245,7 +248,7 @@ export const ChecklistNonConformityDialog = ({
                 type="button"
                 variant="outline"
                 className="h-12 rounded-2xl border-0 bg-neutral-900 text-white hover:bg-neutral-800"
-                disabled={saving || processingImage}
+                disabled={saving || loading || processingImage}
                 onClick={() => cameraInputRef.current?.click()}
               >
                 {processingImage ? (
@@ -260,7 +263,7 @@ export const ChecklistNonConformityDialog = ({
                 type="button"
                 variant="outline"
                 className="h-12 rounded-2xl border-0 bg-neutral-900 text-white hover:bg-neutral-800"
-                disabled={saving || processingImage}
+                disabled={saving || loading || processingImage}
                 onClick={() => galleryInputRef.current?.click()}
               >
                 {processingImage ? (
@@ -278,7 +281,12 @@ export const ChecklistNonConformityDialog = ({
                 imageDataUrl ? "border-pink-200" : "border-muted-foreground/20",
               )}
             >
-              {imageDataUrl ? (
+              {loading ? (
+                <div className="flex items-center justify-center gap-2 px-4 py-10 text-center text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Carregando imagem e descricao registradas...
+                </div>
+              ) : imageDataUrl ? (
                 <div className="space-y-3 p-3">
                   <img
                     src={imageDataUrl}
@@ -291,7 +299,7 @@ export const ChecklistNonConformityDialog = ({
                       variant="ghost"
                       size="sm"
                       className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                      disabled={saving || processingImage}
+                      disabled={saving || loading || processingImage}
                       onClick={() => setImageDataUrl("")}
                     >
                       <Trash2 className="mr-2 h-4 w-4" />
@@ -323,7 +331,7 @@ export const ChecklistNonConformityDialog = ({
                 type="button"
                 variant="outline"
                 className="h-12 flex-1 rounded-2xl"
-                disabled={saving || processingImage}
+                disabled={saving || loading || processingImage}
                 onClick={() => onOpenChange(false)}
               >
                 Voltar

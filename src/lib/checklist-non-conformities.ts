@@ -16,6 +16,9 @@ export type ChecklistNonConformityRecord =
 type ChecklistNonConformityPayload =
   TablesInsert<"empresa_checklist_nao_conformidades">;
 
+const LIGHTWEIGHT_NON_CONFORMITY_COLUMNS =
+  "id, context_key, empresa_id, checklist_item_id, equipment_type, equipment_record_id, descricao, created_at, updated_at";
+
 interface BaseScope {
   companyId: string;
 }
@@ -80,10 +83,16 @@ export const mapChecklistNonConformitiesByItemId = (
 export const loadChecklistNonConformities = async (
   supabase: AppSupabaseClient,
   scope: ChecklistNonConformityScope,
+  options?: {
+    includeImageData?: boolean;
+  },
 ) => {
+  const includeImageData = options?.includeImageData ?? true;
   let query = supabase
     .from("empresa_checklist_nao_conformidades")
-    .select("*")
+    .select(
+      includeImageData ? "*" : LIGHTWEIGHT_NON_CONFORMITY_COLUMNS,
+    )
     .eq("empresa_id", scope.companyId)
     .order("updated_at", { ascending: false });
 
@@ -105,7 +114,14 @@ export const loadChecklistNonConformities = async (
     throw error;
   }
 
-  return data || [];
+  return ((data || []) as ChecklistNonConformityRecord[]).map((record) =>
+    includeImageData
+      ? record
+      : ({
+          ...record,
+          imagem_data_url: null,
+        } satisfies ChecklistNonConformityRecord),
+  );
 };
 
 export const loadEquipmentChecklistNonConformitiesByType = async (

@@ -249,6 +249,8 @@ const EquipmentChecklistPage = () => {
   >(null);
   const [nonConformityDialogOpen, setNonConformityDialogOpen] = useState(false);
   const [savingNonConformity, setSavingNonConformity] = useState(false);
+  const [loadingSelectedNonConformity, setLoadingSelectedNonConformity] =
+    useState(false);
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const confirmedSnapshotRef = useRef<EquipmentChecklistSnapshot | null>(null);
   const activeSnapshotRef = useRef<EquipmentChecklistSnapshot | null>(null);
@@ -415,6 +417,9 @@ const EquipmentChecklistPage = () => {
                 equipmentType,
                 equipmentRecordId: data.equipment_id,
               },
+              {
+                includeImageData: false,
+              },
             );
             const nonConformitiesMap = mapChecklistNonConformitiesByItemId(
               existingNonConformities,
@@ -510,7 +515,7 @@ const EquipmentChecklistPage = () => {
     queueSnapshotSave(nextSnapshot);
   };
 
-  const openNonConformityDialog = (
+  const openNonConformityDialog = async (
     item: EquipmentChecklistSnapshot["items"][number],
   ) => {
     if (item.status !== "NC") {
@@ -519,6 +524,54 @@ const EquipmentChecklistPage = () => {
 
     setSelectedNonConformityItem(item);
     setNonConformityDialogOpen(true);
+
+    if (!record || !equipmentType) {
+      return;
+    }
+
+    const existing = nonConformities.get(item.checklist_item_id);
+    if (existing?.imagem_data_url) {
+      return;
+    }
+
+    try {
+      setLoadingSelectedNonConformity(true);
+      const [fullRecord] = await loadChecklistNonConformities(
+        supabase,
+        {
+          companyId: record.empresa_id,
+          checklistItemId: item.checklist_item_id,
+          equipmentType,
+          equipmentRecordId: record.equipment_id,
+        },
+        {
+          includeImageData: true,
+        },
+      );
+
+      if (!fullRecord) {
+        return;
+      }
+
+      setNonConformities((previous) => {
+        const next = new Map(previous);
+        next.set(fullRecord.checklist_item_id, fullRecord);
+        return next;
+      });
+    } catch (error) {
+      console.error(
+        "Error loading selected equipment non conformity:",
+        error,
+      );
+      toast({
+        title: "Nao foi possivel carregar a nao conformidade completa",
+        description:
+          "A descricao foi exibida, mas a imagem detalhada nao pode ser carregada agora.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingSelectedNonConformity(false);
+    }
   };
 
   const handleSaveNonConformity = async ({
@@ -981,9 +1034,10 @@ const EquipmentChecklistPage = () => {
                     ?.imagem_data_url || ""
                 : ""
             }
-            saving={savingNonConformity}
-            onSave={handleSaveNonConformity}
-          />
+        saving={savingNonConformity}
+        loading={loadingSelectedNonConformity}
+        onSave={handleSaveNonConformity}
+      />
         </Suspense>
       ) : null}
     </div>
