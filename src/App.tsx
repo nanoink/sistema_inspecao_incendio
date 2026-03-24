@@ -5,15 +5,13 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import EquipmentChecklistPage from "./pages/EquipmentChecklistPage";
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Index = lazy(() => import("./pages/Index"));
 const CompanyRequirements = lazy(() => import("./pages/CompanyRequirements"));
 const CompanyChecklists = lazy(() => import("./pages/CompanyChecklists"));
 const CompanyReport = lazy(() => import("./pages/CompanyReport"));
-const EquipmentChecklistPage = lazy(
-  () => import("./pages/EquipmentChecklistPage"),
-);
 const Auth = lazy(() => import("./pages/Auth"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 

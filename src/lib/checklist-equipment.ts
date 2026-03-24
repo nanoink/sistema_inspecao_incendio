@@ -1045,7 +1045,148 @@ export const loadChecklistEquipmentData = async (
 export const loadEquipmentQrPage = async (
   supabase: AppSupabaseClient,
   token: string,
+  equipmentType?: EquipmentType | null,
 ) => {
+  if (equipmentType === "extintor") {
+    const { data, error } = await supabase
+      .from("empresa_extintores")
+      .select(
+        "id, empresa_id, numero, localizacao, tipo, carga_nominal, vencimento_carga, vencimento_teste_hidrostatico_ano, checklist_snapshot, empresa:empresa_id(razao_social)",
+      )
+      .eq("public_token", token)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    return {
+      equipment_type: "extintor",
+      equipment_id: data.id,
+      empresa_id: data.empresa_id,
+      empresa_razao_social:
+        typeof data.empresa === "object" &&
+        data.empresa !== null &&
+        "razao_social" in data.empresa
+          ? String(data.empresa.razao_social || "")
+          : "",
+      numero: data.numero,
+      localizacao: data.localizacao,
+      titulo: `Extintor ${data.numero}`,
+      subtitulo: `${data.tipo} - ${data.carga_nominal}`,
+      qr_code_url: null,
+      qr_code_svg: null,
+      checklist_snapshot: data.checklist_snapshot,
+      equipment_data: {
+        numero: data.numero,
+        localizacao: data.localizacao,
+        tipo: data.tipo,
+        carga_nominal: data.carga_nominal,
+        vencimento_carga: data.vencimento_carga,
+        vencimento_teste_hidrostatico_ano:
+          data.vencimento_teste_hidrostatico_ano,
+      },
+    } satisfies EquipmentPublicPageRecord;
+  }
+
+  if (equipmentType === "hidrante") {
+    const { data, error } = await supabase
+      .from("empresa_hidrantes")
+      .select(
+        "id, empresa_id, numero, localizacao, tipo_hidrante, mangueira1_tipo, mangueira1_vencimento_teste_hidrostatico, mangueira2_tipo, mangueira2_vencimento_teste_hidrostatico, esguicho, chave_mangueira, status, checklist_snapshot, empresa:empresa_id(razao_social)",
+      )
+      .eq("public_token", token)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    return {
+      equipment_type: "hidrante",
+      equipment_id: data.id,
+      empresa_id: data.empresa_id,
+      empresa_razao_social:
+        typeof data.empresa === "object" &&
+        data.empresa !== null &&
+        "razao_social" in data.empresa
+          ? String(data.empresa.razao_social || "")
+          : "",
+      numero: data.numero,
+      localizacao: data.localizacao,
+      titulo: `Hidrante ${data.numero}`,
+      subtitulo: data.tipo_hidrante,
+      qr_code_url: null,
+      qr_code_svg: null,
+      checklist_snapshot: data.checklist_snapshot,
+      equipment_data: {
+        numero: data.numero,
+        localizacao: data.localizacao,
+        tipo_hidrante: data.tipo_hidrante,
+        mangueira1_tipo: data.mangueira1_tipo,
+        mangueira1_vencimento_teste_hidrostatico:
+          data.mangueira1_vencimento_teste_hidrostatico,
+        mangueira2_tipo: data.mangueira2_tipo,
+        mangueira2_vencimento_teste_hidrostatico:
+          data.mangueira2_vencimento_teste_hidrostatico,
+        esguicho: data.esguicho,
+        chave_mangueira: data.chave_mangueira,
+        status: data.status,
+      },
+    } satisfies EquipmentPublicPageRecord;
+  }
+
+  if (equipmentType === "luminaria") {
+    const { data, error } = await supabase
+      .from("empresa_luminarias")
+      .select(
+        "id, empresa_id, numero, localizacao, tipo_luminaria, status, checklist_snapshot, empresa:empresa_id(razao_social)",
+      )
+      .eq("public_token", token)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    return {
+      equipment_type: "luminaria",
+      equipment_id: data.id,
+      empresa_id: data.empresa_id,
+      empresa_razao_social:
+        typeof data.empresa === "object" &&
+        data.empresa !== null &&
+        "razao_social" in data.empresa
+          ? String(data.empresa.razao_social || "")
+          : "",
+      numero: data.numero,
+      localizacao: data.localizacao,
+      titulo: `Luminaria ${data.numero}`,
+      subtitulo: data.tipo_luminaria,
+      qr_code_url: null,
+      qr_code_svg: null,
+      checklist_snapshot: data.checklist_snapshot,
+      equipment_data: {
+        numero: data.numero,
+        localizacao: data.localizacao,
+        tipo_luminaria: data.tipo_luminaria,
+        status: data.status,
+      },
+    } satisfies EquipmentPublicPageRecord;
+  }
+
   const { data, error } = await supabase
     .rpc("get_equipment_qr_page", { p_token: token })
     .maybeSingle();

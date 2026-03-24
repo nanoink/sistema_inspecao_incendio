@@ -1,7 +1,6 @@
 import {
   Fragment,
-  Suspense,
-  lazy,
+  startTransition,
   useCallback,
   useEffect,
   useRef,
@@ -36,7 +35,6 @@ import {
 import { broadcastEquipmentChecklistUpdate } from "@/lib/equipment-checklist-sync";
 import {
   loadChecklistNonConformities,
-  mapChecklistNonConformitiesByItemId,
   saveChecklistNonConformity,
   type ChecklistNonConformityRecord,
 } from "@/lib/checklist-non-conformities";
@@ -51,13 +49,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { EquipmentQrLoginDialog } from "@/components/auth/EquipmentQrLoginDialog";
+import { ChecklistNonConformityDialog } from "@/components/checklists/ChecklistNonConformityDialog";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
-
-const ChecklistNonConformityDialog = lazy(() =>
-  import("@/components/checklists/ChecklistNonConformityDialog").then(
-    (module) => ({ default: module.ChecklistNonConformityDialog }),
-  ),
-);
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -66,6 +60,8 @@ type EquipmentChecklistStatus = "C" | "NC" | "NA";
 type SaveIndicatorState = "idle" | "saving" | "saved" | "error";
 
 const STATUS_ORDER: EquipmentChecklistStatus[] = ["C", "NC", "NA"];
+const MOBILE_INITIAL_VISIBLE_ITEMS = 8;
+const MOBILE_VISIBLE_ITEMS_BATCH = 6;
 
 const STATUS_META: Record<
   EquipmentChecklistStatus,
@@ -210,25 +206,11 @@ const renderEquipmentDetails = (
   ];
 };
 
-const applyNonConformityDescriptionsToSnapshot = (
-  snapshot: EquipmentChecklistSnapshot,
-  recordsMap: Map<string, ChecklistNonConformityRecord>,
-) =>
-  ({
-    ...snapshot,
-    items: snapshot.items.map((item) => ({
-      ...item,
-      observacoes:
-        item.status === "NC"
-          ? recordsMap.get(item.checklist_item_id)?.descricao || item.observacoes
-          : null,
-    })),
-  }) satisfies EquipmentChecklistSnapshot;
-
 const EquipmentChecklistPage = () => {
   const { kind, token } = useParams<{ kind: string; token: string }>();
   const { toast } = useToast();
   const { user, loading: authLoading, signIn } = useAuth();
+  const isMobile = useIsMobile();
   const equipmentType =
     kind === "extintor" || kind === "hidrante" || kind === "luminaria"
       ? (kind as EquipmentType)
@@ -240,7 +222,6 @@ const EquipmentChecklistPage = () => {
   const [saveIndicator, setSaveIndicator] =
     useState<SaveIndicatorState>("idle");
   const [notFound, setNotFound] = useState(false);
-  const [loadingNonConformities, setLoadingNonConformities] = useState(false);
   const [nonConformities, setNonConformities] = useState<
     Map<string, ChecklistNonConformityRecord>
   >(new Map());
@@ -252,6 +233,9 @@ const EquipmentChecklistPage = () => {
   const [loadingSelectedNonConformity, setLoadingSelectedNonConformity] =
     useState(false);
   const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [visibleItemCount, setVisibleItemCount] = useState(
+    Number.POSITIVE_INFINITY,
+  );
   const confirmedSnapshotRef = useRef<EquipmentChecklistSnapshot | null>(null);
   const activeSnapshotRef = useRef<EquipmentChecklistSnapshot | null>(null);
   const pendingSnapshotRef = useRef<EquipmentChecklistSnapshot | null>(null);
@@ -265,6 +249,60 @@ const EquipmentChecklistPage = () => {
       mountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    const totalItems = checklistSnapshot?.items.length ?? 0;
+
+    if (!totalItems) {
+      setVisibleItemCount(Number.POSITIVE_INFINITY);
+      return;
+    }
+
+    if (!isMobile) {
+      setVisibleItemCount(Number.POSITIVE_INFINITY);
+      return;
+    }
+
+    setVisibleItemCount(Math.min(MOBILE_INITIAL_VISIBLE_ITEMS, totalItems));
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleNextBatch = () => {
+      timer = setTimeout(() => {
+        if (cancelled) {
+          return;
+        }
+
+        startTransition(() => {
+          setVisibleItemCount((current) => {
+            if (!Number.isFinite(current)) {
+              return current;
+            }
+
+            const next = Math.min(current + MOBILE_VISIBLE_ITEMS_BATCH, totalItems);
+
+            if (next < totalItems && !cancelled) {
+              scheduleNextBatch();
+            }
+
+            return next;
+          });
+        });
+      }, 90);
+    };
+
+    if (MOBILE_INITIAL_VISIBLE_ITEMS < totalItems) {
+      scheduleNextBatch();
+    }
+
+    return () => {
+      cancelled = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, [checklistSnapshot?.items.length, isMobile]);
 
   const flushPendingSave = useCallback(async () => {
     if (!token || !equipmentType || !user || saveInFlightRef.current) {
@@ -384,7 +422,7 @@ const EquipmentChecklistPage = () => {
 
       try {
         setLoading(true);
-        const data = await loadEquipmentQrPage(supabase, token);
+        const data = await loadEquipmentQrPage(supabase, token, equipmentType);
 
         if (!data || data.equipment_type !== equipmentType) {
           setNotFound(true);
@@ -406,62 +444,6 @@ const EquipmentChecklistPage = () => {
         pendingSnapshotRef.current = null;
         setSaveIndicator("idle");
         setNotFound(false);
-        setLoadingNonConformities(true);
-
-        void (async () => {
-          try {
-            const existingNonConformities = await loadChecklistNonConformities(
-              supabase,
-              {
-                companyId: data.empresa_id,
-                equipmentType,
-                equipmentRecordId: data.equipment_id,
-              },
-              {
-                includeImageData: false,
-              },
-            );
-            const nonConformitiesMap = mapChecklistNonConformitiesByItemId(
-              existingNonConformities,
-            );
-            const currentSnapshot = activeSnapshotRef.current ?? baseSnapshot;
-            const nextSnapshot = applyNonConformityDescriptionsToSnapshot(
-              currentSnapshot,
-              nonConformitiesMap,
-            );
-
-            if (!mountedRef.current) {
-              return;
-            }
-
-            setNonConformities(nonConformitiesMap);
-            setChecklistSnapshot(nextSnapshot);
-            activeSnapshotRef.current = nextSnapshot;
-            if (!pendingSnapshotRef.current && !saveInFlightRef.current) {
-              confirmedSnapshotRef.current = nextSnapshot;
-            }
-          } catch (nonConformityError) {
-            console.error(
-              "Error loading equipment non conformities:",
-              nonConformityError,
-            );
-
-            if (!mountedRef.current) {
-              return;
-            }
-
-            toast({
-              title: "Nao foi possivel carregar as nao conformidades",
-              description:
-                "O checklist do equipamento foi carregado, mas os registros detalhados de nao conformidade nao puderam ser consultados neste momento.",
-              variant: "destructive",
-            });
-          } finally {
-            if (mountedRef.current) {
-              setLoadingNonConformities(false);
-            }
-          }
-        })();
       } catch (error) {
         console.error("Error loading equipment QR page:", error);
         setNotFound(true);
@@ -471,7 +453,6 @@ const EquipmentChecklistPage = () => {
         activeSnapshotRef.current = null;
         confirmedSnapshotRef.current = null;
         pendingSnapshotRef.current = null;
-        setLoadingNonConformities(false);
       } finally {
         setLoading(false);
       }
@@ -749,6 +730,12 @@ const EquipmentChecklistPage = () => {
         ? Droplets
         : Lightbulb;
   const detailRows = renderEquipmentDetails(equipmentType, equipmentData);
+  const totalChecklistItems = checklistSnapshot.items.length;
+  const visibleChecklistItems = Number.isFinite(visibleItemCount)
+    ? checklistSnapshot.items.slice(0, visibleItemCount)
+    : checklistSnapshot.items;
+  const isProgressivelyRenderingMobileItems =
+    isMobile && visibleChecklistItems.length < totalChecklistItems;
 
   return (
     <div className="min-h-screen bg-muted/20">
@@ -831,12 +818,6 @@ const EquipmentChecklistPage = () => {
                   status por item em tempo real.
                 </div>
 
-                {loadingNonConformities ? (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                    Carregando registros detalhados de nao conformidade...
-                  </div>
-                ) : null}
-
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   <div className="rounded-xl border bg-background p-4">
                     <p className="text-xs uppercase text-muted-foreground">
@@ -878,6 +859,12 @@ const EquipmentChecklistPage = () => {
                   </div>
                 ) : (
                   <div className="overflow-x-auto rounded-xl border bg-background">
+                    {isProgressivelyRenderingMobileItems ? (
+                      <div className="border-b bg-amber-50 px-4 py-2 text-xs text-amber-900 md:hidden">
+                        Exibindo {visibleChecklistItems.length} de {totalChecklistItems} itens.
+                        O restante do checklist esta carregando em segundo plano.
+                      </div>
+                    ) : null}
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -887,10 +874,10 @@ const EquipmentChecklistPage = () => {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {checklistSnapshot.items.map((item, index) => {
+                        {visibleChecklistItems.map((item, index) => {
                           const showSectionHeader =
                             index === 0 ||
-                            checklistSnapshot.items[index - 1]?.secao !== item.secao;
+                            visibleChecklistItems[index - 1]?.secao !== item.secao;
                           const nonConformityRecord = nonConformities.get(
                             item.checklist_item_id,
                           );
@@ -1006,39 +993,37 @@ const EquipmentChecklistPage = () => {
       </div>
 
       {nonConformityDialogOpen ? (
-        <Suspense fallback={null}>
-          <ChecklistNonConformityDialog
-            open={nonConformityDialogOpen}
-            onOpenChange={(open) => {
-              setNonConformityDialogOpen(open);
-              if (!open) {
-                setSelectedNonConformityItem(null);
-              }
-            }}
-            itemLabel={
-              selectedNonConformityItem
-                ? `Item ${selectedNonConformityItem.item_exibicao} - ${selectedNonConformityItem.secao}`
-                : undefined
+        <ChecklistNonConformityDialog
+          open={nonConformityDialogOpen}
+          onOpenChange={(open) => {
+            setNonConformityDialogOpen(open);
+            if (!open) {
+              setSelectedNonConformityItem(null);
             }
-            initialDescription={
-              selectedNonConformityItem
-                ? nonConformities.get(selectedNonConformityItem.checklist_item_id)
-                    ?.descricao ||
-                  selectedNonConformityItem.observacoes ||
-                  ""
-                : ""
-            }
-            initialImageDataUrl={
-              selectedNonConformityItem
-                ? nonConformities.get(selectedNonConformityItem.checklist_item_id)
-                    ?.imagem_data_url || ""
-                : ""
-            }
-        saving={savingNonConformity}
-        loading={loadingSelectedNonConformity}
-        onSave={handleSaveNonConformity}
-      />
-        </Suspense>
+          }}
+          itemLabel={
+            selectedNonConformityItem
+              ? `Item ${selectedNonConformityItem.item_exibicao} - ${selectedNonConformityItem.secao}`
+              : undefined
+          }
+          initialDescription={
+            selectedNonConformityItem
+              ? nonConformities.get(selectedNonConformityItem.checklist_item_id)
+                  ?.descricao ||
+                selectedNonConformityItem.observacoes ||
+                ""
+              : ""
+          }
+          initialImageDataUrl={
+            selectedNonConformityItem
+              ? nonConformities.get(selectedNonConformityItem.checklist_item_id)
+                  ?.imagem_data_url || ""
+              : ""
+          }
+          saving={savingNonConformity}
+          loading={loadingSelectedNonConformity}
+          onSave={handleSaveNonConformity}
+        />
       ) : null}
     </div>
   );
