@@ -1,4 +1,4 @@
-import { type ChangeEvent, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Camera, ImagePlus, Loader2, Trash2 } from "lucide-react";
 import {
   Dialog,
@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -137,27 +138,126 @@ export const ChecklistNonConformityDialog = ({
   loading = false,
   onSave,
 }: ChecklistNonConformityDialogProps) => {
+  const isMobile = useIsMobile();
   const { toast } = useToast();
   const [description, setDescription] = useState("");
   const [imageDataUrl, setImageDataUrl] = useState("");
   const [processingImage, setProcessingImage] = useState(false);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const captureFlowInProgressRef = useRef(false);
+  const visibilityResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const draftStorageKey = useMemo(
+    () =>
+      itemLabel
+        ? `mobile-nc-draft:${itemLabel}`
+        : "mobile-nc-draft:default",
+    [itemLabel],
+  );
+
+  const clearDraft = () => {
+    if (!isMobile || typeof window === "undefined") {
+      return;
+    }
+
+    window.sessionStorage.removeItem(draftStorageKey);
+  };
+
+  const persistDraft = (
+    nextDescription: string,
+    nextImageDataUrl: string,
+  ) => {
+    if (!isMobile || typeof window === "undefined") {
+      return;
+    }
+
+    window.sessionStorage.setItem(
+      draftStorageKey,
+      JSON.stringify({
+        description: nextDescription,
+        imageDataUrl: nextImageDataUrl,
+      }),
+    );
+  };
 
   useEffect(() => {
     if (!open) {
       return;
     }
 
+    if (isMobile && typeof window !== "undefined") {
+      const storedDraft = window.sessionStorage.getItem(draftStorageKey);
+
+      if (storedDraft) {
+        try {
+          const parsedDraft = JSON.parse(storedDraft) as {
+            description?: string;
+            imageDataUrl?: string;
+          };
+
+          setDescription(parsedDraft.description || initialDescription || "");
+          setImageDataUrl(parsedDraft.imageDataUrl || initialImageDataUrl || "");
+          setProcessingImage(false);
+          return;
+        } catch (error) {
+          console.error("Error restoring mobile non conformity draft:", error);
+          window.sessionStorage.removeItem(draftStorageKey);
+        }
+      }
+    }
+
     setDescription(initialDescription || "");
     setImageDataUrl(initialImageDataUrl || "");
     setProcessingImage(false);
-  }, [initialDescription, initialImageDataUrl, open]);
+  }, [draftStorageKey, initialDescription, initialImageDataUrl, isMobile, open]);
+
+  useEffect(() => {
+    if (!open || !isMobile) {
+      return;
+    }
+
+    persistDraft(description, imageDataUrl);
+  }, [description, draftStorageKey, imageDataUrl, isMobile, open]);
+
+  useEffect(() => {
+    if (!isMobile) {
+      return;
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+
+      if (visibilityResetTimerRef.current) {
+        clearTimeout(visibilityResetTimerRef.current);
+      }
+
+      visibilityResetTimerRef.current = setTimeout(() => {
+        captureFlowInProgressRef.current = false;
+      }, 600);
+    };
+
+    window.addEventListener("focus", handleVisibilityChange);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", handleVisibilityChange);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+
+      if (visibilityResetTimerRef.current) {
+        clearTimeout(visibilityResetTimerRef.current);
+      }
+    };
+  }, [isMobile]);
 
   const handleFileSelected = async (
     event: ChangeEvent<HTMLInputElement>,
   ) => {
     const file = event.target.files?.[0];
+    captureFlowInProgressRef.current = false;
 
     if (!file) {
       return;
@@ -167,6 +267,7 @@ export const ChecklistNonConformityDialog = ({
       setProcessingImage(true);
       const nextImageDataUrl = await downscaleImage(file);
       setImageDataUrl(nextImageDataUrl);
+      persistDraft(description, nextImageDataUrl);
     } catch (error) {
       console.error("Error processing non conformity image:", error);
       toast({
@@ -196,9 +297,48 @@ export const ChecklistNonConformityDialog = ({
       imageDataUrl,
     });
 
+  const handleCameraClick = () => {
+    persistDraft(description, imageDataUrl);
+    captureFlowInProgressRef.current = true;
+    cameraInputRef.current?.click();
+  };
+
+  const handleGalleryClick = () => {
+    persistDraft(description, imageDataUrl);
+    galleryInputRef.current?.click();
+  };
+
+  const handleDialogOpenChange = (nextOpen: boolean) => {
+    if (
+      !nextOpen &&
+      isMobile &&
+      captureFlowInProgressRef.current
+    ) {
+      return;
+    }
+
+    if (!nextOpen) {
+      clearDraft();
+    }
+
+    onOpenChange(nextOpen);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100vh-1rem)] max-w-md overflow-y-auto rounded-3xl border-0 p-0 shadow-2xl sm:max-h-[90vh]">
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+      <DialogContent
+        className="max-h-[calc(100vh-1rem)] max-w-md overflow-y-auto rounded-3xl border-0 p-0 shadow-2xl sm:max-h-[90vh]"
+        onPointerDownOutside={(event) => {
+          if (isMobile && captureFlowInProgressRef.current) {
+            event.preventDefault();
+          }
+        }}
+        onInteractOutside={(event) => {
+          if (isMobile && captureFlowInProgressRef.current) {
+            event.preventDefault();
+          }
+        }}
+      >
         <DialogHeader className="space-y-2 px-6 pb-0 pt-12 text-center">
           <DialogTitle className="text-2xl font-bold uppercase tracking-tight">
             Nao conformidade
@@ -249,7 +389,7 @@ export const ChecklistNonConformityDialog = ({
                 variant="outline"
                 className="h-12 rounded-2xl border-0 bg-neutral-900 text-white hover:bg-neutral-800"
                 disabled={saving || loading || processingImage}
-                onClick={() => cameraInputRef.current?.click()}
+                onClick={handleCameraClick}
               >
                 {processingImage ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -264,7 +404,7 @@ export const ChecklistNonConformityDialog = ({
                 variant="outline"
                 className="h-12 rounded-2xl border-0 bg-neutral-900 text-white hover:bg-neutral-800"
                 disabled={saving || loading || processingImage}
-                onClick={() => galleryInputRef.current?.click()}
+                onClick={handleGalleryClick}
               >
                 {processingImage ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -332,7 +472,10 @@ export const ChecklistNonConformityDialog = ({
                 variant="outline"
                 className="h-12 flex-1 rounded-2xl"
                 disabled={saving || loading || processingImage}
-                onClick={() => onOpenChange(false)}
+                onClick={() => {
+                  clearDraft();
+                  onOpenChange(false);
+                }}
               >
                 Voltar
               </Button>
