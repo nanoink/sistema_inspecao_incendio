@@ -56,6 +56,22 @@ export function useAuth() {
 
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
+
+    if (!error) {
+      return { error: null };
+    }
+
+    const normalizedMessage = error.message.trim().toLowerCase();
+    const shouldFallbackToLocalSignOut =
+      normalizedMessage.includes("session") &&
+      (normalizedMessage.includes("missing") ||
+        normalizedMessage.includes("not found"));
+
+    if (shouldFallbackToLocalSignOut) {
+      const { error: localError } = await supabase.auth.signOut({ scope: "local" });
+      return { error: localError };
+    }
+
     return { error };
   };
 
