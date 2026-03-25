@@ -716,6 +716,117 @@ export type Database = {
           },
         ]
       }
+      empresa_checklist_execucoes: {
+        Row: {
+          context_key: string
+          context_type: string
+          created_at: string
+          empresa_id: string
+          equipment_record_id: string | null
+          equipment_type: string | null
+          first_activity_at: string
+          id: string
+          inspection_code: string
+          inspection_name: string
+          last_activity_at: string
+          source_label: string | null
+          total_saves: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          context_key: string
+          context_type: string
+          created_at?: string
+          empresa_id: string
+          equipment_record_id?: string | null
+          equipment_type?: string | null
+          first_activity_at?: string
+          id?: string
+          inspection_code: string
+          inspection_name: string
+          last_activity_at?: string
+          source_label?: string | null
+          total_saves?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          context_key?: string
+          context_type?: string
+          created_at?: string
+          empresa_id?: string
+          equipment_record_id?: string | null
+          equipment_type?: string | null
+          first_activity_at?: string
+          id?: string
+          inspection_code?: string
+          inspection_name?: string
+          last_activity_at?: string
+          source_label?: string | null
+          total_saves?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_checklist_execucoes_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresa"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "empresa_checklist_execucoes_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      empresa_usuarios: {
+        Row: {
+          created_at: string
+          empresa_id: string
+          id: string
+          papel: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          empresa_id: string
+          id?: string
+          papel: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          empresa_id?: string
+          id?: string
+          papel?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_usuarios_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresa"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "empresa_usuarios_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       exigencias_criterios: {
         Row: {
           altura_denominacao: string | null
@@ -873,6 +984,21 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      add_empresa_usuario_by_email: {
+        Args: {
+          p_email: string
+          p_empresa_id: string
+          p_papel?: string
+        }
+        Returns: {
+          created_at: string
+          email: string
+          nome: string
+          papel: string
+          updated_at: string
+          user_id: string
+        }[]
+      }
       get_equipment_qr_non_conformities: {
         Args: { p_token: string }
         Returns: {
@@ -905,9 +1031,70 @@ export type Database = {
           titulo: string
         }[]
       }
+      get_empresa_relatorio_assinaturas: {
+        Args: { p_empresa_id: string }
+        Returns: {
+          assinatura_nome: string
+          email: string
+          executed_checklists: Json
+          first_activity_at: string | null
+          is_gestor: boolean
+          last_activity_at: string | null
+          nome: string
+          papel: string
+          total_checklists: number
+          user_id: string
+        }[]
+      }
+      list_empresa_usuarios: {
+        Args: { p_empresa_id: string }
+        Returns: {
+          created_at: string
+          email: string
+          nome: string
+          papel: string
+          updated_at: string
+          user_id: string
+        }[]
+      }
       normalize_divisao_codigo: {
         Args: { p_value: string | null }
         Returns: string | null
+      }
+      register_checklist_execution: {
+        Args: {
+          p_context_type: string
+          p_empresa_id: string
+          p_equipment_record_id?: string | null
+          p_equipment_type?: string | null
+          p_inspection_code: string
+          p_inspection_name: string
+          p_source_label?: string | null
+        }
+        Returns: {
+          context_key: string
+          context_type: string
+          created_at: string
+          empresa_id: string
+          equipment_record_id: string | null
+          equipment_type: string | null
+          first_activity_at: string
+          id: string
+          inspection_code: string
+          inspection_name: string
+          last_activity_at: string
+          source_label: string | null
+          total_saves: number
+          updated_at: string
+          user_id: string
+        }[]
+      }
+      remove_empresa_usuario: {
+        Args: {
+          p_empresa_id: string
+          p_user_id: string
+        }
+        Returns: undefined
       }
       save_equipment_qr_checklist: {
         Args: { p_checklist_snapshot: Json; p_token: string }
@@ -936,6 +1123,21 @@ export type Database = {
           id: string
           imagem_data_url: string | null
           updated_at: string
+        }[]
+      }
+      set_empresa_usuario_role: {
+        Args: {
+          p_empresa_id: string
+          p_papel: string
+          p_user_id: string
+        }
+        Returns: {
+          created_at: string
+          email: string
+          nome: string
+          papel: string
+          updated_at: string
+          user_id: string
         }[]
       }
       resolve_exigencias_empresa: {

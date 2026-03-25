@@ -16,6 +16,7 @@ import { Pencil, Trash2, Loader2, ClipboardCheck, FileText } from "lucide-react"
 import { useNavigate } from "react-router-dom";
 import { isMissingRelationError } from "@/lib/supabase-errors";
 import { EditCompanyDialog } from "./EditCompanyDialog";
+import { useAuth } from "@/hooks/useAuth";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,6 +32,7 @@ type Company = Database["public"]["Tables"]["empresa"]["Row"];
 
 export const CompanyTable = () => {
   const navigate = useNavigate();
+  const { isSystemAdmin } = useAuth();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [reportCompanyIds, setReportCompanyIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -180,13 +182,15 @@ export const CompanyTable = () => {
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => setDeletingId(company.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {isSystemAdmin ? (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => setDeletingId(company.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        ) : null}
                       </div>
                     </TableCell>
                   </TableRow>

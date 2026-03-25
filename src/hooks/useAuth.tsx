@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
+import { isSystemAdminEmail } from '@/lib/system-admin';
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
@@ -58,12 +59,40 @@ export function useAuth() {
     return { error };
   };
 
+  const updatePassword = async (password: string) => {
+    const { data, error } = await supabase.auth.updateUser({
+      password,
+      data: {
+        ...(user?.user_metadata || {}),
+        temporary_password: false,
+      },
+    });
+
+    if (!error) {
+      const {
+        data: { session: refreshedSession },
+      } = await supabase.auth.getSession();
+      setSession(refreshedSession);
+      setUser(refreshedSession?.user ?? data.user ?? null);
+    }
+
+    return { error, user: data.user ?? null };
+  };
+
+  const email = user?.email?.trim().toLowerCase() ?? null;
+  const isSystemAdmin = isSystemAdminEmail(email);
+  const requiresPasswordChange = Boolean(user?.user_metadata?.temporary_password);
+
   return {
     user,
     session,
+    email,
     loading,
+    isSystemAdmin,
+    requiresPasswordChange,
     signUp,
     signIn,
-    signOut
+    signOut,
+    updatePassword,
   };
 }

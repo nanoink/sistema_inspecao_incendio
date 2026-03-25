@@ -9,8 +9,14 @@ import {
   Save,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import type { Database } from "@/integrations/supabase/types";
+import type { Database, Json } from "@/integrations/supabase/types";
 import { useToast } from "@/hooks/use-toast";
+import {
+  loadCompanyReportSignatures,
+  parseCompanyReportSignatures,
+  type ChecklistExecutionSummary,
+  type CompanyReportSignatureRow,
+} from "@/lib/company-members";
 import {
   buildChecklistSnapshot,
   type ChecklistSnapshot,
@@ -21,7 +27,10 @@ import {
   normalizeEquipmentChecklistSnapshot,
   type EquipmentChecklistSnapshot,
 } from "@/lib/checklist-equipment";
-import { isMissingRelationError } from "@/lib/supabase-errors";
+import {
+  isMissingFunctionError,
+  isMissingRelationError,
+} from "@/lib/supabase-errors";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -180,6 +189,16 @@ interface ReportRequirementMeasureEntry {
   requiredLabel: string;
   existingLabel: string;
   statusLabel: string;
+}
+
+interface GeneralChecklistReportLine {
+  code: string;
+  name: string;
+  totalRelevant: number;
+  checked: number;
+  conforme: number;
+  naoConforme: number;
+  naoAplicavel: number;
 }
 
 const getToday = () => new Date().toISOString().slice(0, 10);
@@ -596,6 +615,209 @@ const buildRequirementMeasureEntries = (
       statusLabel: requirement.atende ? "ATENDE" : "NAO ATENDE",
     }));
 
+const REPORT_EXTINGUISHER_INSPECTION_CODE = "A.23";
+const REPORT_HYDRANT_INSPECTION_CODE = "A.25";
+const REPORT_LUMINAIRE_INSPECTION_CODE = "A.19";
+
+const normalizeChecklistSectionTitleKey = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+const buildChecklistSectionTitleSet = (titles: string[]) =>
+  new Set(titles.map(normalizeChecklistSectionTitleKey));
+
+const REPORT_PRINCIPAL_ONLY_EQUIPMENT_SECTIONS: Record<string, Set<string>> = {
+  [REPORT_EXTINGUISHER_INSPECTION_CODE]: buildChecklistSectionTitleSet([
+    "Documentacoes",
+  ]),
+  [REPORT_HYDRANT_INSPECTION_CODE]: buildChecklistSectionTitleSet([
+    "Reserva Tecnica de Incendio (RTI)",
+    "Tubulacao da RTI a entrada da BCI - Succao",
+    "Bombas de Combate a Incendio (BCI)",
+    "Recalque (tubulacao da BCI aos hidrantes de parede/recalque)",
+    "Procedimento de Testes",
+    "Procedimento de teste quando houver uma unica BCI",
+    "Procedimento de teste quando houver uma BCI e uma bomba de pressurizacao (joquei)",
+    "Procedimento de teste apenas quando houver uma BCI Principal, uma BCI Reserva e uma bomba de pressurizacao (joquei)",
+    "Notas Fiscais",
+  ]),
+  [REPORT_LUMINAIRE_INSPECTION_CODE]: buildChecklistSectionTitleSet([
+    "Sistema centralizado com baterias recarregaveis",
+    "Sistema centralizado com grupo moto gerador (GMG)",
+    "Teste do sistema centralizado com grupo moto gerador (GMG)",
+    "ART/RRT",
+    "Notas Fiscais",
+    "Documentacoes especificos",
+  ]),
+};
+
+const isGeneralEquipmentInspectionSection = (
+  inspectionCode: string,
+  sectionTitle: string,
+) => {
+  const normalizedSectionTitle = normalizeChecklistSectionTitleKey(sectionTitle);
+
+  if (!normalizedSectionTitle) {
+    return false;
+  }
+
+  if (
+    normalizedSectionTitle.startsWith("documentacao") &&
+    normalizedSectionTitle.includes("art/rrt") &&
+    (inspectionCode === REPORT_HYDRANT_INSPECTION_CODE ||
+      inspectionCode === REPORT_LUMINAIRE_INSPECTION_CODE)
+  ) {
+    return true;
+  }
+
+  return (
+    REPORT_PRINCIPAL_ONLY_EQUIPMENT_SECTIONS[inspectionCode]?.has(
+      normalizedSectionTitle,
+    ) || false
+  );
+};
+
+const buildGeneralChecklistLines = (
+  snapshot: ChecklistSnapshot,
+): GeneralChecklistReportLine[] =>
+  snapshot.inspections
+    .map((inspection) => {
+      const relevantItems = inspection.itens.filter((item) => {
+        if (
+          inspection.codigo === REPORT_EXTINGUISHER_INSPECTION_CODE ||
+          inspection.codigo === REPORT_HYDRANT_INSPECTION_CODE ||
+          inspection.codigo === REPORT_LUMINAIRE_INSPECTION_CODE
+        ) {
+          return isGeneralEquipmentInspectionSection(
+            inspection.codigo,
+            item.secao || "",
+          );
+        }
+
+        return true;
+      });
+
+      const checkedItems = relevantItems.filter((item) => item.status !== "P");
+
+      return {
+        code: inspection.codigo,
+        name: inspection.nome,
+        totalRelevant: relevantItems.length,
+        checked: checkedItems.length,
+        conforme: checkedItems.filter((item) => item.status === "C").length,
+        naoConforme: checkedItems.filter((item) => item.status === "NC").length,
+        naoAplicavel: checkedItems.filter((item) => item.status === "NA").length,
+      };
+    })
+    .filter((inspection) => inspection.checked > 0)
+    .sort((left, right) =>
+      `${left.code} - ${left.name}`.localeCompare(
+        `${right.code} - ${right.name}`,
+        "pt-BR",
+        { numeric: true, sensitivity: "base" },
+      ),
+    );
+
+const buildCompactSignatureExecutionLines = (
+  executions: ChecklistExecutionSummary[],
+) => {
+  const groupedExecutions = new Map<
+    string,
+    {
+      inspectionCode: string;
+      inspectionName: string;
+      hasPrincipal: boolean;
+      extinguishers: number;
+      hydrants: number;
+      luminaires: number;
+    }
+  >();
+
+  executions.forEach((execution) => {
+    const key = `${execution.inspection_code}:${execution.inspection_name}`;
+    const current =
+      groupedExecutions.get(key) || {
+        inspectionCode: execution.inspection_code,
+        inspectionName: execution.inspection_name,
+        hasPrincipal: false,
+        extinguishers: 0,
+        hydrants: 0,
+        luminaires: 0,
+      };
+
+    if (execution.context_type === "principal") {
+      current.hasPrincipal = true;
+    } else if (execution.equipment_type === "extintor") {
+      current.extinguishers += 1;
+    } else if (execution.equipment_type === "hidrante") {
+      current.hydrants += 1;
+    } else if (execution.equipment_type === "luminaria") {
+      current.luminaires += 1;
+    }
+
+    groupedExecutions.set(key, current);
+  });
+
+  return Array.from(groupedExecutions.values())
+    .sort((left, right) =>
+      `${left.inspectionCode} - ${left.inspectionName}`.localeCompare(
+        `${right.inspectionCode} - ${right.inspectionName}`,
+        "pt-BR",
+        { numeric: true, sensitivity: "base" },
+      ),
+    )
+    .map((execution) => {
+      const detailParts: string[] = [];
+
+      if (execution.hasPrincipal) {
+        detailParts.push("checklist geral");
+      }
+
+      if (execution.extinguishers > 0) {
+        detailParts.push(`${execution.extinguishers} extintor(es)`);
+      }
+
+      if (execution.hydrants > 0) {
+        detailParts.push(`${execution.hydrants} hidrante(s)`);
+      }
+
+      if (execution.luminaires > 0) {
+        detailParts.push(`${execution.luminaires} luminaria(s)`);
+      }
+
+      return {
+        key: `${execution.inspectionCode}-${execution.inspectionName}`,
+        label: `${execution.inspectionCode} - ${execution.inspectionName}: ${detailParts.join(" + ") || "sem detalhamento"}`,
+      };
+    });
+};
+
+const getSignatureRoleLabel = (signer: CompanyReportSignatureRow) =>
+  signer.is_gestor ? "Gestor responsavel pela empresa" : "Usuario executor de checklist";
+
+const formatSignatureExecutionLabel = (execution: ChecklistExecutionSummary) => {
+  const inspectionLabel = `${execution.inspection_code} - ${execution.inspection_name}`;
+
+  if (execution.context_type === "principal") {
+    return `${inspectionLabel} | Checklist principal`;
+  }
+
+  const equipmentLabel =
+    execution.equipment_type === "extintor" ||
+    execution.equipment_type === "hidrante" ||
+    execution.equipment_type === "luminaria"
+      ? getEquipmentTypeLabel(execution.equipment_type)
+      : "Equipamento";
+
+  return execution.source_label
+    ? `${inspectionLabel} | ${equipmentLabel} | ${execution.source_label}`
+    : `${inspectionLabel} | ${equipmentLabel}`;
+};
+
 const TopCornerArt = () => (
   <svg width="122" height="86" viewBox="0 0 122 86" fill="none" xmlns="http://www.w3.org/2000/svg">
     <polygon points="0,0 63,0 24,40 0,40" fill="#ff1616" />
@@ -845,6 +1067,7 @@ const CompanyReport = () => {
   const [extinguishers, setExtinguishers] = useState<ExtinguisherRow[]>([]);
   const [hydrants, setHydrants] = useState<HydrantRow[]>([]);
   const [luminaires, setLuminaires] = useState<LuminaireRow[]>([]);
+  const [reportSignatures, setReportSignatures] = useState<CompanyReportSignatureRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -866,6 +1089,7 @@ const CompanyReport = () => {
           extinguishersResult,
           hydrantsResult,
           luminairesResult,
+          reportSignaturesResult,
         ] = await Promise.all([
           supabase
             .from("empresa")
@@ -914,6 +1138,13 @@ const CompanyReport = () => {
             .select("id, numero, localizacao, tipo_luminaria, status, checklist_snapshot")
             .eq("empresa_id", id)
             .order("numero", { ascending: true }),
+          loadCompanyReportSignatures(supabase, id).catch((error) => {
+            if (isMissingFunctionError(error, "get_empresa_relatorio_assinaturas")) {
+              return null;
+            }
+
+            throw error;
+          }),
         ]);
 
         if (companyResult.error) {
@@ -942,6 +1173,17 @@ const CompanyReport = () => {
         }
 
         const reportData = reportResult.error ? null : reportResult.data;
+        const persistedSignatureValue =
+          reportData?.status === "finalizado" &&
+          reportData.dados_adicionais &&
+          typeof reportData.dados_adicionais === "object" &&
+          !Array.isArray(reportData.dados_adicionais)
+            ? ((reportData.dados_adicionais as Record<string, Json>).report_signatures ??
+              null)
+            : null;
+        const persistedSignatures = parseCompanyReportSignatures(
+          persistedSignatureValue,
+        );
         const computedSnapshot = buildChecklistSnapshot(
           checklistData.models,
           checklistData.groupsByModel,
@@ -986,6 +1228,11 @@ const CompanyReport = () => {
         setExtinguishers(extinguishersResult.data || []);
         setHydrants(hydrantsResult.data || []);
         setLuminaires(luminairesResult.data || []);
+        setReportSignatures(
+          persistedSignatures.length > 0
+            ? persistedSignatures
+            : reportSignaturesResult || [],
+        );
       } catch (error) {
         console.error("Error loading report page:", error);
         toast({
@@ -1042,6 +1289,48 @@ const CompanyReport = () => {
     try {
       setSaving(true);
 
+      let latestReportSignatures = reportSignatures;
+
+      try {
+        latestReportSignatures = await loadCompanyReportSignatures(supabase, id);
+      } catch (signatureError) {
+        if (
+          !isMissingFunctionError(
+            signatureError,
+            "get_empresa_relatorio_assinaturas",
+          )
+        ) {
+          console.error(
+            "Error refreshing report signatures before save:",
+            signatureError,
+          );
+        }
+      }
+
+      const persistedSignatures =
+        latestReportSignatures.length > 0
+          ? latestReportSignatures
+          : [
+              {
+                user_id: "gestor-fallback",
+                nome: company.responsavel || "Gestor responsavel",
+                email: company.email || "-",
+                papel: "gestor",
+                is_gestor: true,
+                assinatura_nome: company.responsavel || "Gestor responsavel",
+                executed_checklists: [],
+                first_activity_at: null,
+                last_activity_at: null,
+                total_checklists: 0,
+              } satisfies CompanyReportSignatureRow,
+            ];
+      const previousAdditionalData =
+        report?.dados_adicionais &&
+        typeof report.dados_adicionais === "object" &&
+        !Array.isArray(report.dados_adicionais)
+          ? (report.dados_adicionais as Record<string, Json>)
+          : {};
+
       const payload: Database["public"]["Tables"]["empresa_relatorios"]["Insert"] = {
         empresa_id: id,
         titulo: normalizeNullable(form.titulo) || "Relatorio de Inspecao Tecnica Preventiva - RITP",
@@ -1062,11 +1351,14 @@ const CompanyReport = () => {
         status: nextStatus,
         checklist_snapshot: snapshot,
         dados_adicionais: {
+          ...previousAdditionalData,
           empresa_responsavel: company.responsavel,
           empresa_telefone: company.telefone,
           empresa_email: company.email,
           report_model: "fire-ritp",
           non_conformities_count: nonConformityRecords.length,
+          report_signatures: persistedSignatures,
+          report_signatures_generated_at: new Date().toISOString(),
         },
       };
 
@@ -1082,6 +1374,7 @@ const CompanyReport = () => {
 
       setReport(data);
       setReportStatus(nextStatus);
+      setReportSignatures(persistedSignatures);
       toast({
         title: "Relatorio salvo",
         description:
@@ -1191,19 +1484,11 @@ const CompanyReport = () => {
             },
           ],
         ];
-  const inspectionSummaryLines = buildInspectionSummaryLines(snapshot);
-  const groupedObservationLines = snapshot.inspections
-    .filter((inspection) => inspection.total > 0)
-    .map((inspection) => {
-      const entryCount = reportEntries.filter(
-        (entry) => entry.inspectionCode === inspection.codigo,
-      ).length;
-      return `${inspection.codigo} - ${inspection.nome}: ${inspection.conforme} conforme(s), ${inspection.nao_conforme} nao conforme(s), ${inspection.nao_aplicavel} nao aplicavel(is), ${inspection.pendentes} pendente(s) e ${entryCount} registro(s) detalhado(s) de nao conformidade.`;
-    });
-
-  if (form.observacoesGerais.trim()) {
-    groupedObservationLines.push(form.observacoesGerais.trim());
-  }
+  const generalChecklistLines = buildGeneralChecklistLines(snapshot);
+  const checkedGeneralItems = generalChecklistLines.reduce(
+    (total, line) => total + line.checked,
+    0,
+  );
 
   const requirementMeasureEntries = buildRequirementMeasureEntries(reportRequirements);
   const requirementMeasureChunks = chunkArray(
@@ -1236,17 +1521,161 @@ const CompanyReport = () => {
         `Os registros detalhados com comentarios e imagens foram incorporados ao presente relatorio e estruturados em anexo fotografico e plano de correcao, permitindo rastreabilidade das medidas corretivas recomendadas.`,
         `A adocao tempestiva das acoes propostas e a reavaliacao tecnica dos itens corrigidos sao essenciais para a manutencao das condicoes de seguranca contra incendios e emergencias da edificacao.`,
       ];
+  const resultObservationLines = [
+    `${snapshot.overall.nao_conforme} nao conformidade(s) foram identificadas entre ${snapshot.overall.total} item(ns) avaliados nesta inspecao.`,
+    `${generalChecklistLines.length} checklist(s) gerais tiveram ao menos um item verificado nesta emissao, considerando somente o checklist principal de extintores, hidrantes e luminarias.`,
+    `Exigencias atendidas: ${requirementsAttendedCount} de ${reportRequirements.length}.`,
+  ];
+
+  if (reportEntries.length > 0) {
+    resultObservationLines.push(
+      `${reportEntries.length} registro(s) detalhado(s) com imagem e comentario foram incorporados aos anexos e ao plano de correcao.`,
+    );
+  }
+
+  if (form.observacoesGerais.trim()) {
+    resultObservationLines.push(form.observacoesGerais.trim());
+  }
+
+  const signatureRows =
+    reportSignatures.length > 0
+      ? reportSignatures
+      : [
+          {
+            user_id: "gestor-fallback",
+            nome: company.responsavel || "Gestor responsavel",
+            email: company.email || "-",
+            papel: "gestor",
+            is_gestor: true,
+            assinatura_nome: company.responsavel || "Gestor responsavel",
+            executed_checklists: [],
+            first_activity_at: null,
+            last_activity_at: null,
+            total_checklists: 0,
+          } satisfies CompanyReportSignatureRow,
+        ];
+  const signatureChunks = chunkArray(signatureRows, 4);
 
   const pages: ReactNode[] = [];
+
+  const renderSignatureCard = (signer: CompanyReportSignatureRow) => {
+    const signerExecutionLines = buildCompactSignatureExecutionLines(
+      signer.executed_checklists,
+    );
+    const visibleExecutionLines = signerExecutionLines.slice(0, 4);
+
+    return (
+      <div key={signer.user_id} className="overflow-hidden border border-zinc-300">
+        <div className="flex items-start justify-between gap-3 border-b border-zinc-300 bg-zinc-50 px-4 py-3">
+          <div>
+            <p className="text-[12px] font-semibold uppercase text-zinc-900">
+              {signer.assinatura_nome}
+            </p>
+            <p className="mt-1 text-[10.5px] text-zinc-600">
+              {getSignatureRoleLabel(signer)} | {signer.email || "-"}
+            </p>
+          </div>
+          <RequirementStatusBadge
+            label={signer.is_gestor ? "Gestor" : "Executor"}
+            tone={signer.is_gestor ? "success" : "neutral"}
+          />
+        </div>
+
+        <div className="space-y-3 px-4 py-4">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-sm border border-zinc-300 px-3 py-2">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                Checklists
+              </p>
+              <p className="mt-1 text-[15px] font-bold text-zinc-900">
+                {signer.total_checklists}
+              </p>
+            </div>
+            <div className="rounded-sm border border-zinc-300 px-3 py-2">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                Ultima atividade
+              </p>
+              <p className="mt-1 text-[10.5px] font-semibold text-zinc-800">
+                {formatDateTime(signer.last_activity_at)}
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-sm border border-zinc-300 bg-white px-3 py-3">
+            <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+              Mini relatorio dos checklists realizados
+            </p>
+            {visibleExecutionLines.length > 0 ? (
+              <ul className="mt-2 space-y-1.5 text-[10.5px] leading-5 text-zinc-800">
+                {visibleExecutionLines.map((line) => (
+                  <li key={`${signer.user_id}-${line.key}`}>{line.label}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-[10.5px] leading-5 text-zinc-700">
+                {signer.is_gestor
+                  ? "Assinatura institucional como gestor responsavel pela empresa."
+                  : "Nenhum checklist com autoria registrada foi localizado para este usuario."}
+              </p>
+            )}
+            {signerExecutionLines.length > visibleExecutionLines.length ? (
+              <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                + {signerExecutionLines.length - visibleExecutionLines.length} checklist(s) adicional(is)
+              </p>
+            ) : null}
+          </div>
+
+          <div className="pt-6">
+            <div className="w-[220px] border-t border-zinc-400 pt-2 text-center text-[10.5px] text-zinc-700">
+              <p className="font-semibold uppercase text-zinc-900">
+                {signer.assinatura_nome}
+              </p>
+              <p>{getSignatureRoleLabel(signer)}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   pages.push(
     <div className="space-y-8">
       <section className="space-y-3">
-        <SectionHeading index="1" title="Dados Gerais" />
+        <SectionHeading index="1" title="Objetivo e Aplicacao da Inspecao" />
+        <div className="grid grid-cols-2 gap-4">
+          <div className="rounded-sm border border-zinc-300 bg-zinc-50 px-4 py-4">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+              Objetivo
+            </p>
+            <p className="mt-3 text-[13px] leading-7 text-zinc-800">
+              {form.objetivo}
+            </p>
+          </div>
+          <div className="rounded-sm border border-zinc-300 bg-zinc-50 px-4 py-4">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+              Aplicacao / Escopo
+            </p>
+            <p className="mt-3 text-[13px] leading-7 text-zinc-800">
+              {form.escopo}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <SectionHeading
+          index="2"
+          title={'Caracteristicas da Unidade Vistoriada, Confirmadas "In Loco"'}
+        />
         <div className="border border-zinc-300">
-          <div className="grid grid-cols-[2fr_1fr_1fr]">
+          <div className="grid grid-cols-[1.7fr_1fr_1fr]">
             <DataCell label="Nome do Estabelecimento" value={company.razao_social} />
+            <DataCell label="Responsavel" value={company.responsavel || "-"} />
             <DataCell label="CNPJ" value={company.cnpj || "-"} />
+          </div>
+          <div className="grid grid-cols-[1fr_1fr_1fr]">
+            <DataCell label="Telefone" value={company.telefone || "-"} />
+            <DataCell label="E-mail" value={company.email || "-"} />
             <DataCell label="CNAE" value={company.ocupacao_uso || "-"} />
           </div>
           <div className="grid grid-cols-[3fr_1fr]">
@@ -1269,12 +1698,6 @@ const CompanyReport = () => {
             <DataCell label="Risco Incendio" value={(company.grau_risco || "-").toUpperCase()} className="border-b-0" />
           </div>
         </div>
-      </section>
-
-      <section className="space-y-3">
-        <SectionHeading index="2" title="Objeto" />
-        <p className="text-[13px] leading-7 text-zinc-800">{form.objetivo}</p>
-        <p className="text-[13px] leading-7 text-zinc-800">{form.escopo}</p>
       </section>
     </div>,
   );
@@ -1379,47 +1802,83 @@ const CompanyReport = () => {
           </div>
           <div className="rounded-sm border border-zinc-300 bg-amber-50 px-3 py-4">
             <div className="text-[9px] font-semibold uppercase tracking-[0.08em] text-amber-700">
-              Exigencias aplicaveis
+              Checklists gerais
             </div>
-            <div className="mt-2 text-[24px] font-bold text-amber-800">{reportRequirements.length}</div>
+            <div className="mt-2 text-[24px] font-bold text-amber-800">{generalChecklistLines.length}</div>
           </div>
         </div>
 
-        <div className="space-y-2">
-          <p className="text-[13px] font-semibold text-zinc-900">Observacoes das Medidas:</p>
+        <div className="space-y-3">
+          <div className="rounded-sm border border-zinc-300 bg-zinc-50 px-4 py-4 text-[12px] leading-6 text-zinc-800">
+            <p>
+              O quadro abaixo considera apenas checklists com ao menos um item marcado. Nos sistemas de extintores,
+              hidrantes e luminarias, a sintese contempla somente o checklist geral do sistema, sem listar os
+              checklists individuais por equipamento.
+            </p>
+          </div>
           <div className="border border-zinc-300">
             <table className="w-full border-collapse text-[11px]">
               <thead>
                 <tr className="bg-zinc-100">
-                  <th className="border border-zinc-300 px-3 py-2 text-left font-semibold">Checklist</th>
-                  <th className="border border-zinc-300 px-2 py-2 text-center font-semibold">Total</th>
+                  <th className="border border-zinc-300 px-3 py-2 text-left font-semibold">Checklist geral</th>
+                  <th className="border border-zinc-300 px-2 py-2 text-center font-semibold">Itens checados</th>
                   <th className="border border-zinc-300 px-2 py-2 text-center font-semibold">C</th>
                   <th className="border border-zinc-300 px-2 py-2 text-center font-semibold">NC</th>
                   <th className="border border-zinc-300 px-2 py-2 text-center font-semibold">NA</th>
-                  <th className="border border-zinc-300 px-2 py-2 text-center font-semibold">P</th>
                 </tr>
               </thead>
               <tbody>
-                {inspectionSummaryLines.map((line) => (
-                  <tr key={line.code}>
-                    <td className="border border-zinc-300 px-3 py-2">{`${line.code} - ${line.name}`}</td>
-                    <td className="border border-zinc-300 px-2 py-2 text-center">{line.total}</td>
-                    <td className="border border-zinc-300 px-2 py-2 text-center">{line.conforme}</td>
-                    <td className="border border-zinc-300 px-2 py-2 text-center">{line.naoConforme}</td>
-                    <td className="border border-zinc-300 px-2 py-2 text-center">{line.naoAplicavel}</td>
-                    <td className="border border-zinc-300 px-2 py-2 text-center">{line.pendentes}</td>
+                {generalChecklistLines.length > 0 ? (
+                  generalChecklistLines.map((line) => (
+                    <tr key={line.code}>
+                      <td className="border border-zinc-300 px-3 py-2">{`${line.code} - ${line.name}`}</td>
+                      <td className="border border-zinc-300 px-2 py-2 text-center">
+                        {line.checked}/{line.totalRelevant}
+                      </td>
+                      <td className="border border-zinc-300 px-2 py-2 text-center">{line.conforme}</td>
+                      <td className="border border-zinc-300 px-2 py-2 text-center">{line.naoConforme}</td>
+                      <td className="border border-zinc-300 px-2 py-2 text-center">{line.naoAplicavel}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td className="border border-zinc-300 px-3 py-3 text-center text-zinc-600" colSpan={5}>
+                      Nenhum checklist geral teve item marcado neste relatorio.
+                    </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
-          <div className="space-y-2 border border-zinc-300 p-4 text-[12px] leading-6 text-zinc-800">
-            {groupedObservationLines.map((line) => (
-              <p key={line}>- {line}</p>
-            ))}
-            <p>
-              Exigencias atendidas: {requirementsAttendedCount} de {reportRequirements.length}. Itens com analise complementar permanecem sinalizados no conjunto de exigencias aplicaveis da empresa.
-            </p>
+          <div className="grid grid-cols-[1fr_180px] gap-4">
+            <div className="space-y-2 border border-zinc-300 p-4 text-[12px] leading-6 text-zinc-800">
+              <p className="font-semibold uppercase text-zinc-900">Observacoes das Medidas</p>
+              {resultObservationLines.map((line) => (
+                <p key={line}>- {line}</p>
+              ))}
+            </div>
+            <div className="space-y-3">
+              <div className="rounded-sm border border-zinc-300 bg-white px-4 py-4">
+                <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                  Itens gerais checados
+                </p>
+                <p className="mt-2 text-[24px] font-bold text-zinc-900">{checkedGeneralItems}</p>
+              </div>
+              <div className="rounded-sm border border-zinc-300 bg-white px-4 py-4">
+                <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                  Registros anexados
+                </p>
+                <p className="mt-2 text-[24px] font-bold text-zinc-900">{reportEntries.length}</p>
+              </div>
+              <div className="rounded-sm border border-zinc-300 bg-white px-4 py-4">
+                <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                  Exigencias atendidas
+                </p>
+                <p className="mt-2 text-[24px] font-bold text-zinc-900">
+                  {requirementsAttendedCount}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -1507,52 +1966,53 @@ const CompanyReport = () => {
 
   pages.push(
     <div className="space-y-8">
-      <section className="space-y-3">
-        <SectionHeading index="7" title="Conclusao" />
-        <div className="space-y-4 text-[13px] leading-7 text-zinc-800">
-          {conclusionParagraphs.map((paragraph) => (
-            <p key={paragraph}>{paragraph}</p>
-          ))}
-        </div>
-      </section>
-
       <section className="space-y-4">
-        <SectionHeading index="8" title="Dados da Atribuicao" />
-        <div className="border border-zinc-300">
-          <div className="grid grid-cols-[2fr_1fr]">
-            <DataCell label="Nome dos Encarregados" value={form.inspetorNome || "-"} />
-            <DataCell label="CPF" value="-" />
+        <SectionHeading index="7" title="Parecer Final e Assinaturas" />
+        <div className="grid grid-cols-[1.2fr_1fr] gap-4">
+          <div className="rounded-sm border border-zinc-300 bg-zinc-50 px-4 py-4">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+              Parecer final
+            </p>
+            <div className="mt-3 space-y-3 text-[12px] leading-6 text-zinc-800">
+              {conclusionParagraphs.slice(0, 3).map((paragraph) => (
+                <p key={paragraph}>{paragraph}</p>
+              ))}
+            </div>
           </div>
-          <div className="grid grid-cols-[2fr_1fr]">
-            <DataCell label="" value={form.representanteNome || "-"} />
-            <DataCell label="" value="-" />
-          </div>
-          <div className="grid grid-cols-[1fr_1fr_1fr]">
-            <DataCell label="Data de Execucao" value={formatDate(form.dataInspecao)} className="border-b-0" />
-            <DataCell
-              label="Hora de Execucao"
-              value={formatTimeRange(form.horaInicio, form.horaFim)}
-              className="border-b-0"
-            />
-            <DataCell
-              label="Relatorio Lancado"
-              value={form.numeroRelatorio || formatDate(form.dataEmissao)}
-              className="border-b-0"
-            />
+          <div className="border border-zinc-300">
+            <div className="grid grid-cols-1">
+              <DataCell label="Responsavel tecnico" value={form.inspetorNome || "-"} />
+              <DataCell label="Cargo / Funcao" value={form.inspetorCargo || "-"} />
+              <DataCell label="Representante da empresa" value={form.representanteNome || "-"} />
+              <DataCell label="Cargo do representante" value={form.representanteCargo || "-"} />
+              <DataCell label="Data da inspecao" value={formatDate(form.dataInspecao)} />
+              <DataCell label="Horario" value={formatTimeRange(form.horaInicio, form.horaFim)} />
+              <DataCell
+                label="Numero do relatorio"
+                value={form.numeroRelatorio || formatDate(form.dataEmissao)}
+                className="border-b-0"
+              />
+            </div>
           </div>
         </div>
 
-        <div className="pt-8">
-          <div className="w-[190px] border-t border-zinc-400 pt-2 text-center text-[11px] text-zinc-700">
-            <p className="font-semibold uppercase text-zinc-900">
-              {form.inspetorNome || "Responsavel tecnico"}
-            </p>
-            <p>{form.inspetorCargo || "Equipe de inspecao"}</p>
-          </div>
+        <div className="grid grid-cols-2 gap-4">
+          {signatureChunks[0].map((signer) => renderSignatureCard(signer))}
         </div>
       </section>
     </div>,
   );
+
+  signatureChunks.slice(1).forEach((chunk) => {
+    pages.push(
+      <div className="space-y-5">
+        <SectionHeading index="7" title="Parecer Final e Assinaturas - Continuacao" />
+        <div className="grid grid-cols-2 gap-4">
+          {chunk.map((signer) => renderSignatureCard(signer))}
+        </div>
+      </div>,
+    );
+  });
 
   return (
     <div className="min-h-screen bg-[#edf0f5]">

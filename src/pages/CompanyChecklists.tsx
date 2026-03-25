@@ -12,11 +12,20 @@ import {
   FileText,
   Shield,
   Building,
-  Zap,
-  Flame,
-  Bell,
-  CloudRain,
-  Package,
+  Truck,
+  SquareSplitHorizontal,
+  SquareSplitVertical,
+  DoorOpen,
+  Lightbulb,
+  Signpost,
+  FireExtinguisher,
+  Droplets,
+  ShowerHead,
+  Siren,
+  ScanSearch,
+  Fuel,
+  CloudLightning,
+  Layers3,
   Check,
   X,
   Minus,
@@ -48,11 +57,13 @@ import {
   loadChecklistResponses,
   saveChecklistResponses,
 } from "@/lib/checklist-source";
+import { registerChecklistExecution } from "@/lib/company-members";
 import {
   subscribeEquipmentChecklistUpdates,
 } from "@/lib/equipment-checklist-sync";
 import {
   isMissingEquipmentQrSchemaError,
+  isMissingFunctionError,
   isMissingRelationError,
 } from "@/lib/supabase-errors";
 import { ExtinguisherDialog } from "@/components/checklists/ExtinguisherDialog";
@@ -149,19 +160,48 @@ const STATUS_META: Record<
 };
 
 const getInspectionIcon = (name: string) => {
-  if (name.includes("Informacoes")) return FileText;
-  if (name.includes("Acesso")) return Building;
-  if (name.includes("Compartimentacao")) return Package;
-  if (name.includes("Escada") || name.includes("Saida")) return Building;
-  if (name.includes("Iluminacao")) return Zap;
-  if (name.includes("Sinalizacao")) return ClipboardCheck;
-  if (name.includes("Extintor")) return Flame;
-  if (name.includes("Hidrante") || name.includes("Mangotinh")) return Flame;
-  if (name.includes("Chuveiro")) return CloudRain;
-  if (name.includes("Alarme") || name.includes("Deteccao")) return Bell;
-  if (name.includes("GLP") || name.includes("GN")) return Flame;
-  if (name.includes("SPDA") || name.includes("Atmosferica")) return CloudRain;
-  if (name.includes("Acabamento") || name.includes("CMAR")) return Package;
+  const normalizedName = name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  if (normalizedName.includes("informacoes")) return FileText;
+  if (normalizedName.includes("acesso")) return Truck;
+  if (normalizedName.includes("compartimentacao horizontal")) {
+    return SquareSplitHorizontal;
+  }
+  if (normalizedName.includes("compartimentacao vertical")) {
+    return SquareSplitVertical;
+  }
+  if (normalizedName.includes("saida")) return DoorOpen;
+  if (normalizedName.includes("escada")) return Building;
+  if (normalizedName.includes("iluminacao")) return Lightbulb;
+  if (normalizedName.includes("sinalizacao")) return Signpost;
+  if (normalizedName.includes("extintor")) return FireExtinguisher;
+  if (
+    normalizedName.includes("hidrante") ||
+    normalizedName.includes("mangotinh")
+  ) {
+    return Droplets;
+  }
+  if (normalizedName.includes("chuveiro")) return ShowerHead;
+  if (normalizedName.includes("deteccao")) return ScanSearch;
+  if (normalizedName.includes("alarme")) return Siren;
+  if (normalizedName.includes("glp") || normalizedName.includes("gn")) {
+    return Fuel;
+  }
+  if (
+    normalizedName.includes("spda") ||
+    normalizedName.includes("atmosferica")
+  ) {
+    return CloudLightning;
+  }
+  if (
+    normalizedName.includes("cmar") ||
+    normalizedName.includes("acabamento")
+  ) {
+    return Layers3;
+  }
   return Shield;
 };
 
@@ -366,10 +406,34 @@ const CompanyChecklists = () => {
   const luminaireRefreshTimeoutRef = useRef<number | null>(null);
   const extinguisherRefreshTimeoutRef = useRef<number | null>(null);
   const hydrantRefreshTimeoutRef = useRef<number | null>(null);
+  const touchedInspectionExecutionsRef = useRef<
+    Map<string, { inspectionCode: string; inspectionName: string }>
+  >(new Map());
   const { rowsByInspection, evaluableIds: evaluableItemIds } = useMemo(
     () => buildChecklistTableRows(groupsByModel),
     [groupsByModel],
   );
+  const inspectionContextByItemId = useMemo(() => {
+    const next = new Map<
+      string,
+      { inspectionCode: string; inspectionName: string }
+    >();
+
+    models.forEach((model) => {
+      (rowsByInspection.get(model.id) || []).forEach((row) => {
+        if (row.type !== "item") {
+          return;
+        }
+
+        next.set(row.itemId, {
+          inspectionCode: model.codigo,
+          inspectionName: model.nome,
+        });
+      });
+    });
+
+    return next;
+  }, [models, rowsByInspection]);
   const equipmentInspectionItemIds = useMemo(() => {
     const next = new Set<string>();
 
@@ -1123,7 +1187,21 @@ const CompanyChecklists = () => {
     scheduleHydrantRefresh,
   ]);
 
+  const markInspectionExecutionTouched = useCallback(
+    (itemId: string) => {
+      const context = inspectionContextByItemId.get(itemId);
+
+      if (!context) {
+        return;
+      }
+
+      touchedInspectionExecutionsRef.current.set(context.inspectionCode, context);
+    },
+    [inspectionContextByItemId],
+  );
+
   const handleStatusChange = (itemId: string, status: ChecklistStatus) => {
+    markInspectionExecutionTouched(itemId);
     setResponses((previous) => {
       const next = new Map(previous);
       const existing = previous.get(itemId);
@@ -1288,6 +1366,7 @@ const CompanyChecklists = () => {
     sectionTitle: string;
     itemDescription: string;
   }) => {
+    markInspectionExecutionTouched(itemId);
     setSelectedNonConformityItem({
       itemId,
       itemNumber,
@@ -1309,6 +1388,7 @@ const CompanyChecklists = () => {
     }
 
     try {
+      markInspectionExecutionTouched(selectedNonConformityItem.itemId);
       setSavingNonConformity(true);
       const savedRecord = await saveChecklistNonConformity(supabase, {
         companyId: id,
@@ -1435,6 +1515,9 @@ const CompanyChecklists = () => {
         groupsByModel,
         responses: mergedResponses,
       });
+      const touchedInspections = Array.from(
+        touchedInspectionExecutionsRef.current.values(),
+      );
 
       if (!equipmentSchemaPending) {
         const synced = await syncEquipmentChecklistSnapshots(supabase, {
@@ -1449,6 +1532,46 @@ const CompanyChecklists = () => {
           setEquipmentQrSchemaPending(true);
         }
       }
+
+      const persistTouchedInspections = async () => {
+        if (touchedInspections.length === 0) {
+          return;
+        }
+
+        const results = await Promise.allSettled(
+          touchedInspections.map((inspection) =>
+            registerChecklistExecution(supabase, {
+              companyId: id,
+              inspectionCode: inspection.inspectionCode,
+              inspectionName: inspection.inspectionName,
+              contextType: "principal",
+              sourceLabel: "Checklist principal",
+            }),
+          ),
+        );
+
+        touchedInspectionExecutionsRef.current.clear();
+
+        const rejected = results.find(
+          (result): result is PromiseRejectedResult => result.status === "rejected",
+        );
+
+        if (!rejected) {
+          return;
+        }
+
+        if (isMissingFunctionError(rejected.reason, "register_checklist_execution")) {
+          console.warn(
+            "register_checklist_execution RPC not available yet in the connected Supabase project.",
+          );
+          return;
+        }
+
+        console.error(
+          "Error registering company checklist executions:",
+          rejected.reason,
+        );
+      };
 
       const { error: reportError } = await supabase
         .from("empresa_relatorios")
@@ -1470,12 +1593,14 @@ const CompanyChecklists = () => {
               "A tabela de relatorios ainda nao foi criada no Supabase. O checklist foi salvo mesmo assim.",
             variant: "destructive",
           });
+          await persistTouchedInspections();
           return true;
         }
 
         throw reportError;
       }
 
+      await persistTouchedInspections();
       return true;
     } catch (error) {
       console.error("Error finalizing checklist:", error);

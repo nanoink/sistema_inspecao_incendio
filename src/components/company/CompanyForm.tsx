@@ -13,6 +13,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Check, ChevronsUpDown } from "lucide-react";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useAuth } from "@/hooks/useAuth";
+import { createCompanyUser } from "@/lib/company-members";
 import { cn } from "@/lib/utils";
 
 const formSchema = z.object({
@@ -55,6 +57,7 @@ interface AlturaRef {
 export function CompanyForm() {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { isSystemAdmin } = useAuth();
   const [loading, setLoading] = useState(false);
   const [loadingCEP, setLoadingCEP] = useState(false);
   const [cnaeData, setCnaeData] = useState<CNAEData | null>(null);
@@ -64,6 +67,9 @@ export function CompanyForm() {
   const [alturaDescricao, setAlturaDescricao] = useState<string>("");
   const [cnaeOptions, setCnaeOptions] = useState<CNAEData[]>([]);
   const [cnaeOpen, setCnaeOpen] = useState(false);
+  const [firstUserName, setFirstUserName] = useState("");
+  const [firstUserEmail, setFirstUserEmail] = useState("");
+  const [firstUserPassword, setFirstUserPassword] = useState("");
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -313,6 +319,26 @@ export function CompanyForm() {
       return;
     }
 
+    if (isSystemAdmin) {
+      if (!firstUserName.trim() || !firstUserEmail.trim()) {
+        toast({
+          title: "Primeiro usuario obrigatorio",
+          description: "Informe o nome e o e-mail do primeiro usuario da empresa.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (firstUserPassword.trim().length < 6) {
+        toast({
+          title: "Senha provisoria invalida",
+          description: "A senha provisoria do primeiro usuario precisa ter no minimo 6 caracteres.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const empresaData = {
@@ -350,11 +376,42 @@ export function CompanyForm() {
 
       if (error) throw error;
 
+      let firstUserCreated = false;
+      let firstUserCreationError: string | null = null;
+
+      if (isSystemAdmin && insertedData?.id) {
+        try {
+          await createCompanyUser(supabase, {
+            companyId: insertedData.id,
+            nome: firstUserName,
+            email: firstUserEmail,
+            password: firstUserPassword,
+            role: "gestor",
+          });
+          firstUserCreated = true;
+        } catch (userCreationError) {
+          firstUserCreationError =
+            userCreationError instanceof Error
+              ? userCreationError.message
+              : "Nao foi possivel criar o primeiro usuario da empresa.";
+        }
+      }
+
 
       toast({
         title: "Empresa cadastrada com sucesso!",
         description: "Redirecionando para exigências...",
       });
+
+      if (firstUserCreationError) {
+        toast({
+          title: "Primeiro usuario pendente",
+          description:
+            "A empresa foi criada, mas o primeiro usuario nao foi criado. " +
+            firstUserCreationError,
+          variant: "destructive",
+        });
+      }
 
       // Navigate to requirements page
       if (insertedData?.id) {
@@ -365,6 +422,9 @@ export function CompanyForm() {
       setCnaeData(null);
       setGrauRisco("");
       setAlturaDenominacao("");
+      setFirstUserName("");
+      setFirstUserEmail("");
+      setFirstUserPassword("");
     } catch (error: unknown) {
       console.error("Error saving company:", error);
 
@@ -681,6 +741,53 @@ export function CompanyForm() {
           </div>
         </CardContent>
       </Card>
+
+      {isSystemAdmin ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Primeiro Usuario da Empresa</CardTitle>
+            <CardDescription>
+              Esse usuario sera criado com senha provisoria e assumira o papel de
+              gestor da empresa.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="first-user-name">Nome do Gestor *</Label>
+                <Input
+                  id="first-user-name"
+                  value={firstUserName}
+                  onChange={(event) => setFirstUserName(event.target.value)}
+                  placeholder="Nome completo"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="first-user-email">Email do Gestor *</Label>
+                <Input
+                  id="first-user-email"
+                  type="email"
+                  value={firstUserEmail}
+                  onChange={(event) => setFirstUserEmail(event.target.value)}
+                  placeholder="gestor@empresa.com"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="first-user-password">Senha Provisoria *</Label>
+                <Input
+                  id="first-user-password"
+                  type="password"
+                  value={firstUserPassword}
+                  onChange={(event) => setFirstUserPassword(event.target.value)}
+                  placeholder="No minimo 6 caracteres"
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="flex justify-end">
         <Button type="submit" disabled={loading} size="lg">

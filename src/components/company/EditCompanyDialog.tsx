@@ -26,6 +26,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Loader2, Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CompanyMembersManager } from "./CompanyMembersManager";
 
 const formSchema = z.object({
   razao_social: z.string().min(1, "Razão social é obrigatória"),
@@ -590,6 +591,15 @@ export const EditCompanyDialog = ({
                 />
               </div>
             </div>
+
+            {company && (
+              <div className="border-t pt-4 mt-4">
+                <CompanyMembersManager
+                  companyId={company.id}
+                  responsavelName={form.watch("responsavel") || company.responsavel}
+                />
+              </div>
+            )}
 
             <div className="flex justify-end gap-4 pt-4">
               <Button

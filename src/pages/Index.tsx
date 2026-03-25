@@ -2,9 +2,12 @@ import { CompanyForm } from "@/components/company/CompanyForm";
 import { Shield, ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { useAuth } from "@/hooks/useAuth";
 
 const Index = () => {
   const navigate = useNavigate();
+  const { isSystemAdmin } = useAuth();
 
   return (
     <div className="min-h-screen bg-background">
@@ -31,7 +34,15 @@ const Index = () => {
         </div>
         
         <div className="max-w-5xl mx-auto">
-          <CompanyForm />
+          {isSystemAdmin ? (
+            <CompanyForm />
+          ) : (
+            <Card>
+              <CardContent className="py-12 text-center text-muted-foreground">
+                Apenas o administrador geral do sistema pode cadastrar novas empresas.
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>
