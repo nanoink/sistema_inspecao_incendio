@@ -1,4 +1,5 @@
 import {
+  createClient,
   FunctionsFetchError,
   FunctionsHttpError,
   FunctionsRelayError,
@@ -7,6 +8,9 @@ import {
 import type { Database, Json } from "@/integrations/supabase/types";
 
 type AppSupabaseClient = SupabaseClient<Database>;
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 export type CompanyMemberRole = "gestor" | "membro";
 
@@ -40,6 +44,15 @@ export interface CreatedCompanyUserSummary {
   papel: CompanyMemberRole;
   temporary_password: boolean;
 }
+
+const createEphemeralSignupClient = () =>
+  createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
 
 const isObject = (value: Json | null | undefined): value is Record<string, Json> =>
   !!value && typeof value === "object" && !Array.isArray(value);
@@ -140,6 +153,62 @@ export const addCompanyMemberByEmail = async (
   return ((data || [])[0] || null) as CompanyMemberSummary | null;
 };
 
+const createCompanyUserViaClientSignup = async (
+  supabase: AppSupabaseClient,
+  {
+    companyId,
+    nome,
+    email,
+    password,
+    role,
+  }: {
+    companyId: string;
+    nome: string;
+    email: string;
+    password: string;
+    role?: CompanyMemberRole;
+  },
+) => {
+  const signupClient = createEphemeralSignupClient();
+  const normalizedName = nome.trim();
+  const normalizedEmail = email.trim().toLowerCase();
+  const targetRole = role || "membro";
+
+  try {
+    const { data: signUpData, error: signUpError } = await signupClient.auth.signUp({
+      email: normalizedEmail,
+      password,
+      options: {
+        data: {
+          nome: normalizedName,
+          temporary_password: true,
+          created_by_admin_flow: true,
+        },
+      },
+    });
+
+    if (signUpError) {
+      throw signUpError;
+    }
+
+    const membership = await addCompanyMemberByEmail(supabase, {
+      companyId,
+      email: normalizedEmail,
+      role: targetRole,
+    });
+
+    return {
+      user_id: membership?.user_id || signUpData.user?.id || "",
+      nome: membership?.nome || normalizedName,
+      email: membership?.email || normalizedEmail,
+      papel: (membership?.papel as CompanyMemberRole | undefined) || targetRole,
+      temporary_password: true,
+    } as CreatedCompanyUserSummary;
+  } finally {
+    await signupClient.auth.signOut().catch(() => undefined);
+  }
+};
+
 export const createCompanyUser = async (
   supabase: AppSupabaseClient,
   {
@@ -177,9 +246,13 @@ export const createCompanyUser = async (
     }
 
     if (error instanceof FunctionsRelayError || error instanceof FunctionsFetchError) {
-      throw new Error(
-        "Nao foi possivel comunicar com o servico de criacao de usuarios.",
-      );
+      return await createCompanyUserViaClientSignup(supabase, {
+        companyId,
+        nome,
+        email,
+        password,
+        role,
+      });
     }
 
     throw error;
