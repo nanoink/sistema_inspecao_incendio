@@ -3,6 +3,7 @@ import {
   type SupabaseClient,
 } from "@supabase/supabase-js";
 import type { Database, Json } from "@/integrations/supabase/types";
+import { isMissingRelationError } from "@/lib/supabase-errors";
 
 type AppSupabaseClient = SupabaseClient<Database>;
 
@@ -222,6 +223,16 @@ const createCompanyUserViaClientSignup = async (
         .neq("user_id", targetUserId);
 
       if (demoteGestorError) {
+        if (isMissingRelationError(demoteGestorError, "empresa_usuarios")) {
+          return {
+            user_id: targetUserId,
+            nome: normalizedName,
+            email: normalizedEmail,
+            papel: targetRole,
+            temporary_password: true,
+          } as CreatedCompanyUserSummary;
+        }
+
         throw demoteGestorError;
       }
     }
@@ -238,6 +249,16 @@ const createCompanyUserViaClientSignup = async (
       );
 
     if (membershipError) {
+      if (isMissingRelationError(membershipError, "empresa_usuarios")) {
+        return {
+          user_id: targetUserId,
+          nome: normalizedName,
+          email: normalizedEmail,
+          papel: targetRole,
+          temporary_password: true,
+        } as CreatedCompanyUserSummary;
+      }
+
       throw membershipError;
     }
 
