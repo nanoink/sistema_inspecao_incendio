@@ -3,6 +3,10 @@ import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { isSystemAdminEmail } from '@/lib/system-admin';
 
+type SupabaseAuthInternals = {
+  _removeSession?: () => Promise<void>;
+};
+
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -68,8 +72,23 @@ export function useAuth() {
         normalizedMessage.includes("not found"));
 
     if (shouldFallbackToLocalSignOut) {
-      const { error: localError } = await supabase.auth.signOut({ scope: "local" });
-      return { error: localError };
+      try {
+        const authClient = supabase.auth as SupabaseAuthInternals;
+
+        if (typeof authClient._removeSession === "function") {
+          await authClient._removeSession();
+        }
+
+        setSession(null);
+        setUser(null);
+
+        return { error: null };
+      } catch {
+        setSession(null);
+        setUser(null);
+
+        return { error: null };
+      }
     }
 
     return { error };
