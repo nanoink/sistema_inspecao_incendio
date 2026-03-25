@@ -376,9 +376,6 @@ export function CompanyForm() {
 
       if (error) throw error;
 
-      let firstUserCreated = false;
-      let firstUserCreationError: string | null = null;
-
       if (isSystemAdmin && insertedData?.id) {
         try {
           await createCompanyUser(supabase, {
@@ -388,30 +385,23 @@ export function CompanyForm() {
             password: firstUserPassword,
             role: "gestor",
           });
-          firstUserCreated = true;
         } catch (userCreationError) {
-          firstUserCreationError =
+          const firstUserCreationError =
             userCreationError instanceof Error
               ? userCreationError.message
               : "Nao foi possivel criar o primeiro usuario da empresa.";
+
+          await supabase.from("empresa").delete().eq("id", insertedData.id);
+          throw new Error(
+            `A empresa nao foi concluida porque o primeiro usuario nao foi criado. ${firstUserCreationError}`,
+          );
         }
       }
-
 
       toast({
         title: "Empresa cadastrada com sucesso!",
         description: "Redirecionando para exigências...",
       });
-
-      if (firstUserCreationError) {
-        toast({
-          title: "Primeiro usuario pendente",
-          description:
-            "A empresa foi criada, mas o primeiro usuario nao foi criado. " +
-            firstUserCreationError,
-          variant: "destructive",
-        });
-      }
 
       // Navigate to requirements page
       if (insertedData?.id) {

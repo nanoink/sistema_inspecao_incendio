@@ -162,7 +162,7 @@ export const CompanyTable = () => {
                             variant="outline"
                             size="sm"
                             onClick={() => navigate(`/relatorios/${company.id}`)}
-                            title="Abrir relatÃ³rio"
+                            title="Abrir relatório"
                           >
                             <FileText className="h-4 w-4" />
                           </Button>
