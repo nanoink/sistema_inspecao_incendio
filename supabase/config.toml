@@ -1,1 +1,4 @@
 project_id = "nvdvcjsiizqzmakbirfs"
+
+[functions.create-company-user]
+verify_jwt = false

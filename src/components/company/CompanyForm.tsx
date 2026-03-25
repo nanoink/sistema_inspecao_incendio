@@ -67,7 +67,6 @@ export function CompanyForm() {
   const [alturaDescricao, setAlturaDescricao] = useState<string>("");
   const [cnaeOptions, setCnaeOptions] = useState<CNAEData[]>([]);
   const [cnaeOpen, setCnaeOpen] = useState(false);
-  const [firstUserEmail, setFirstUserEmail] = useState("");
   const [firstUserPassword, setFirstUserPassword] = useState("");
 
   const form = useForm<FormData>({
@@ -92,6 +91,7 @@ export function CompanyForm() {
     },
   });
   const firstUserName = form.watch("responsavel") || "";
+  const firstUserEmail = form.watch("email") || "";
 
   const loadAlturaOptions = useCallback(async () => {
     const { data, error } = await supabase
@@ -422,7 +422,6 @@ export function CompanyForm() {
       setCnaeData(null);
       setGrauRisco("");
       setAlturaDenominacao("");
-      setFirstUserEmail("");
       setFirstUserPassword("");
     } catch (error: unknown) {
       console.error("Error saving company:", error);
@@ -772,9 +771,13 @@ export function CompanyForm() {
                   id="first-user-email"
                   type="email"
                   value={firstUserEmail}
-                  onChange={(event) => setFirstUserEmail(event.target.value)}
-                  placeholder="gestor@empresa.com"
+                  readOnly
+                  className="bg-muted"
+                  placeholder="Preenchido automaticamente pelo e-mail da empresa"
                 />
+                <p className="text-xs text-muted-foreground">
+                  Esse e-mail acompanha automaticamente o campo "E-mail" da empresa.
+                </p>
               </div>
 
               <div className="space-y-2">
