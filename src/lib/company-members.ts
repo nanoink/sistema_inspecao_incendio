@@ -1,8 +1,5 @@
 import {
   createClient,
-  FunctionsFetchError,
-  FunctionsHttpError,
-  FunctionsRelayError,
   type SupabaseClient,
 } from "@supabase/supabase-js";
 import type { Database, Json } from "@/integrations/supabase/types";
@@ -51,6 +48,7 @@ const createEphemeralSignupClient = () =>
       persistSession: false,
       autoRefreshToken: false,
       detectSessionInUrl: false,
+      storageKey: "company-user-signup-fallback",
     },
   });
 
@@ -187,21 +185,67 @@ const createCompanyUserViaClientSignup = async (
       },
     });
 
+    let targetUserId = signUpData.user?.id || "";
+
     if (signUpError) {
-      throw signUpError;
+      const normalizedErrorMessage = signUpError.message.trim().toLowerCase();
+
+      if (!normalizedErrorMessage.includes("already registered")) {
+        throw signUpError;
+      }
+
+      const { data: signInData, error: signInError } =
+        await signupClient.auth.signInWithPassword({
+          email: normalizedEmail,
+          password,
+        });
+
+      if (signInError || !signInData.user) {
+        throw new Error(
+          "Ja existe um usuario com este e-mail, mas a senha informada nao confere.",
+        );
+      }
+
+      targetUserId = signInData.user.id;
     }
 
-    const membership = await addCompanyMemberByEmail(supabase, {
-      companyId,
-      email: normalizedEmail,
-      role: targetRole,
-    });
+    if (!targetUserId) {
+      throw new Error("Nao foi possivel identificar o usuario criado.");
+    }
+
+    if (targetRole === "gestor") {
+      const { error: demoteGestorError } = await supabase
+        .from("empresa_usuarios")
+        .update({ papel: "membro" })
+        .eq("empresa_id", companyId)
+        .eq("papel", "gestor")
+        .neq("user_id", targetUserId);
+
+      if (demoteGestorError) {
+        throw demoteGestorError;
+      }
+    }
+
+    const { error: membershipError } = await supabase
+      .from("empresa_usuarios")
+      .upsert(
+        {
+          empresa_id: companyId,
+          user_id: targetUserId,
+          papel: targetRole,
+        },
+        { onConflict: "empresa_id,user_id" },
+      );
+
+    if (membershipError) {
+      throw membershipError;
+    }
 
     return {
-      user_id: membership?.user_id || signUpData.user?.id || "",
-      nome: membership?.nome || normalizedName,
-      email: membership?.email || normalizedEmail,
-      papel: (membership?.papel as CompanyMemberRole | undefined) || targetRole,
+      user_id: targetUserId,
+      nome: normalizedName,
+      email: normalizedEmail,
+      papel: targetRole,
       temporary_password: true,
     } as CreatedCompanyUserSummary;
   } finally {
@@ -225,40 +269,13 @@ export const createCompanyUser = async (
     role?: CompanyMemberRole;
   },
 ) => {
-  const { data, error } = await supabase.functions.invoke("create-company-user", {
-    body: {
-      companyId,
-      nome: nome.trim(),
-      email: email.trim().toLowerCase(),
-      password,
-      role: role || "membro",
-    },
+  return await createCompanyUserViaClientSignup(supabase, {
+    companyId,
+    nome,
+    email,
+    password,
+    role,
   });
-
-  if (error) {
-    if (error instanceof FunctionsHttpError) {
-      const errorPayload = await error.context.json().catch(() => null);
-      throw new Error(
-        typeof errorPayload?.error === "string"
-          ? errorPayload.error
-          : "Nao foi possivel criar o usuario da empresa.",
-      );
-    }
-
-    if (error instanceof FunctionsRelayError || error instanceof FunctionsFetchError) {
-      return await createCompanyUserViaClientSignup(supabase, {
-        companyId,
-        nome,
-        email,
-        password,
-        role,
-      });
-    }
-
-    throw error;
-  }
-
-  return (data || null) as CreatedCompanyUserSummary | null;
 };
 
 export const setCompanyMemberRole = async (
