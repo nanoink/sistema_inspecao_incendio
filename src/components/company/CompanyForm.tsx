@@ -67,7 +67,6 @@ export function CompanyForm() {
   const [alturaDescricao, setAlturaDescricao] = useState<string>("");
   const [cnaeOptions, setCnaeOptions] = useState<CNAEData[]>([]);
   const [cnaeOpen, setCnaeOpen] = useState(false);
-  const [firstUserName, setFirstUserName] = useState("");
   const [firstUserEmail, setFirstUserEmail] = useState("");
   const [firstUserPassword, setFirstUserPassword] = useState("");
 
@@ -92,6 +91,7 @@ export function CompanyForm() {
       numero_ocupantes: 0,
     },
   });
+  const firstUserName = form.watch("responsavel") || "";
 
   const loadAlturaOptions = useCallback(async () => {
     const { data, error } = await supabase
@@ -422,7 +422,6 @@ export function CompanyForm() {
       setCnaeData(null);
       setGrauRisco("");
       setAlturaDenominacao("");
-      setFirstUserName("");
       setFirstUserEmail("");
       setFirstUserPassword("");
     } catch (error: unknown) {
@@ -758,9 +757,13 @@ export function CompanyForm() {
                 <Input
                   id="first-user-name"
                   value={firstUserName}
-                  onChange={(event) => setFirstUserName(event.target.value)}
-                  placeholder="Nome completo"
+                  readOnly
+                  className="bg-muted"
+                  placeholder="Preenchido automaticamente pelo responsavel"
                 />
+                <p className="text-xs text-muted-foreground">
+                  Esse nome acompanha automaticamente o campo "Responsavel" da empresa.
+                </p>
               </div>
 
               <div className="space-y-2">
