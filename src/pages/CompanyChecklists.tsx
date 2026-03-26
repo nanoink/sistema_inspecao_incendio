@@ -115,6 +115,7 @@ interface Company {
 }
 
 type ChecklistStatus = "C" | "NC" | "NA";
+type ChecklistPersistAction = "save" | "finalize";
 
 const STATUS_ORDER: ChecklistStatus[] = ["C", "NC", "NA"];
 
@@ -354,7 +355,8 @@ const CompanyChecklists = () => {
   const [equipmentQrSchemaPending, setEquipmentQrSchemaPending] =
     useState(false);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [savingAction, setSavingAction] =
+    useState<ChecklistPersistAction | null>(null);
   const [openInspection, setOpenInspection] = useState<string | null>(null);
   const [extinguisherDialogOpen, setExtinguisherDialogOpen] =
     useState(false);
@@ -1492,7 +1494,9 @@ const CompanyChecklists = () => {
     setEquipmentNonConformityViewerOpen(true);
   };
 
-  const saveChecklistAndEnsureReport = async () => {
+  const saveChecklistAndEnsureReport = async (
+    action: ChecklistPersistAction,
+  ) => {
     if (!id) {
       return false;
     }
@@ -1605,11 +1609,36 @@ const CompanyChecklists = () => {
     } catch (error) {
       console.error("Error finalizing checklist:", error);
       toast({
-        title: "Erro ao finalizar",
-        description: "Nao foi possivel finalizar o checklist.",
+        title: action === "finalize" ? "Erro ao finalizar" : "Erro ao salvar",
+        description:
+          action === "finalize"
+            ? "Nao foi possivel finalizar o checklist."
+            : "Nao foi possivel salvar o checklist.",
         variant: "destructive",
       });
       return false;
+    }
+  };
+
+  const handleSaveCurrentChecklist = async () => {
+    if (!id) {
+      return;
+    }
+
+    try {
+      setSavingAction("save");
+
+      const saved = await saveChecklistAndEnsureReport("save");
+      if (!saved) {
+        return;
+      }
+
+      toast({
+        title: "Checklist salvo",
+        description: "As respostas atuais foram salvas com sucesso.",
+      });
+    } finally {
+      setSavingAction(null);
     }
   };
 
@@ -1619,9 +1648,9 @@ const CompanyChecklists = () => {
     }
 
     try {
-      setSaving(true);
+      setSavingAction("finalize");
 
-      const saved = await saveChecklistAndEnsureReport();
+      const saved = await saveChecklistAndEnsureReport("finalize");
       if (!saved) {
         return;
       }
@@ -1633,7 +1662,7 @@ const CompanyChecklists = () => {
 
       navigate(`/relatorios/${id}`);
     } finally {
-      setSaving(false);
+      setSavingAction(null);
     }
   };
 
@@ -1667,6 +1696,9 @@ const CompanyChecklists = () => {
     : [];
   const checklistTitle =
     openInspectionData?.titulo || `CHECKLIST DE ${openInspectionData?.nome || ""}`;
+  const isSavingCurrentChecklist = savingAction === "save";
+  const isFinalizingChecklist = savingAction === "finalize";
+  const isPersistingChecklist = savingAction !== null;
   const isLuminaireInspection = openInspectionData?.codigo === "A.19";
   const isExtinguisherInspection = openInspectionData?.codigo === "A.23";
   const isHydrantInspection = openInspectionData?.codigo === "A.25";
@@ -1741,11 +1773,11 @@ const CompanyChecklists = () => {
             </div>
             <Button
               onClick={handleFinalizeChecklist}
-              disabled={saving}
+              disabled={isPersistingChecklist}
               size="lg"
               className="w-full md:w-auto"
             >
-              {saving ? (
+              {isFinalizingChecklist ? (
                 <Loader2 className="mr-2 h-5 w-5 animate-spin" />
               ) : (
                 <Save className="mr-2 h-5 w-5" />
@@ -2582,6 +2614,24 @@ const CompanyChecklists = () => {
                     })()}
                   </TableBody>
                 </Table>
+              </div>
+              <div className="border-t px-4 py-4 md:px-0 md:pt-5">
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleSaveCurrentChecklist}
+                    disabled={isPersistingChecklist}
+                    className="w-full sm:w-auto"
+                  >
+                    {isSavingCurrentChecklist ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="mr-2 h-4 w-4" />
+                    )}
+                    Salvar este checklist
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
