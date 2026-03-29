@@ -7,7 +7,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import {
   getNextEquipmentNumber,
-  LUMINAIRE_STATUS_OPTIONS,
   LUMINAIRE_TYPE_OPTIONS,
   saveLuminaire,
   type EquipmentChecklistSnapshot,
@@ -42,7 +41,6 @@ const luminaireFormSchema = z.object({
   numero: z.string().trim().min(1, "Informe o numero da luminaria."),
   localizacao: z.string().trim().min(1, "Informe a localizacao."),
   tipo_luminaria: z.string().min(1, "Selecione o tipo de luminaria."),
-  status: z.string().min(1, "Selecione o status."),
 });
 
 type LuminaireFormValues = z.infer<typeof luminaireFormSchema>;
@@ -72,7 +70,6 @@ export const LuminaireDialog = ({
       numero: "",
       localizacao: "",
       tipo_luminaria: "",
-      status: "",
     },
   });
 
@@ -87,7 +84,6 @@ export const LuminaireDialog = ({
         numero: record.numero,
         localizacao: record.localizacao,
         tipo_luminaria: record.tipo_luminaria,
-        status: record.status,
       });
       return;
     }
@@ -97,7 +93,6 @@ export const LuminaireDialog = ({
       numero: "",
       localizacao: "",
       tipo_luminaria: "",
-      status: "",
     });
 
     const loadNextNumber = async () => {
@@ -136,7 +131,7 @@ export const LuminaireDialog = ({
           numero: values.numero.trim(),
           localizacao: values.localizacao.trim(),
           tipo_luminaria: values.tipo_luminaria,
-          status: values.status,
+          status: record?.status || "Conforme",
         },
         {
           recordId: record?.id,
@@ -218,67 +213,33 @@ export const LuminaireDialog = ({
               />
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="tipo_luminaria"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Tipo de Luminaria</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value ?? ""}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione o tipo" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {LUMINAIRE_TYPE_OPTIONS.map((item) => (
-                          <SelectItem key={item.value} value={item.value}>
-                            {item.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="status"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Status</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value ?? ""}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione o status" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {LUMINAIRE_STATUS_OPTIONS.map((item) => (
-                          <SelectItem key={item.value} value={item.value}>
-                            {item.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-              Os tipos disponiveis foram cadastrados a partir da aba DAD. LUM da planilha de controle.
-            </div>
+            <FormField
+              control={form.control}
+              name="tipo_luminaria"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Tipo de Luminaria</FormLabel>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value ?? ""}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione o tipo" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {LUMINAIRE_TYPE_OPTIONS.map((item) => (
+                        <SelectItem key={item.value} value={item.value}>
+                          {item.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <div className="flex justify-end gap-3 pt-2">
               <Button

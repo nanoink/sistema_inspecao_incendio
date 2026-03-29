@@ -54,7 +54,6 @@ const hydrantFormSchema = z
     mangueira2_vencimento_teste_hidrostatico: z.string().optional(),
     esguicho: z.enum(["true", "false"]),
     chave_mangueira: z.enum(["true", "false"]),
-    status: z.string().trim().optional(),
   })
   .superRefine((values, ctx) => {
     const hasType = Boolean(values.mangueira2_tipo);
@@ -112,7 +111,6 @@ export const HydrantDialog = ({
       mangueira2_vencimento_teste_hidrostatico: "",
       esguicho: "true",
       chave_mangueira: "true",
-      status: "",
     },
   });
 
@@ -137,7 +135,6 @@ export const HydrantDialog = ({
         ),
         esguicho: String(record.esguicho) as "true" | "false",
         chave_mangueira: String(record.chave_mangueira) as "true" | "false",
-        status: record.status || "",
       });
       return;
     }
@@ -153,7 +150,6 @@ export const HydrantDialog = ({
       mangueira2_vencimento_teste_hidrostatico: "",
       esguicho: "true",
       chave_mangueira: "true",
-      status: "",
     });
 
     const loadNextNumber = async () => {
@@ -204,7 +200,7 @@ export const HydrantDialog = ({
             ),
           esguicho: values.esguicho === "true",
           chave_mangueira: values.chave_mangueira === "true",
-          status: values.status?.trim() || null,
+          status: record?.status || null,
         },
         {
           recordId: record?.id,
@@ -408,7 +404,7 @@ export const HydrantDialog = ({
               </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2">
               <FormField
                 control={form.control}
                 name="esguicho"
@@ -460,20 +456,6 @@ export const HydrantDialog = ({
                         ))}
                       </SelectContent>
                     </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="status"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Status</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="Ex.: Operante" />
-                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}

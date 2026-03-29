@@ -39,9 +39,27 @@ export interface CreatedCompanyUserSummary {
   user_id: string;
   nome: string;
   email: string;
+  cpf: string | null;
+  cargo: string | null;
   papel: CompanyMemberRole;
   temporary_password: boolean;
 }
+
+export const normalizeCpf = (value: string) =>
+  value.replace(/\D/g, "").slice(0, 11);
+
+export const formatCpf = (value?: string | null) => {
+  const normalized = normalizeCpf(value || "");
+
+  if (normalized.length !== 11) {
+    return value?.trim() || "-";
+  }
+
+  return normalized
+    .replace(/^(\d{3})(\d)/, "$1.$2")
+    .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
+    .replace(/\.(\d{3})(\d)/, ".$1-$2");
+};
 
 const createEphemeralSignupClient = () =>
   createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
@@ -158,12 +176,16 @@ const createCompanyUserViaClientSignup = async (
     companyId,
     nome,
     email,
+    cpf,
+    cargo,
     password,
     role,
   }: {
     companyId: string;
     nome: string;
     email: string;
+    cpf: string;
+    cargo: string;
     password: string;
     role?: CompanyMemberRole;
   },
@@ -171,6 +193,8 @@ const createCompanyUserViaClientSignup = async (
   const signupClient = createEphemeralSignupClient();
   const normalizedName = nome.trim();
   const normalizedEmail = email.trim().toLowerCase();
+  const normalizedCpf = normalizeCpf(cpf);
+  const normalizedCargo = cargo.trim();
   const targetRole = role || "membro";
 
   try {
@@ -180,6 +204,8 @@ const createCompanyUserViaClientSignup = async (
       options: {
         data: {
           nome: normalizedName,
+          cpf: normalizedCpf,
+          cargo: normalizedCargo,
           temporary_password: true,
           created_by_admin_flow: true,
         },
@@ -214,6 +240,22 @@ const createCompanyUserViaClientSignup = async (
       throw new Error("Nao foi possivel identificar o usuario criado.");
     }
 
+    if (signUpError) {
+      const { error: profileUpdateError } = await signupClient
+        .from("profiles")
+        .update({
+          nome: normalizedName,
+          email: normalizedEmail,
+          cpf: normalizedCpf || null,
+          cargo: normalizedCargo || null,
+        })
+        .eq("id", targetUserId);
+
+      if (profileUpdateError) {
+        throw profileUpdateError;
+      }
+    }
+
     if (targetRole === "gestor") {
       const { error: demoteGestorError } = await supabase
         .from("empresa_usuarios")
@@ -228,6 +270,8 @@ const createCompanyUserViaClientSignup = async (
             user_id: targetUserId,
             nome: normalizedName,
             email: normalizedEmail,
+            cpf: normalizedCpf || null,
+            cargo: normalizedCargo || null,
             papel: targetRole,
             temporary_password: true,
           } as CreatedCompanyUserSummary;
@@ -254,6 +298,8 @@ const createCompanyUserViaClientSignup = async (
           user_id: targetUserId,
           nome: normalizedName,
           email: normalizedEmail,
+          cpf: normalizedCpf || null,
+          cargo: normalizedCargo || null,
           papel: targetRole,
           temporary_password: true,
         } as CreatedCompanyUserSummary;
@@ -266,6 +312,8 @@ const createCompanyUserViaClientSignup = async (
       user_id: targetUserId,
       nome: normalizedName,
       email: normalizedEmail,
+      cpf: normalizedCpf || null,
+      cargo: normalizedCargo || null,
       papel: targetRole,
       temporary_password: true,
     } as CreatedCompanyUserSummary;
@@ -280,12 +328,16 @@ export const createCompanyUser = async (
     companyId,
     nome,
     email,
+    cpf,
+    cargo,
     password,
     role,
   }: {
     companyId: string;
     nome: string;
     email: string;
+    cpf: string;
+    cargo: string;
     password: string;
     role?: CompanyMemberRole;
   },
@@ -294,6 +346,8 @@ export const createCompanyUser = async (
     companyId,
     nome,
     email,
+    cpf,
+    cargo,
     password,
     role,
   });
@@ -416,6 +470,14 @@ export const parseCompanyReportSignatures = (value: Json | null | undefined) => 
     const userId = typeof entry.user_id === "string" ? entry.user_id : "";
     const nome = typeof entry.nome === "string" ? entry.nome : "";
     const email = typeof entry.email === "string" ? entry.email : "";
+    const cpf =
+      typeof entry.cpf === "string" && entry.cpf.trim()
+        ? entry.cpf
+        : null;
+    const cargo =
+      typeof entry.cargo === "string" && entry.cargo.trim()
+        ? entry.cargo
+        : null;
     const papel = typeof entry.papel === "string" ? entry.papel : "";
     const assinaturaNome =
       typeof entry.assinatura_nome === "string" ? entry.assinatura_nome : "";
@@ -432,6 +494,8 @@ export const parseCompanyReportSignatures = (value: Json | null | undefined) => 
         user_id: userId,
         nome,
         email,
+        cpf,
+        cargo,
         papel,
         is_gestor: isGestor,
         assinatura_nome: assinaturaNome,

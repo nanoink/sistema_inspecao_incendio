@@ -957,6 +957,8 @@ export type Database = {
       }
       profiles: {
         Row: {
+          cargo: string | null
+          cpf: string | null
           created_at: string
           email: string | null
           id: string
@@ -964,6 +966,8 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          cargo?: string | null
+          cpf?: string | null
           created_at?: string
           email?: string | null
           id: string
@@ -971,6 +975,8 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          cargo?: string | null
+          cpf?: string | null
           created_at?: string
           email?: string | null
           id?: string
@@ -991,7 +997,9 @@ export type Database = {
           p_papel?: string
         }
         Returns: {
+          cargo: string | null
           created_at: string
+          cpf: string | null
           email: string
           nome: string
           papel: string
@@ -1035,6 +1043,8 @@ export type Database = {
         Args: { p_empresa_id: string }
         Returns: {
           assinatura_nome: string
+          cargo: string | null
+          cpf: string | null
           email: string
           executed_checklists: Json
           first_activity_at: string | null
@@ -1049,7 +1059,9 @@ export type Database = {
       list_empresa_usuarios: {
         Args: { p_empresa_id: string }
         Returns: {
+          cargo: string | null
           created_at: string
+          cpf: string | null
           email: string
           nome: string
           papel: string
@@ -1096,6 +1108,23 @@ export type Database = {
         }
         Returns: undefined
       }
+      set_empresa_usuario_role: {
+        Args: {
+          p_empresa_id: string
+          p_papel: string
+          p_user_id: string
+        }
+        Returns: {
+          cargo: string | null
+          created_at: string
+          cpf: string | null
+          email: string
+          nome: string
+          papel: string
+          updated_at: string
+          user_id: string
+        }[]
+      }
       save_equipment_qr_checklist: {
         Args: { p_checklist_snapshot: Json; p_token: string }
         Returns: {
@@ -1123,21 +1152,6 @@ export type Database = {
           id: string
           imagem_data_url: string | null
           updated_at: string
-        }[]
-      }
-      set_empresa_usuario_role: {
-        Args: {
-          p_empresa_id: string
-          p_papel: string
-          p_user_id: string
-        }
-        Returns: {
-          created_at: string
-          email: string
-          nome: string
-          papel: string
-          updated_at: string
-          user_id: string
         }[]
       }
       resolve_exigencias_empresa: {

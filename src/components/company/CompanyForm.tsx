@@ -14,7 +14,7 @@ import { Loader2, Check, ChevronsUpDown } from "lucide-react";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAuth } from "@/hooks/useAuth";
-import { createCompanyUser } from "@/lib/company-members";
+import { createCompanyUser, formatCpf, normalizeCpf } from "@/lib/company-members";
 import { cn } from "@/lib/utils";
 
 const formSchema = z.object({
@@ -68,6 +68,8 @@ export function CompanyForm() {
   const [cnaeOptions, setCnaeOptions] = useState<CNAEData[]>([]);
   const [cnaeOpen, setCnaeOpen] = useState(false);
   const [firstUserPassword, setFirstUserPassword] = useState("");
+  const [firstUserCpf, setFirstUserCpf] = useState("");
+  const [firstUserCargo, setFirstUserCargo] = useState("");
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -337,6 +339,24 @@ export function CompanyForm() {
         });
         return;
       }
+
+      if (normalizeCpf(firstUserCpf).length !== 11) {
+        toast({
+          title: "CPF do gestor invalido",
+          description: "Informe um CPF valido para o primeiro usuario da empresa.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!firstUserCargo.trim()) {
+        toast({
+          title: "Cargo do gestor obrigatorio",
+          description: "Informe o cargo do primeiro usuario da empresa.",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     setLoading(true);
@@ -382,6 +402,8 @@ export function CompanyForm() {
             companyId: insertedData.id,
             nome: firstUserName,
             email: firstUserEmail,
+            cpf: firstUserCpf,
+            cargo: firstUserCargo,
             password: firstUserPassword,
             role: "gestor",
           });
@@ -413,6 +435,8 @@ export function CompanyForm() {
       setGrauRisco("");
       setAlturaDenominacao("");
       setFirstUserPassword("");
+      setFirstUserCpf("");
+      setFirstUserCargo("");
     } catch (error: unknown) {
       console.error("Error saving company:", error);
 
@@ -768,6 +792,29 @@ export function CompanyForm() {
                 <p className="text-xs text-muted-foreground">
                   Esse e-mail acompanha automaticamente o campo "E-mail" da empresa.
                 </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="first-user-cpf">CPF do Gestor *</Label>
+                <Input
+                  id="first-user-cpf"
+                  value={formatCpf(firstUserCpf)}
+                  onChange={(event) => setFirstUserCpf(normalizeCpf(event.target.value))}
+                  placeholder="000.000.000-00"
+                  inputMode="numeric"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="first-user-cargo">Cargo do Gestor *</Label>
+                <Input
+                  id="first-user-cargo"
+                  value={firstUserCargo}
+                  onChange={(event) => setFirstUserCargo(event.target.value)}
+                  placeholder="Ex.: Gestor de Operacoes"
+                />
               </div>
 
               <div className="space-y-2">

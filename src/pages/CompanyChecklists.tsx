@@ -5,6 +5,13 @@ import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   ArrowLeft,
   Loader2,
   Save,
@@ -51,6 +58,7 @@ import {
   type ChecklistGroupWithItems,
   type ChecklistModelShape,
   type ChecklistResponseShape,
+  type ChecklistTableRow,
 } from "@/lib/checklist";
 import {
   loadChecklistData,
@@ -114,8 +122,50 @@ interface Company {
   razao_social: string;
 }
 
+interface ChecklistProgressSummary {
+  percent: number;
+  completed: number;
+  total: number;
+  isComplete: boolean;
+}
+
+interface EquipmentChecklistProgressEntry {
+  id: string;
+  equipmentLabel: string;
+  location: string;
+  summary: ChecklistProgressSummary;
+}
+
 type ChecklistStatus = "C" | "NC" | "NA";
 type ChecklistPersistAction = "save" | "finalize";
+
+const ALWAYS_VISIBLE_CHECKLIST_CODES = new Set(["A.33"]);
+
+const REQUIREMENT_TO_CHECKLIST_CODES: Record<string, string[]> = {
+  "1.1": ["A.7"],
+  "1.2": ["A.9"],
+  "1.3": ["A.37"],
+  "1.4": ["A.35"],
+  "2.1": ["A.23"],
+  "2.2": ["A.25"],
+  "2.3": ["A.27"],
+  "3.1": ["A.31"],
+  "3.2": ["A.29"],
+  "4.1": ["A.11", "A.13", "A.15", "A.17"],
+  "4.2": ["A.19"],
+  "4.3": ["A.21"],
+  "5.1": ["A.4"],
+};
+
+interface CompanyRequirementChecklistRow {
+  exigencias_seguranca:
+    | {
+        codigo: string;
+      }
+    | Array<{
+        codigo: string;
+      }>;
+}
 
 const STATUS_ORDER: ChecklistStatus[] = ["C", "NC", "NA"];
 
@@ -285,6 +335,106 @@ const getEquipmentTypeLabel = (equipmentType: EquipmentType) =>
       ? "Hidrante"
       : "Luminaria";
 
+const EQUIPMENT_TYPE_BY_INSPECTION_CODE: Partial<Record<string, EquipmentType>> = {
+  "A.19": "luminaria",
+  "A.23": "extintor",
+  "A.25": "hidrante",
+};
+
+const isEquipmentInspectionCode = (inspectionCode: string) =>
+  Boolean(EQUIPMENT_TYPE_BY_INSPECTION_CODE[inspectionCode]);
+
+const buildChecklistProgressSummary = (
+  completed: number,
+  total: number,
+): ChecklistProgressSummary => {
+  const safeTotal = Math.max(total, 0);
+  const safeCompleted = Math.min(Math.max(completed, 0), safeTotal);
+  const percent =
+    safeTotal > 0 ? Math.round((safeCompleted / safeTotal) * 100) : 0;
+
+  return {
+    percent,
+    completed: safeCompleted,
+    total: safeTotal,
+    isComplete: safeTotal > 0 && safeCompleted === safeTotal,
+  };
+};
+
+const buildPrincipalChecklistProgressSummary = ({
+  inspectionId,
+  rowsByInspection,
+  responses,
+}: {
+  inspectionId: string;
+  rowsByInspection: Map<string, ChecklistTableRow[]>;
+  responses: Map<string, ChecklistResponseShape>;
+}) => {
+  const rows = rowsByInspection.get(inspectionId) || [];
+  const itemRows = rows.filter(
+    (row): row is Extract<ChecklistTableRow, { type: "item" }> => row.type === "item",
+  );
+  const completed = itemRows.filter((row) => {
+    const status = responses.get(row.itemId)?.status;
+    return status === "C" || status === "NC" || status === "NA";
+  }).length;
+
+  return buildChecklistProgressSummary(completed, itemRows.length);
+};
+
+const buildEquipmentAverageProgressSummary = ({
+  records,
+  templateTotal,
+}: {
+  records: Array<{ checklist_snapshot: unknown }>;
+  templateTotal: number;
+}) => {
+  if (records.length === 0) {
+    return buildChecklistProgressSummary(0, templateTotal);
+  }
+
+  const progressTotals = records.reduce(
+    (accumulator, record) => {
+      const snapshot = normalizeEquipmentChecklistSnapshot(record.checklist_snapshot);
+      const total = snapshot.total || templateTotal;
+      const completed = total > 0 ? total - snapshot.pendentes : 0;
+
+      accumulator.completed += completed;
+      accumulator.total += total;
+
+      return accumulator;
+    },
+    { completed: 0, total: 0 },
+  );
+
+  return buildChecklistProgressSummary(
+    progressTotals.completed,
+    progressTotals.total,
+  );
+};
+
+const buildEquipmentProgressEntries = ({
+  records,
+  equipmentType,
+  templateTotal,
+}: {
+  records: CompanyEquipmentRecord[];
+  equipmentType: EquipmentType;
+  templateTotal: number;
+}) =>
+  sortByEquipmentNumber(records).map((record) => {
+    const snapshot = normalizeEquipmentChecklistSnapshot(record.checklist_snapshot);
+    const total = snapshot.total || templateTotal;
+    const completed = total > 0 ? total - snapshot.pendentes : 0;
+
+    return {
+      id: record.id,
+      equipmentLabel: `${getEquipmentTypeLabel(equipmentType)} ${record.numero}`,
+      location: record.localizacao,
+      summary: buildChecklistProgressSummary(completed, total),
+    } satisfies EquipmentChecklistProgressEntry;
+  });
+
 const buildEquipmentItemNonConformityEntries = ({
   equipmentType,
   equipmentRecords,
@@ -344,6 +494,9 @@ const CompanyChecklists = () => {
   const [groupsByModel, setGroupsByModel] = useState<
     Map<string, ChecklistGroupWithItems[]>
   >(new Map());
+  const [selectedRequirementCodes, setSelectedRequirementCodes] = useState<
+    Set<string>
+  >(new Set());
   const [responses, setResponses] = useState<
     Map<string, ChecklistResponseShape>
   >(new Map());
@@ -403,17 +556,51 @@ const CompanyChecklists = () => {
     useState(false);
   const [selectedEquipmentNonConformityEntry, setSelectedEquipmentNonConformityEntry] =
     useState<EquipmentNonConformityEntry | null>(null);
+  const [equipmentProgressDialogState, setEquipmentProgressDialogState] = useState<{
+    inspectionName: string;
+    entries: EquipmentChecklistProgressEntry[];
+  } | null>(null);
   const initialEquipmentSyncDone = useRef(false);
   const responsesRefreshTimeoutRef = useRef<number | null>(null);
   const luminaireRefreshTimeoutRef = useRef<number | null>(null);
   const extinguisherRefreshTimeoutRef = useRef<number | null>(null);
   const hydrantRefreshTimeoutRef = useRef<number | null>(null);
+  const checklistContentRef = useRef<HTMLDivElement | null>(null);
+  const shouldScrollToChecklistRef = useRef(false);
+  const cardLongPressTimeoutRef = useRef<number | null>(null);
+  const suppressCardClickRef = useRef(false);
   const touchedInspectionExecutionsRef = useRef<
     Map<string, { inspectionCode: string; inspectionName: string }>
   >(new Map());
+  const visibleChecklistCodes = useMemo(() => {
+    const next = new Set(ALWAYS_VISIBLE_CHECKLIST_CODES);
+
+    selectedRequirementCodes.forEach((requirementCode) => {
+      (REQUIREMENT_TO_CHECKLIST_CODES[requirementCode] || []).forEach(
+        (checklistCode) => {
+          next.add(checklistCode);
+        },
+      );
+    });
+
+    return next;
+  }, [selectedRequirementCodes]);
+  const visibleModels = useMemo(
+    () => models.filter((model) => visibleChecklistCodes.has(model.codigo)),
+    [models, visibleChecklistCodes],
+  );
+  const visibleGroupsByModel = useMemo(() => {
+    const next = new Map<string, ChecklistGroupWithItems[]>();
+
+    visibleModels.forEach((model) => {
+      next.set(model.id, groupsByModel.get(model.id) || []);
+    });
+
+    return next;
+  }, [groupsByModel, visibleModels]);
   const { rowsByInspection, evaluableIds: evaluableItemIds } = useMemo(
-    () => buildChecklistTableRows(groupsByModel),
-    [groupsByModel],
+    () => buildChecklistTableRows(visibleGroupsByModel),
+    [visibleGroupsByModel],
   );
   const inspectionContextByItemId = useMemo(() => {
     const next = new Map<
@@ -421,7 +608,7 @@ const CompanyChecklists = () => {
       { inspectionCode: string; inspectionName: string }
     >();
 
-    models.forEach((model) => {
+    visibleModels.forEach((model) => {
       (rowsByInspection.get(model.id) || []).forEach((row) => {
         if (row.type !== "item") {
           return;
@@ -435,11 +622,11 @@ const CompanyChecklists = () => {
     });
 
     return next;
-  }, [models, rowsByInspection]);
+  }, [visibleModels, rowsByInspection]);
   const equipmentInspectionItemIds = useMemo(() => {
     const next = new Set<string>();
 
-    models.forEach((model) => {
+    visibleModels.forEach((model) => {
       if (
         model.codigo !== "A.19" &&
         model.codigo !== "A.23" &&
@@ -456,15 +643,15 @@ const CompanyChecklists = () => {
     });
 
     return next;
-  }, [models, rowsByInspection]);
+  }, [visibleModels, rowsByInspection]);
   const equipmentChecklistTemplates = useMemo(
     () =>
       buildEquipmentChecklistSnapshots({
-        models,
-        groupsByModel,
+        models: visibleModels,
+        groupsByModel: visibleGroupsByModel,
         responses: new Map<string, ChecklistResponseShape>(),
       }),
-    [groupsByModel, models],
+    [visibleGroupsByModel, visibleModels],
   );
   const luminaireInspectionItemIds = useMemo(
     () =>
@@ -551,7 +738,7 @@ const CompanyChecklists = () => {
   const automaticResponses = useMemo(() => {
     const next = new Map<string, ChecklistResponseShape>();
 
-    models.forEach((model) => {
+    visibleModels.forEach((model) => {
       if (
         model.codigo === "A.19" ||
         model.codigo === "A.23" ||
@@ -592,7 +779,7 @@ const CompanyChecklists = () => {
     });
 
     return next;
-  }, [extinguishers, models, rowsByInspection]);
+  }, [extinguishers, visibleModels, rowsByInspection]);
   const mergedResponses = useMemo(() => {
     const next = new Map(automaticResponses);
 
@@ -626,12 +813,160 @@ const CompanyChecklists = () => {
   const equipmentChecklistSnapshots = useMemo(
     () =>
       buildEquipmentChecklistSnapshots({
-        models,
-        groupsByModel,
+        models: visibleModels,
+        groupsByModel: visibleGroupsByModel,
         responses: mergedResponses,
       }),
-    [groupsByModel, mergedResponses, models],
+    [visibleGroupsByModel, mergedResponses, visibleModels],
   );
+  const checklistProgressByModel = useMemo(() => {
+    const next = new Map<string, ChecklistProgressSummary>();
+
+    visibleModels.forEach((model) => {
+      if (model.codigo === "A.19") {
+        next.set(
+          model.id,
+          buildEquipmentAverageProgressSummary({
+            records: luminaires,
+            templateTotal: equipmentChecklistTemplates.luminaria.total,
+          }),
+        );
+        return;
+      }
+
+      if (model.codigo === "A.23") {
+        next.set(
+          model.id,
+          buildEquipmentAverageProgressSummary({
+            records: extinguishers,
+            templateTotal: equipmentChecklistTemplates.extintor.total,
+          }),
+        );
+        return;
+      }
+
+      if (model.codigo === "A.25") {
+        next.set(
+          model.id,
+          buildEquipmentAverageProgressSummary({
+            records: hydrants,
+            templateTotal: equipmentChecklistTemplates.hidrante.total,
+          }),
+        );
+        return;
+      }
+
+      next.set(
+        model.id,
+        buildPrincipalChecklistProgressSummary({
+          inspectionId: model.id,
+          rowsByInspection,
+          responses: mergedResponses,
+        }),
+      );
+    });
+
+    return next;
+  }, [
+    equipmentChecklistTemplates.extintor.total,
+    equipmentChecklistTemplates.hidrante.total,
+    equipmentChecklistTemplates.luminaria.total,
+    extinguishers,
+    hydrants,
+    luminaires,
+    mergedResponses,
+    rowsByInspection,
+    visibleModels,
+  ]);
+  const equipmentProgressEntriesByModel = useMemo(() => {
+    const next = new Map<string, EquipmentChecklistProgressEntry[]>();
+
+    visibleModels.forEach((model) => {
+      if (model.codigo === "A.19") {
+        next.set(
+          model.id,
+          buildEquipmentProgressEntries({
+            records: luminaires,
+            equipmentType: "luminaria",
+            templateTotal: equipmentChecklistTemplates.luminaria.total,
+          }),
+        );
+        return;
+      }
+
+      if (model.codigo === "A.23") {
+        next.set(
+          model.id,
+          buildEquipmentProgressEntries({
+            records: extinguishers,
+            equipmentType: "extintor",
+            templateTotal: equipmentChecklistTemplates.extintor.total,
+          }),
+        );
+        return;
+      }
+
+      if (model.codigo === "A.25") {
+        next.set(
+          model.id,
+          buildEquipmentProgressEntries({
+            records: hydrants,
+            equipmentType: "hidrante",
+            templateTotal: equipmentChecklistTemplates.hidrante.total,
+          }),
+        );
+      }
+    });
+
+    return next;
+  }, [
+    equipmentChecklistTemplates.extintor.total,
+    equipmentChecklistTemplates.hidrante.total,
+    equipmentChecklistTemplates.luminaria.total,
+    extinguishers,
+    hydrants,
+    luminaires,
+    visibleModels,
+  ]);
+
+  const clearCardLongPress = useCallback(() => {
+    if (cardLongPressTimeoutRef.current !== null) {
+      window.clearTimeout(cardLongPressTimeoutRef.current);
+      cardLongPressTimeoutRef.current = null;
+    }
+  }, []);
+
+  const openEquipmentProgressDialog = useCallback(
+    (inspection: ChecklistModelShape) => {
+      setEquipmentProgressDialogState({
+        inspectionName: inspection.nome,
+        entries: equipmentProgressEntriesByModel.get(inspection.id) || [],
+      });
+    },
+    [equipmentProgressEntriesByModel],
+  );
+
+  const startCardLongPress = useCallback(
+    (inspection: ChecklistModelShape) => {
+      if (!isEquipmentInspectionCode(inspection.codigo)) {
+        return;
+      }
+
+      clearCardLongPress();
+      suppressCardClickRef.current = false;
+      cardLongPressTimeoutRef.current = window.setTimeout(() => {
+        suppressCardClickRef.current = true;
+        openEquipmentProgressDialog(inspection);
+      }, 3000);
+    },
+    [clearCardLongPress, openEquipmentProgressDialog],
+  );
+
+  const handleInspectionCardPointerEnd = useCallback(() => {
+    clearCardLongPress();
+  }, [clearCardLongPress]);
+
+  useEffect(() => () => clearCardLongPress(), [clearCardLongPress]);
 
   const fetchData = useCallback(async () => {
     if (!id) {
@@ -657,6 +992,7 @@ const CompanyChecklists = () => {
 
       const [
         checklistData,
+        companyRequirements,
         equipmentData,
         principalNonConformityRecords,
         luminaireNonConformityRecords,
@@ -665,6 +1001,14 @@ const CompanyChecklists = () => {
       ] =
         await Promise.all([
         loadChecklistData(supabase, id),
+        supabase
+          .from("empresa_exigencias")
+          .select(`
+            exigencias_seguranca!inner (
+              codigo
+            )
+          `)
+          .eq("empresa_id", id),
         loadChecklistEquipmentData(supabase, id),
         loadChecklistNonConformities(supabase, { companyId: id }),
         loadEquipmentChecklistNonConformitiesByType(supabase, {
@@ -681,9 +1025,25 @@ const CompanyChecklists = () => {
         }),
       ]);
 
+      if (companyRequirements.error) {
+        throw companyRequirements.error;
+      }
+
+      const requirementCodes = new Set(
+        ((companyRequirements.data as CompanyRequirementChecklistRow[] | null) || [])
+          .flatMap((row) => {
+            const requirement = Array.isArray(row.exigencias_seguranca)
+              ? row.exigencias_seguranca[0]
+              : row.exigencias_seguranca;
+
+            return requirement?.codigo ? [requirement.codigo] : [];
+          }),
+      );
+
       setCompany(companyData);
       setModels(checklistData.models);
       setGroupsByModel(checklistData.groupsByModel);
+      setSelectedRequirementCodes(requirementCodes);
       setResponses(checklistData.responses);
       setPrincipalNonConformities(
         mapChecklistNonConformitiesByItemId(principalNonConformityRecords),
@@ -1079,7 +1439,7 @@ const CompanyChecklists = () => {
   }, [equipmentSchemaPending, id, scheduleHydrantRefresh]);
 
   useEffect(() => {
-    const currentInspectionCode = models.find(
+    const currentInspectionCode = visibleModels.find(
       (inspection) => inspection.id === openInspection,
     )?.codigo;
 
@@ -1100,10 +1460,10 @@ const CompanyChecklists = () => {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [equipmentSchemaPending, id, models, openInspection, refreshLuminaires]);
+  }, [equipmentSchemaPending, id, openInspection, refreshLuminaires, visibleModels]);
 
   useEffect(() => {
-    const currentInspectionCode = models.find(
+    const currentInspectionCode = visibleModels.find(
       (inspection) => inspection.id === openInspection,
     )?.codigo;
 
@@ -1125,10 +1485,10 @@ const CompanyChecklists = () => {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [equipmentSchemaPending, id, models, openInspection, refreshExtinguishers]);
+  }, [equipmentSchemaPending, id, openInspection, refreshExtinguishers, visibleModels]);
 
   useEffect(() => {
-    const currentInspectionCode = models.find(
+    const currentInspectionCode = visibleModels.find(
       (inspection) => inspection.id === openInspection,
     )?.codigo;
 
@@ -1150,7 +1510,7 @@ const CompanyChecklists = () => {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [equipmentSchemaPending, id, models, openInspection, refreshHydrants]);
+  }, [equipmentSchemaPending, id, openInspection, refreshHydrants, visibleModels]);
 
   useEffect(() => {
     if (!id) {
@@ -1510,13 +1870,13 @@ const CompanyChecklists = () => {
       });
 
       const checklistSnapshot = buildChecklistSnapshot(
-        models,
-        groupsByModel,
+        visibleModels,
+        visibleGroupsByModel,
         mergedResponses,
       );
       const equipmentSnapshots = buildEquipmentChecklistSnapshots({
-        models,
-        groupsByModel,
+        models: visibleModels,
+        groupsByModel: visibleGroupsByModel,
         responses: mergedResponses,
       });
       const touchedInspections = Array.from(
@@ -1666,6 +2026,47 @@ const CompanyChecklists = () => {
     }
   };
 
+  const handleInspectionCardClick = (inspectionId: string) => {
+    if (suppressCardClickRef.current) {
+      suppressCardClickRef.current = false;
+      return;
+    }
+
+    setOpenInspection((currentInspection) => {
+      const nextInspection =
+        currentInspection === inspectionId ? null : inspectionId;
+
+      shouldScrollToChecklistRef.current = nextInspection !== null;
+      return nextInspection;
+    });
+  };
+
+  useEffect(() => {
+    if (!openInspection || !shouldScrollToChecklistRef.current) {
+      return;
+    }
+
+    const scrollTimeout = window.setTimeout(() => {
+      checklistContentRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      shouldScrollToChecklistRef.current = false;
+    }, 120);
+
+    return () => window.clearTimeout(scrollTimeout);
+  }, [openInspection]);
+
+  useEffect(() => {
+    if (
+      openInspection &&
+      !visibleModels.some((inspection) => inspection.id === openInspection)
+    ) {
+      setOpenInspection(null);
+      shouldScrollToChecklistRef.current = false;
+    }
+  }, [openInspection, visibleModels]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -1688,7 +2089,7 @@ const CompanyChecklists = () => {
     );
   }
 
-  const openInspectionData = models.find(
+  const openInspectionData = visibleModels.find(
     (inspection) => inspection.id === openInspection,
   );
   const checklistRows = openInspection
@@ -1788,34 +2189,172 @@ const CompanyChecklists = () => {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-8">
-          {models.map((inspection) => {
+          {visibleModels.map((inspection) => {
             const Icon = getInspectionIcon(inspection.nome);
             const isOpen = openInspection === inspection.id;
+            const progress =
+              checklistProgressByModel.get(inspection.id) ||
+              buildChecklistProgressSummary(0, 0);
+            const supportsEquipmentLongPress = isEquipmentInspectionCode(
+              inspection.codigo,
+            );
 
             return (
               <Card
                 key={inspection.id}
-                className={`cursor-pointer transition-all hover:shadow-lg ${
-                  isOpen ? "ring-2 ring-primary" : ""
-                }`}
-                onClick={() => setOpenInspection(isOpen ? null : inspection.id)}
+                className={cn(
+                  "cursor-pointer transition-all hover:shadow-lg",
+                  progress.isComplete && "border-emerald-500 bg-emerald-50/30",
+                  isOpen &&
+                    (progress.isComplete
+                      ? "ring-2 ring-emerald-500"
+                      : "ring-2 ring-primary"),
+                )}
+                onClick={() => handleInspectionCardClick(inspection.id)}
+                onMouseDown={() => startCardLongPress(inspection)}
+                onMouseUp={handleInspectionCardPointerEnd}
+                onMouseLeave={handleInspectionCardPointerEnd}
+                onTouchStart={() => startCardLongPress(inspection)}
+                onTouchEnd={handleInspectionCardPointerEnd}
+                onTouchCancel={handleInspectionCardPointerEnd}
+                onTouchMove={handleInspectionCardPointerEnd}
               >
                 <CardContent className="p-3 flex flex-col items-center text-center">
                   <Icon
-                    className={`h-6 w-6 mb-2 ${
-                      isOpen ? "text-primary" : "text-muted-foreground"
-                    }`}
+                    className={cn(
+                      "mb-2 h-6 w-6",
+                      progress.isComplete
+                        ? "text-emerald-600"
+                        : isOpen
+                          ? "text-primary"
+                          : "text-muted-foreground",
+                    )}
                   />
                   <p className="text-[10px] md:text-xs text-muted-foreground line-clamp-2">
                     {inspection.nome}
                   </p>
+                  <div className="mt-3 w-full">
+                    <div className="mb-1 flex items-center justify-between gap-2 text-[10px] md:text-[11px]">
+                      <span
+                        className={cn(
+                          "font-semibold",
+                          progress.isComplete
+                            ? "text-emerald-700"
+                            : "text-foreground",
+                        )}
+                      >
+                        {progress.percent}%
+                      </span>
+                      <span className="text-muted-foreground">
+                        {progress.completed}/{progress.total}
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all",
+                          progress.isComplete ? "bg-emerald-500" : "bg-primary",
+                        )}
+                        style={{ width: `${progress.percent}%` }}
+                      />
+                    </div>
+                    {supportsEquipmentLongPress && (
+                      <p className="mt-2 text-[9px] text-muted-foreground">
+                        Segure 3s para ver por equipamento
+                      </p>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             );
           })}
         </div>
 
+        <Dialog
+          open={Boolean(equipmentProgressDialogState)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setEquipmentProgressDialogState(null);
+            }
+          }}
+        >
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Progresso por equipamento</DialogTitle>
+              <DialogDescription>
+                {equipmentProgressDialogState
+                  ? `Acompanhamento individual do checklist de ${equipmentProgressDialogState.inspectionName.toLowerCase()}.`
+                  : "Acompanhamento individual do checklist."}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
+              {equipmentProgressDialogState?.entries.length ? (
+                equipmentProgressDialogState.entries.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className={cn(
+                      "rounded-xl border p-4",
+                      entry.summary.isComplete &&
+                        "border-emerald-500 bg-emerald-50/40",
+                    )}
+                  >
+                    <div className="mb-2 flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-foreground">
+                          {entry.equipmentLabel}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {entry.location}
+                        </p>
+                      </div>
+                      <span
+                        className={cn(
+                          "text-sm font-semibold",
+                          entry.summary.isComplete
+                            ? "text-emerald-700"
+                            : "text-foreground",
+                        )}
+                      >
+                        {entry.summary.percent}%
+                      </span>
+                    </div>
+
+                    <div className="mb-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span>
+                        {entry.summary.completed}/{entry.summary.total} itens
+                      </span>
+                      <span>
+                        {entry.summary.isComplete
+                          ? "Concluido"
+                          : "Em andamento"}
+                      </span>
+                    </div>
+
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all",
+                          entry.summary.isComplete
+                            ? "bg-emerald-500"
+                            : "bg-primary",
+                        )}
+                        style={{ width: `${entry.summary.percent}%` }}
+                      />
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-xl border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+                  Nenhum equipamento cadastrado para este checklist ainda.
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
         {openInspection && (
+          <div ref={checklistContentRef}>
           <Card>
             <CardHeader>
               <CardTitle className="text-lg md:text-xl">
@@ -2635,6 +3174,7 @@ const CompanyChecklists = () => {
               </div>
             </CardContent>
           </Card>
+          </div>
         )}
 
         {id && (

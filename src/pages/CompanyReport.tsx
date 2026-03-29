@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { useToast } from "@/hooks/use-toast";
 import {
+  formatCpf,
   loadCompanyReportSignatures,
   parseCompanyReportSignatures,
   type ChecklistExecutionSummary,
@@ -199,6 +200,15 @@ interface GeneralChecklistReportLine {
   conforme: number;
   naoConforme: number;
   naoAplicavel: number;
+}
+
+interface ChecklistPrintSection {
+  key: string;
+  title: string;
+  subtitle: string;
+  generatedAt: string | null;
+  items: ChecklistSnapshotItem[];
+  signers: CompanyReportSignatureRow[];
 }
 
 const getToday = () => new Date().toISOString().slice(0, 10);
@@ -818,35 +828,82 @@ const formatSignatureExecutionLabel = (execution: ChecklistExecutionSummary) => 
     : `${inspectionLabel} | ${equipmentLabel}`;
 };
 
-const TopCornerArt = () => (
-  <svg width="122" height="86" viewBox="0 0 122 86" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <polygon points="0,0 63,0 24,40 0,40" fill="#ff1616" />
-    <polygon points="45,0 95,0 58,39 30,39" fill="#111111" />
-    <polygon points="24,57 46,57 29,74 12,74" fill="#ff1616" />
-  </svg>
-);
+const getChecklistStatusMeta = (status: ChecklistSnapshotItem["status"]) => {
+  if (status === "C") {
+    return { label: "Conforme", tone: "success" as const };
+  }
 
-const BottomCornerArt = () => (
-  <svg width="122" height="86" viewBox="0 0 122 86" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <polygon points="59,86 122,86 122,46 98,46" fill="#ff1616" />
-    <polygon points="27,86 77,86 92,47 64,47" fill="#111111" />
-    <polygon points="76,29 98,29 109,12 92,12" fill="#ff1616" />
-  </svg>
-);
+  if (status === "NC") {
+    return { label: "Nao conforme", tone: "danger" as const };
+  }
 
-const FireTetraedroLogo = () => (
-  <svg width="118" height="60" viewBox="0 0 118 60" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <text x="2" y="28" fill="#f51d1d" fontSize="22" fontWeight="700" fontFamily="Arial, sans-serif">
-      fire
-    </text>
-    <polygon points="54,26 69,4 85,26" fill="#f51d1d" />
-    <polygon points="65,26 78,10 92,26" fill="#f51d1d" opacity="0.9" />
-    <rect x="0" y="31" width="96" height="24" rx="2" fill="#f51d1d" />
-    <text x="8" y="48" fill="#ffffff" fontSize="20" fontWeight="700" fontFamily="Arial, sans-serif">
-      Tetraedro
-    </text>
-  </svg>
-);
+  if (status === "NA") {
+    return { label: "Nao aplicavel", tone: "neutral" as const };
+  }
+
+  return { label: "Pendente", tone: "neutral" as const };
+};
+
+const buildChecklistPrintSections = ({
+  snapshot,
+  equipmentCatalog,
+  signers,
+}: {
+  snapshot: ChecklistSnapshot;
+  equipmentCatalog: Map<string, EquipmentCatalogEntry>;
+  signers: CompanyReportSignatureRow[];
+}) => {
+  const sections: ChecklistPrintSection[] = [];
+
+  snapshot.inspections.forEach((inspection) => {
+    const answeredItems = inspection.itens.filter((item) => item.status !== "P");
+
+    if (answeredItems.length === 0) {
+      return;
+    }
+
+    sections.push({
+      key: `principal:${inspection.codigo}`,
+      title: `${inspection.codigo} - ${inspection.nome}`,
+      subtitle: "Checklist principal da empresa",
+      generatedAt: snapshot.generated_at,
+      items: answeredItems,
+      signers: signers.filter((signer) =>
+        signer.executed_checklists.some(
+          (execution) =>
+            execution.context_type === "principal" &&
+            execution.inspection_code === inspection.codigo,
+        ),
+      ),
+    });
+  });
+
+  Array.from(equipmentCatalog.values()).forEach((entry) => {
+    const answeredItems = entry.snapshot.items.filter((item) => item.status !== "P");
+
+    if (answeredItems.length === 0) {
+      return;
+    }
+
+    sections.push({
+      key: `${entry.type}:${entry.recordId}`,
+      title: `${entry.snapshot.inspection_code || "-"} - ${entry.snapshot.inspection_name || getEquipmentTypeLabel(entry.type)}`,
+      subtitle: `${entry.label} | ${entry.subtitle}`,
+      generatedAt: entry.snapshot.generated_at,
+      items: answeredItems,
+      signers: signers.filter((signer) =>
+        signer.executed_checklists.some(
+          (execution) =>
+            execution.context_type === "equipamento" &&
+            execution.equipment_type === entry.type &&
+            execution.equipment_record_id === entry.recordId,
+        ),
+      ),
+    });
+  });
+
+  return sections;
+};
 
 const PageFrame = ({
   children,
@@ -861,24 +918,14 @@ const PageFrame = ({
     className="report-page relative mx-auto bg-white text-black shadow-[0_20px_50px_rgba(15,23,42,0.18)] print:shadow-none print:mx-0 print:my-0"
     style={{ width: "210mm", minHeight: "297mm" }}
   >
-    <div className="absolute left-0 top-0">
-      <TopCornerArt />
-    </div>
-    <div className="absolute bottom-0 right-0">
-      <BottomCornerArt />
-    </div>
     <div className="flex min-h-[297mm] flex-col px-[18mm] pb-[18mm] pt-[14mm]">
-      <header className="mb-6 flex items-start justify-between gap-4">
-        <div className="w-[120px]" />
+      <header className="mb-6 border-b border-zinc-300 pb-4 text-center">
         <div className="flex-1 text-center">
           <h1 className="text-[17px] font-semibold uppercase leading-tight tracking-[0.02em] text-zinc-800">
             Relatorio de Inspecao
             <br />
             Tecnica Preventiva - RITP
           </h1>
-        </div>
-        <div className="flex w-[120px] justify-end">
-          <FireTetraedroLogo />
         </div>
       </header>
 
@@ -940,6 +987,95 @@ const RequirementStatusBadge = ({
   >
     {label}
   </span>
+);
+
+const getDigitalSignatureHeading = (
+  signer: CompanyReportSignatureRow,
+  context: "summary" | "checklist",
+) => {
+  if (context === "checklist") {
+    return "Checklist executado e assinado por";
+  }
+
+  if (signer.total_checklists > 1) {
+    return "Checklists executados e assinados por";
+  }
+
+  if (signer.total_checklists === 1) {
+    return "Checklist executado e assinado por";
+  }
+
+  if (signer.is_gestor) {
+    return "Relatorio validado e assinado pelo gestor responsavel";
+  }
+
+  return "Assinatura digital registrada por";
+};
+
+const getDigitalSignatureDateLabel = (
+  signer: CompanyReportSignatureRow,
+  context: "summary" | "checklist",
+) => {
+  if (context === "checklist") {
+    return "Data e hora da finalizacao";
+  }
+
+  if (signer.total_checklists > 0) {
+    return signer.total_checklists > 1
+      ? "Data e hora da ultima finalizacao"
+      : "Data e hora da finalizacao";
+  }
+
+  if (signer.is_gestor) {
+    return "Data e hora da validacao";
+  }
+
+  return "Data e hora do registro";
+};
+
+const ChecklistDigitalSignatureStamp = ({
+  signer,
+  timestamp,
+  context,
+}: {
+  signer: CompanyReportSignatureRow;
+  timestamp: string | null;
+  context: "summary" | "checklist";
+}) => (
+  <div className="overflow-hidden rounded-sm border border-zinc-300 bg-white">
+    <div className="grid grid-cols-[0.95fr_1.35fr]">
+      <div className="flex min-h-[108px] items-center border-r border-zinc-300 bg-zinc-50 px-4 py-4">
+        <p className="text-[24px] font-semibold leading-[1.08] tracking-[-0.02em] text-zinc-900 break-words">
+          {signer.assinatura_nome}
+        </p>
+      </div>
+
+      <div className="relative px-4 py-4">
+        <div className="pointer-events-none absolute inset-y-3 left-4 w-16 text-red-200/70">
+          <svg viewBox="0 0 80 120" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-full w-full">
+            <path
+              d="M20 104C35 82 28 54 41 31C47 21 60 20 61 31C62 43 43 54 33 60C24 65 16 73 18 84C19 94 28 101 42 104"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </div>
+
+        <div className="relative space-y-1 pl-14 text-[11px] leading-5 text-zinc-800">
+          <p className="font-semibold text-zinc-900">
+            {getDigitalSignatureHeading(signer, context)}: {signer.assinatura_nome}
+          </p>
+          <p>CPF: {formatCpf(signer.cpf)}</p>
+          <p>Cargo: {signer.cargo || "Nao informado"}</p>
+          <p>
+            {getDigitalSignatureDateLabel(signer, context)}: {formatDateTime(timestamp)}
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
 );
 
 const RiskMatrix = () => (
@@ -1248,6 +1384,25 @@ const CompanyReport = () => {
     fetchData();
   }, [id, toast]);
 
+  useEffect(() => {
+    const gestor = reportSignatures.find((signer) => signer.is_gestor);
+
+    if (!gestor) {
+      return;
+    }
+
+    setForm((current) => ({
+      ...current,
+      representanteNome:
+        current.representanteNome || gestor.assinatura_nome || gestor.nome || "",
+      representanteCargo:
+        !current.representanteCargo ||
+        current.representanteCargo === "Responsavel pela empresa"
+          ? gestor.cargo || current.representanteCargo
+          : current.representanteCargo,
+    }));
+  }, [reportSignatures]);
+
   const handleInputChange = (field: keyof ReportFormState, value: string) => {
     setForm((current) => ({
       ...current,
@@ -1315,6 +1470,8 @@ const CompanyReport = () => {
                 user_id: "gestor-fallback",
                 nome: company.responsavel || "Gestor responsavel",
                 email: company.email || "-",
+                cpf: null,
+                cargo: null,
                 papel: "gestor",
                 is_gestor: true,
                 assinatura_nome: company.responsavel || "Gestor responsavel",
@@ -1545,6 +1702,8 @@ const CompanyReport = () => {
             user_id: "gestor-fallback",
             nome: company.responsavel || "Gestor responsavel",
             email: company.email || "-",
+            cpf: null,
+            cargo: null,
             papel: "gestor",
             is_gestor: true,
             assinatura_nome: company.responsavel || "Gestor responsavel",
@@ -1555,6 +1714,11 @@ const CompanyReport = () => {
           } satisfies CompanyReportSignatureRow,
         ];
   const signatureChunks = chunkArray(signatureRows, 4);
+  const checklistPrintSections = buildChecklistPrintSections({
+    snapshot,
+    equipmentCatalog,
+    signers: signatureRows,
+  });
 
   const pages: ReactNode[] = [];
 
@@ -1573,6 +1737,9 @@ const CompanyReport = () => {
             </p>
             <p className="mt-1 text-[10.5px] text-zinc-600">
               {getSignatureRoleLabel(signer)} | {signer.email || "-"}
+            </p>
+            <p className="mt-1 text-[10px] text-zinc-500">
+              CPF {formatCpf(signer.cpf)} | Cargo {signer.cargo || "-"}
             </p>
           </div>
           <RequirementStatusBadge
@@ -1603,7 +1770,7 @@ const CompanyReport = () => {
 
           <div className="rounded-sm border border-zinc-300 bg-white px-3 py-3">
             <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
-              Mini relatorio dos checklists realizados
+              Checklists executados por este colaborador
             </p>
             {visibleExecutionLines.length > 0 ? (
               <ul className="mt-2 space-y-1.5 text-[10.5px] leading-5 text-zinc-800">
@@ -1612,26 +1779,25 @@ const CompanyReport = () => {
                 ))}
               </ul>
             ) : (
-              <p className="mt-2 text-[10.5px] leading-5 text-zinc-700">
-                {signer.is_gestor
-                  ? "Assinatura institucional como gestor responsavel pela empresa."
+                <p className="mt-2 text-[10.5px] leading-5 text-zinc-700">
+                  {signer.is_gestor
+                  ? "Assinatura institucional do gestor responsavel pela empresa."
                   : "Nenhum checklist com autoria registrada foi localizado para este usuario."}
-              </p>
-            )}
-            {signerExecutionLines.length > visibleExecutionLines.length ? (
-              <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
-                + {signerExecutionLines.length - visibleExecutionLines.length} checklist(s) adicional(is)
+                </p>
+              )}
+              {signerExecutionLines.length > visibleExecutionLines.length ? (
+                <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                  + {signerExecutionLines.length - visibleExecutionLines.length} checklist(s) adicional(is)
               </p>
             ) : null}
           </div>
 
           <div className="pt-6">
-            <div className="w-[220px] border-t border-zinc-400 pt-2 text-center text-[10.5px] text-zinc-700">
-              <p className="font-semibold uppercase text-zinc-900">
-                {signer.assinatura_nome}
-              </p>
-              <p>{getSignatureRoleLabel(signer)}</p>
-            </div>
+            <ChecklistDigitalSignatureStamp
+              signer={signer}
+              timestamp={signer.last_activity_at}
+              context="summary"
+            />
           </div>
         </div>
       </div>
@@ -2012,6 +2178,94 @@ const CompanyReport = () => {
         </div>
       </div>,
     );
+  });
+
+  checklistPrintSections.forEach((section, sectionIndex) => {
+    const itemChunks = chunkArray(section.items, 14);
+
+    itemChunks.forEach((itemChunk, chunkIndex) => {
+      const isLastChunk = chunkIndex === itemChunks.length - 1;
+
+      pages.push(
+        <div className="space-y-4">
+          <SectionHeading
+            index="8"
+            title={
+              sectionIndex === 0 && chunkIndex === 0
+                ? "Anexos dos Checklists Executados"
+                : "Anexos dos Checklists Executados - Continuacao"
+            }
+          />
+
+          <div className="rounded-sm border border-zinc-300">
+            <div className="border-b border-zinc-300 bg-zinc-50 px-4 py-3">
+              <p className="text-[13px] font-semibold uppercase text-zinc-900">
+                {section.title}
+              </p>
+              <p className="mt-1 text-[11px] text-zinc-600">{section.subtitle}</p>
+              <p className="mt-1 text-[9.5px] uppercase tracking-[0.08em] text-zinc-500">
+                Snapshot {formatDateTime(section.generatedAt)}
+              </p>
+            </div>
+
+            <table className="w-full border-collapse text-[10.5px] text-zinc-900">
+              <thead>
+                <tr className="bg-zinc-100 text-left uppercase tracking-[0.08em] text-zinc-600">
+                  <th className="w-[38px] border border-zinc-300 px-2 py-2">Item</th>
+                  <th className="w-[110px] border border-zinc-300 px-2 py-2">Secao</th>
+                  <th className="border border-zinc-300 px-2 py-2">Descricao</th>
+                  <th className="w-[120px] border border-zinc-300 px-2 py-2">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itemChunk.map((item) => {
+                  const statusMeta = getChecklistStatusMeta(item.status);
+
+                  return (
+                    <tr key={`${section.key}-${item.checklist_item_id}`} className="align-top">
+                      <td className="border border-zinc-300 px-2 py-2 font-semibold">
+                        {item.item_exibicao}
+                      </td>
+                      <td className="border border-zinc-300 px-2 py-2">{item.secao}</td>
+                      <td className="border border-zinc-300 px-2 py-2 whitespace-pre-line">
+                        {item.descricao}
+                      </td>
+                      <td className="border border-zinc-300 px-2 py-2">
+                        <RequirementStatusBadge
+                          label={statusMeta.label}
+                          tone={statusMeta.tone}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {isLastChunk ? (
+            <div className="border-t border-zinc-300 bg-zinc-50 px-4 py-4">
+              {section.signers.length > 0 ? (
+                <div className="grid gap-3">
+                  {section.signers.map((signer) => (
+                    <ChecklistDigitalSignatureStamp
+                      key={`${section.key}-${signer.user_id}`}
+                      signer={signer}
+                      timestamp={signer.last_activity_at}
+                      context="checklist"
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[10.5px] text-zinc-700">
+                  Nenhum executor com autoria registrada foi localizado para este checklist.
+                </p>
+              )}
+            </div>
+          ) : null}
+        </div>,
+      );
+    });
   });
 
   return (

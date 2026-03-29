@@ -24,7 +24,9 @@ import {
 } from "@/components/ui/select";
 import {
   createCompanyUser,
+  formatCpf,
   loadCompanyMembers,
+  normalizeCpf,
   removeCompanyMember,
   setCompanyMemberRole,
   type CompanyMemberRole,
@@ -47,6 +49,8 @@ export const CompanyMembersManager = ({
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [cpf, setCpf] = useState("");
+  const [cargo, setCargo] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<CompanyMemberRole>("membro");
 
@@ -91,6 +95,8 @@ export const CompanyMembersManager = ({
   const resetCreationForm = () => {
     setName("");
     setEmail("");
+    setCpf("");
+    setCargo("");
     setPassword("");
     setRole(hasGestor ? "membro" : "gestor");
   };
@@ -117,6 +123,24 @@ export const CompanyMembersManager = ({
       return;
     }
 
+    if (normalizeCpf(cpf).length !== 11) {
+      toast({
+        title: "Informe um CPF valido",
+        description: "Digite o CPF do usuario que sera criado.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!cargo.trim()) {
+      toast({
+        title: "Informe o cargo",
+        description: "Digite o cargo do usuario que sera criado.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (password.trim().length < 6) {
       toast({
         title: "Senha provisoria invalida",
@@ -132,6 +156,8 @@ export const CompanyMembersManager = ({
         companyId,
         nome: normalizedName,
         email: normalizedEmail,
+        cpf,
+        cargo,
         password: password.trim(),
         role: creationRole,
       });
@@ -270,6 +296,22 @@ export const CompanyMembersManager = ({
             />
           </div>
 
+          <div className="grid gap-3 md:grid-cols-2">
+            <Input
+              placeholder="CPF"
+              value={formatCpf(cpf)}
+              onChange={(event) => setCpf(normalizeCpf(event.target.value))}
+              disabled={saving || !canManageMembers}
+              inputMode="numeric"
+            />
+            <Input
+              placeholder="Cargo"
+              value={cargo}
+              onChange={(event) => setCargo(event.target.value)}
+              disabled={saving || !canManageMembers}
+            />
+          </div>
+
           <div className="grid gap-3 md:grid-cols-[1.2fr_0.8fr_auto]">
             <Input
               placeholder="Senha provisoria"
@@ -341,6 +383,9 @@ export const CompanyMembersManager = ({
                         </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground">{member.email}</p>
+                      <p className="text-xs text-muted-foreground">
+                        CPF: {formatCpf(member.cpf)} | Cargo: {member.cargo || "-"}
+                      </p>
                     </div>
 
                     <div className="flex flex-wrap gap-2">
