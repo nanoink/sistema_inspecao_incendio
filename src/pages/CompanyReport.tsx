@@ -11,6 +11,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import {
   formatCpf,
   loadCompanyReportSignatures,
@@ -38,6 +39,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+
+type ReportMode = "operacional" | "tecnico";
 
 type Company = Pick<
   Database["public"]["Tables"]["empresa"]["Row"],
@@ -118,7 +121,9 @@ interface ReportRequirementRow {
 }
 
 interface ReportFormState {
+  reportMode: ReportMode;
   titulo: string;
+  artRrtNumero: string;
   numeroRelatorio: string;
   dataInspecao: string;
   dataEmissao: string;
@@ -165,6 +170,18 @@ interface ReportNonConformityEntry {
   sourceLabel: string;
   sourceSubtitle: string;
   contextLabel: string;
+  correctionAction: string;
+  startDate: string;
+  dueDate: string;
+  riskLevel: "ALTA" | "MEDIA" | "BAIXA";
+  riskPriority: string;
+  riskTone: "danger" | "warning" | "neutral";
+}
+
+interface CorrectionPlanEntry {
+  id: string;
+  contextLabel: string;
+  itemDisplay: string;
   correctionAction: string;
   startDate: string;
   dueDate: string;
@@ -231,8 +248,20 @@ type ReportBadgeTone = "neutral" | "success" | "danger" | "warning";
 
 const getToday = () => new Date().toISOString().slice(0, 10);
 
+const OPERATIONAL_REPORT_TITLE = "Relatorio de Inspecao Preventiva";
+const TECHNICAL_REPORT_TITLE = "Relatorio Tecnico de Inspecao Contra Incendio";
+const OPERATIONAL_LEGAL_NOTICE =
+  "Documento de uso interno, sem validade tecnica legal. Este relatorio nao substitui inspecao tecnica realizada por profissional habilitado.";
+const TECHNICAL_LEGAL_NOTICE =
+  "Documento tecnico oficial condicionado a responsavel tecnico habilitado, ART/RRT vinculada e rastreabilidade completa da inspecao.";
+
+const getDefaultReportTitle = (mode: ReportMode) =>
+  mode === "tecnico" ? TECHNICAL_REPORT_TITLE : OPERATIONAL_REPORT_TITLE;
+
 const emptyForm = (): ReportFormState => ({
-  titulo: "Relatorio de Inspecao Tecnica Preventiva - RITP",
+  reportMode: "operacional",
+  titulo: OPERATIONAL_REPORT_TITLE,
+  artRrtNumero: "",
   numeroRelatorio: "",
   dataInspecao: getToday(),
   dataEmissao: getToday(),
@@ -254,6 +283,19 @@ const emptyForm = (): ReportFormState => ({
 const normalizeNullable = (value: string) => {
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+};
+
+const getJsonRecord = (value: Json | null | undefined) =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, Json>)
+    : null;
+
+const getJsonString = (
+  source: Record<string, Json> | null,
+  key: string,
+) => {
+  const value = source?.[key];
+  return typeof value === "string" ? value : null;
 };
 
 const isChecklistSnapshot = (value: unknown): value is ChecklistSnapshot => {
@@ -283,17 +325,25 @@ const getReportStatusBadge = (status: ReportStatus) =>
 
 const buildDefaultForm = (company: Company, report: ReportRow | null): ReportFormState => {
   const defaults = emptyForm();
+  const additionalData = getJsonRecord(report?.dados_adicionais);
+  const persistedMode = getJsonString(additionalData, "report_mode");
+  const reportMode: ReportMode =
+    persistedMode === "tecnico" ? "tecnico" : defaults.reportMode;
 
   if (!report) {
     return {
       ...defaults,
+      reportMode,
+      titulo: getDefaultReportTitle(reportMode),
       representanteNome: company.responsavel || "",
       representanteCargo: "Responsavel pela empresa",
     };
   }
 
   return {
-    titulo: report.titulo || defaults.titulo,
+    reportMode,
+    titulo: report.titulo || getDefaultReportTitle(reportMode),
+    artRrtNumero: getJsonString(additionalData, "art_rrt_numero") || "",
     numeroRelatorio: report.numero_relatorio || "",
     dataInspecao: report.data_inspecao || defaults.dataInspecao,
     dataEmissao: report.data_emissao || defaults.dataEmissao,
@@ -611,6 +661,100 @@ const buildReportNonConformityEntries = ({
   });
 };
 
+const buildSnapshotCorrectionPlanEntries = ({
+  snapshot,
+  equipmentCatalog,
+  detailedEntries,
+  form,
+}: {
+  snapshot: ChecklistSnapshot;
+  equipmentCatalog: Map<string, EquipmentCatalogEntry>;
+  detailedEntries: ReportNonConformityEntry[];
+  form: ReportFormState;
+}): CorrectionPlanEntry[] => {
+  const startDate = form.dataInspecao || form.dataEmissao || getToday();
+  const principalItemLookup = buildPrincipalItemLookup(snapshot);
+  const detailedEntryKeys = new Set(
+    detailedEntries.map((entry) =>
+      entry.sourceType === "principal"
+        ? `principal:${entry.checklistItemId}`
+        : `${entry.sourceType}:${entry.sourceLabel}:${entry.checklistItemId}`,
+    ),
+  );
+  const entries: CorrectionPlanEntry[] = [];
+
+  snapshot.non_conformities.forEach((item) => {
+    const entryKey = `principal:${item.checklist_item_id}`;
+    if (detailedEntryKeys.has(entryKey)) {
+      return;
+    }
+
+    const context = principalItemLookup.get(item.checklist_item_id);
+    const detailDescription =
+      item.observacoes?.trim() ||
+      "Nao conformidade identificada no checklist principal sem registro fotografico complementar.";
+    const riskAssessment = getRiskAssessment({
+      itemDescription: item.descricao,
+      detailDescription,
+      sourceType: "principal",
+    });
+
+    entries.push({
+      id: `snapshot-principal-${item.checklist_item_id}`,
+      contextLabel: context
+        ? `${context.inspectionCode} - ${context.inspectionName}`
+        : "Checklist principal",
+      itemDisplay: item.item_exibicao || item.item_numero || "-",
+      correctionAction: `Regularizar o item "${item.descricao}" no checklist principal.${item.observacoes ? ` Observacao registrada: ${item.observacoes}.` : " Validar novamente a conformidade apos a execucao."}`,
+      startDate,
+      dueDate: addDaysToDate(startDate, 30),
+      riskLevel: riskAssessment.level,
+      riskPriority: riskAssessment.priority,
+      riskTone: riskAssessment.tone,
+    });
+  });
+
+  Array.from(equipmentCatalog.values()).forEach((equipmentEntry) => {
+    equipmentEntry.snapshot.items
+      .filter((item) => item.status === "NC")
+      .forEach((item) => {
+        const entryKey = `${equipmentEntry.type}:${equipmentEntry.label}:${item.checklist_item_id}`;
+        if (detailedEntryKeys.has(entryKey)) {
+          return;
+        }
+
+        const detailDescription =
+          item.observacoes?.trim() ||
+          "Nao conformidade identificada no checklist individual sem registro fotografico complementar.";
+        const riskAssessment = getRiskAssessment({
+          itemDescription: item.descricao,
+          detailDescription,
+          sourceType: equipmentEntry.type,
+        });
+
+        entries.push({
+          id: `snapshot-${equipmentEntry.type}-${equipmentEntry.recordId}-${item.checklist_item_id}`,
+          contextLabel: `${equipmentEntry.label} | ${equipmentEntry.subtitle}`,
+          itemDisplay: item.item_exibicao || item.item_numero || "-",
+          correctionAction: `Regularizar ${equipmentEntry.label.toLowerCase()} no item "${item.descricao}".${item.observacoes ? ` Observacao registrada: ${item.observacoes}.` : " Validar novamente a conformidade apos a execucao."}`,
+          startDate,
+          dueDate: addDaysToDate(startDate, 30),
+          riskLevel: riskAssessment.level,
+          riskPriority: riskAssessment.priority,
+          riskTone: riskAssessment.tone,
+        });
+      });
+  });
+
+  return entries.sort((left, right) =>
+    `${left.contextLabel}-${left.itemDisplay}`.localeCompare(
+      `${right.contextLabel}-${right.itemDisplay}`,
+      "pt-BR",
+      { numeric: true, sensitivity: "base" },
+    ),
+  );
+};
+
 const buildInspectionSummaryLines = (snapshot: ChecklistSnapshot): InspectionSummaryLine[] =>
   snapshot.inspections.map((inspection) => ({
     code: inspection.codigo,
@@ -677,6 +821,46 @@ const buildRequirementMeasureEntries = (
         statusLabel: operationalStatus.label,
         statusTone: operationalStatus.tone,
       };
+    });
+};
+
+const buildRequirementCorrectionPlanEntries = ({
+  requirementMeasureEntries,
+  form,
+}: {
+  requirementMeasureEntries: ReportRequirementMeasureEntry[];
+  form: ReportFormState;
+}): CorrectionPlanEntry[] => {
+  const startDate = form.dataInspecao || form.dataEmissao || getToday();
+
+  return requirementMeasureEntries
+    .filter(
+      (entry) =>
+        entry.existingLabel === "NAO EXISTENTE" ||
+        entry.statusLabel === "NAO ATENDE",
+    )
+    .map((entry) => {
+      const riskAssessment = getRiskAssessment({
+        itemDescription: entry.name,
+        detailDescription: entry.detail || "",
+        sourceType: "principal",
+      });
+      const isNonExisting = entry.existingLabel === "NAO EXISTENTE";
+      const correctionAction = isNonExisting
+        ? `Providenciar a implantacao e a regularizacao da medida de seguranca "${entry.name}" (${entry.code}), incluindo existencia fisica, documentacao e registro formal da exigencia no empreendimento.${entry.detail ? ` ${entry.detail}` : ""}`
+        : `Regularizar a medida de seguranca "${entry.name}" (${entry.code}) para que ela volte a atender tecnicamente aos criterios da inspecao.${entry.detail ? ` ${entry.detail}` : ""}`;
+
+      return {
+        id: `requirement-plan-${entry.id}`,
+        contextLabel: `Medida exigida ${entry.code} - ${entry.category}`,
+        itemDisplay: entry.name,
+        correctionAction,
+        startDate,
+        dueDate: addDaysToDate(startDate, 30),
+        riskLevel: riskAssessment.level,
+        riskPriority: riskAssessment.priority,
+        riskTone: riskAssessment.tone,
+      } satisfies CorrectionPlanEntry;
     });
 };
 
@@ -1065,6 +1249,22 @@ const getChecklistStatusMeta = (status: ChecklistSnapshotItem["status"]) => {
   return { label: "Pendente", tone: "neutral" as const };
 };
 
+const hasChecklistConclusiveItems = (
+  items: Array<Pick<ChecklistSnapshotItem, "status">>,
+) => items.some((item) => item.status === "C" || item.status === "NC");
+
+const getChecklistItemsEligibleForReportAnnex = (
+  items: ChecklistSnapshotItem[],
+) => {
+  const answeredItems = items.filter((item) => item.status !== "P");
+
+  if (!hasChecklistConclusiveItems(answeredItems)) {
+    return [];
+  }
+
+  return answeredItems;
+};
+
 const buildChecklistPrintSections = ({
   snapshot,
   equipmentCatalog,
@@ -1077,7 +1277,9 @@ const buildChecklistPrintSections = ({
   const sections: ChecklistPrintSection[] = [];
 
   snapshot.inspections.forEach((inspection) => {
-    const answeredItems = inspection.itens.filter((item) => item.status !== "P");
+    const answeredItems = getChecklistItemsEligibleForReportAnnex(
+      inspection.itens,
+    );
 
     if (answeredItems.length === 0) {
       return;
@@ -1100,7 +1302,9 @@ const buildChecklistPrintSections = ({
   });
 
   Array.from(equipmentCatalog.values()).forEach((entry) => {
-    const answeredItems = entry.snapshot.items.filter((item) => item.status !== "P");
+    const answeredItems = getChecklistItemsEligibleForReportAnnex(
+      entry.snapshot.items,
+    );
 
     if (answeredItems.length === 0) {
       return;
@@ -1130,23 +1334,31 @@ const PageFrame = ({
   children,
   pageNumber,
   totalPages,
+  title,
+  subtitle,
+  legalNotice,
 }: {
   children: ReactNode;
   pageNumber: number;
   totalPages: number;
+  title: string;
+  subtitle: string;
+  legalNotice: string;
 }) => (
   <article
     className="report-page relative mx-auto bg-white text-black shadow-[0_20px_50px_rgba(15,23,42,0.18)] print:shadow-none print:mx-0 print:my-0"
-    style={{ width: "210mm", minHeight: "297mm" }}
+    style={{ width: "210mm", height: "297mm" }}
   >
-    <div className="flex min-h-[297mm] flex-col px-[18mm] pb-[18mm] pt-[14mm]">
+    <div className="box-border flex h-full flex-col px-[18mm] pb-[18mm] pt-[14mm]">
       <header className="mb-6 border-b border-zinc-300 pb-4 text-center">
         <div className="flex-1 text-center">
           <h1 className="text-[17px] font-semibold uppercase leading-tight tracking-[0.02em] text-zinc-800">
-            Relatorio de Inspecao
-            <br />
-            Tecnica Preventiva - RITP
+            {title}
           </h1>
+          <p className="mt-2 text-[9.5px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+            {subtitle}
+          </p>
+          <p className="mt-2 text-[10px] leading-5 text-zinc-600">{legalNotice}</p>
         </div>
       </header>
 
@@ -1302,13 +1514,13 @@ const ChecklistDigitalSignatureStamp = ({
 );
 
 const RiskMatrix = () => (
-  <table className="w-full border-collapse text-center text-[11px] font-semibold text-zinc-900">
+  <table className="w-full table-fixed border-collapse text-center text-[11px] font-semibold text-zinc-900">
     <tbody>
       <tr>
         <td className="w-[50px] border border-zinc-400 p-2 text-[10px]" rowSpan={3}>
           <div className="-rotate-90 whitespace-nowrap">Grau de Inconformidade</div>
         </td>
-        <td className="border border-zinc-400 p-3 text-left">
+        <td className="border border-zinc-400 p-3 text-left align-top leading-5">
           Inconformidades <strong>GRAVE</strong> que apresentam risco iminente a seguranca dos ocupantes.
         </td>
         <td className="border border-zinc-400 bg-yellow-300 p-3">Correcao prioritaria</td>
@@ -1316,7 +1528,7 @@ const RiskMatrix = () => (
         <td className="border border-zinc-400 bg-red-500 p-3 text-white">Correcao imediata</td>
       </tr>
       <tr>
-        <td className="border border-zinc-400 p-3 text-left">
+        <td className="border border-zinc-400 p-3 text-left align-top leading-5">
           Inconformidades <strong>MODERADA</strong> que podem comprometer a seguranca em medio prazo.
         </td>
         <td className="border border-zinc-400 bg-emerald-500 p-3 text-white">Correcao programada</td>
@@ -1324,7 +1536,7 @@ const RiskMatrix = () => (
         <td className="border border-zinc-400 bg-red-500 p-3 text-white">Correcao imediata</td>
       </tr>
       <tr>
-        <td className="border border-zinc-400 p-3 text-left">
+        <td className="border border-zinc-400 p-3 text-left align-top leading-5">
           Inconformidades <strong>LEVE</strong> que nao impactam diretamente na seguranca.
         </td>
         <td className="border border-zinc-400 bg-emerald-500 p-3 text-white">Correcao programada</td>
@@ -1352,6 +1564,7 @@ const ReportToolbar = ({
   saving,
   snapshotIsCurrent,
   statusLabel,
+  finalizeLabel,
 }: {
   navigateBack: () => void;
   onSync: () => void;
@@ -1361,6 +1574,7 @@ const ReportToolbar = ({
   saving: boolean;
   snapshotIsCurrent: boolean;
   statusLabel: string;
+  finalizeLabel: string;
 }) => (
   <div className="report-controls flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
     <div className="flex flex-wrap items-center gap-2">
@@ -1402,7 +1616,7 @@ const ReportToolbar = ({
         ) : (
           <>
             <FileCheck className="mr-2 h-4 w-4" />
-            Finalizar relatorio
+            {finalizeLabel}
           </>
         )}
       </Button>
@@ -1414,6 +1628,7 @@ const CompanyReport = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { isSystemAdmin, email } = useAuth();
   const [company, setCompany] = useState<Company | null>(null);
   const [report, setReport] = useState<ReportRow | null>(null);
   const [reportRequirements, setReportRequirements] = useState<ReportRequirement[]>([]);
@@ -1429,6 +1644,7 @@ const CompanyReport = () => {
   const [reportSignatures, setReportSignatures] = useState<CompanyReportSignatureRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [validationQrCodeDataUrl, setValidationQrCodeDataUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -1626,11 +1842,55 @@ const CompanyReport = () => {
     }));
   }, [reportSignatures]);
 
+  useEffect(() => {
+    const generateValidationQrCode = async () => {
+      if (!id || form.reportMode !== "tecnico") {
+        setValidationQrCodeDataUrl(null);
+        return;
+      }
+
+      const reference = encodeURIComponent(
+        report?.updated_at || snapshot?.generated_at || new Date().toISOString(),
+      );
+      const validationUrl = `${window.location.origin}/relatorios/${id}?validacao=${reference}`;
+
+      try {
+        const { toDataURL } = await import("qrcode");
+        const qrCodeDataUrl = await toDataURL(validationUrl, {
+          margin: 1,
+          width: 180,
+        });
+        setValidationQrCodeDataUrl(qrCodeDataUrl);
+      } catch (error) {
+        console.error("Error generating report validation QR code:", error);
+        setValidationQrCodeDataUrl(null);
+      }
+    };
+
+    void generateValidationQrCode();
+  }, [form.reportMode, id, report?.updated_at, snapshot?.generated_at]);
+
   const handleInputChange = (field: keyof ReportFormState, value: string) => {
     setForm((current) => ({
       ...current,
       [field]: value,
     }));
+  };
+
+  const handleReportModeChange = (nextMode: ReportMode) => {
+    setForm((current) => {
+      const currentTitle = current.titulo.trim();
+      const shouldSyncTitle =
+        !currentTitle ||
+        currentTitle === OPERATIONAL_REPORT_TITLE ||
+        currentTitle === TECHNICAL_REPORT_TITLE;
+
+      return {
+        ...current,
+        reportMode: nextMode,
+        titulo: shouldSyncTitle ? getDefaultReportTitle(nextMode) : current.titulo,
+      };
+    });
   };
 
   const handleSyncChecklistSnapshot = () => {
@@ -1675,6 +1935,38 @@ const CompanyReport = () => {
         variant: "destructive",
       });
       return;
+    }
+
+    if (nextStatus === "finalizado" && form.reportMode === "tecnico") {
+      if (!isSystemAdmin) {
+        toast({
+          title: "Emissao tecnica restrita",
+          description:
+            "A versao tecnica oficial so pode ser finalizada por um responsavel tecnico da FIRE TETRAEDRO.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!form.artRrtNumero.trim()) {
+        toast({
+          title: "ART/RRT obrigatoria",
+          description:
+            "Informe o numero da ART/RRT antes de emitir o relatorio tecnico oficial.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (missingExecutionTraceabilityCount > 0) {
+        toast({
+          title: "Rastreabilidade incompleta",
+          description:
+            "Nao e possivel emitir o relatorio tecnico enquanto existirem checklists sem autoria registrada.",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     try {
@@ -1726,7 +2018,7 @@ const CompanyReport = () => {
 
       const payload: Database["public"]["Tables"]["empresa_relatorios"]["Insert"] = {
         empresa_id: id,
-        titulo: normalizeNullable(form.titulo) || "Relatorio de Inspecao Tecnica Preventiva - RITP",
+        titulo: normalizeNullable(form.titulo) || getDefaultReportTitle(form.reportMode),
         numero_relatorio: normalizeNullable(form.numeroRelatorio),
         data_inspecao: form.dataInspecao || null,
         data_emissao: form.dataEmissao || null,
@@ -1748,7 +2040,22 @@ const CompanyReport = () => {
           empresa_responsavel: company.responsavel,
           empresa_telefone: company.telefone,
           empresa_email: company.email,
-          report_model: "fire-ritp",
+          report_model:
+            form.reportMode === "tecnico"
+              ? "fire-rtci-oficial"
+              : "fire-rip-operacional",
+          report_mode: form.reportMode,
+          art_rrt_numero: normalizeNullable(form.artRrtNumero),
+          report_legal_notice:
+            form.reportMode === "tecnico"
+              ? TECHNICAL_LEGAL_NOTICE
+              : OPERATIONAL_LEGAL_NOTICE,
+          report_validation_url:
+            form.reportMode === "tecnico" && id
+              ? `${window.location.origin}/relatorios/${id}`
+              : null,
+          report_validated_by:
+            form.reportMode === "tecnico" ? normalizeNullable(email) : null,
           non_conformities_count: nonConformityRecords.length,
           report_signatures: persistedSignatures,
           report_signatures_generated_at: new Date().toISOString(),
@@ -1852,36 +2159,6 @@ const CompanyReport = () => {
         ],
     2,
   );
-  const planChunks =
-    reportEntries.length > 0
-      ? chunkArray(reportEntries, 4)
-      : [
-          [
-            {
-              id: "placeholder-plan",
-              checklistItemId: "",
-              inspectionCode: "-",
-              inspectionName: "Sem registros",
-              section: "Sem secao",
-              itemDisplay: "-",
-              itemReference: "-",
-              itemDescription: "Nao ha medidas corretivas pendentes no checklist atual.",
-              detailDescription:
-                "Nenhuma nao conformidade ativa foi identificada no snapshot utilizado pelo relatorio.",
-              imageDataUrl: null,
-              sourceType: "principal" as const,
-              sourceLabel: "Sem registros",
-              sourceSubtitle: "Checklist consolidado",
-              contextLabel: "Checklist consolidado",
-              correctionAction: "Nao ha medidas corretivas a registrar para o relatorio atual.",
-              startDate: form.dataInspecao || form.dataEmissao || getToday(),
-              dueDate: form.dataEmissao || getToday(),
-              riskLevel: "BAIXA" as const,
-              riskPriority: "Correcao programada",
-              riskTone: "neutral" as const,
-            },
-          ],
-        ];
   const generalChecklistLines = buildGeneralChecklistLines(snapshot);
   const technicalSummary = buildTechnicalSnapshotSummary(snapshot);
   const checkedGeneralItems = generalChecklistLines.reduce(
@@ -1917,8 +2194,42 @@ const CompanyReport = () => {
             statusTone: "warning" as const,
           },
         ],
-    8,
+    6,
   );
+  const snapshotCorrectionPlanEntries = buildSnapshotCorrectionPlanEntries({
+    snapshot,
+    equipmentCatalog,
+    detailedEntries: reportEntries,
+    form,
+  });
+  const requirementCorrectionPlanEntries = buildRequirementCorrectionPlanEntries({
+    requirementMeasureEntries,
+    form,
+  });
+  const correctionPlanEntries: CorrectionPlanEntry[] =
+    reportEntries.length > 0 ||
+    snapshotCorrectionPlanEntries.length > 0 ||
+    requirementCorrectionPlanEntries.length > 0
+      ? [
+          ...reportEntries,
+          ...snapshotCorrectionPlanEntries,
+          ...requirementCorrectionPlanEntries,
+        ]
+      : [
+          {
+            id: "placeholder-plan",
+            contextLabel: "Checklist consolidado",
+            itemDisplay: "-",
+            correctionAction:
+              "Nao ha medidas corretivas a registrar para o relatorio atual.",
+            startDate: form.dataInspecao || form.dataEmissao || getToday(),
+            dueDate: form.dataEmissao || getToday(),
+            riskLevel: "BAIXA",
+            riskPriority: "Correcao programada",
+            riskTone: "neutral",
+          },
+        ];
+  const planChunks = chunkArray(correctionPlanEntries, 3);
 
   const riskSummary = reportEntries.reduce(
     (summary, entry) => {
@@ -1935,44 +2246,18 @@ const CompanyReport = () => {
   );
   const missingTechnicalResponsible =
     !form.inspetorNome.trim() || !form.inspetorCargo.trim();
-
-  const conclusionParagraphs = form.conclusao.trim()
-    ? form.conclusao
-        .split(/\n{2,}/)
-        .map((paragraph) => paragraph.trim())
-        .filter(Boolean)
-    : [
-        `A inspecao tecnica preventiva realizada consolidou ${technicalSummary.total} item(ns), sendo ${technicalSummary.conforme} conforme(s), ${technicalSummary.naoConforme} nao conformidade(s), ${technicalSummary.naoAplicavel} nao aplicavel(is) e ${technicalSummary.pendentes} pendente(s).`,
-        riskSummary.high > 0
-          ? `${riskSummary.high} nao conformidade(s) foi(foram) classificada(s) como de risco alto, exigindo tratamento imediato para preservar a seguranca da vida e do patrimonio.`
-          : "Nao foram identificadas nao conformidades classificadas como risco alto nos registros detalhados anexos.",
-        missingTechnicalResponsible
-          ? "Este documento permanece com validade tecnica limitada ate a identificacao completa do responsavel tecnico e de sua funcao na inspecao."
-          : "Os registros detalhados com comentarios e imagens foram incorporados ao presente relatorio e estruturados em anexo fotografico e plano de correcao, permitindo rastreabilidade das medidas corretivas recomendadas.",
-        `A adocao tempestiva das acoes propostas e a reavaliacao tecnica dos itens corrigidos sao essenciais para a manutencao das condicoes de seguranca contra incendios e emergencias da edificacao.`,
-      ];
-  const resultObservationLines = [
-    `Consolidacao tecnica: ${technicalSummary.conforme} C + ${technicalSummary.naoConforme} NC + ${technicalSummary.naoAplicavel} NA + ${technicalSummary.pendentes} P = ${technicalSummary.total} item(ns).`,
-    `${generalChecklistLines.length} checklist(s) gerais tiveram ao menos um item verificado nesta emissao, considerando somente o checklist principal de extintores, hidrantes e luminarias.`,
-    `Medidas com atendimento tecnico pleno: ${requirementsAttendedCount} de ${requirementMeasureEntries.length}.`,
-  ];
-
-  if (reportEntries.length > 0) {
-    resultObservationLines.push(
-      `${reportEntries.length} registro(s) detalhado(s) com imagem e comentario foram incorporados aos anexos e ao plano de correcao, com classificacao de risco.`,
-    );
-  }
-
-  if (requirementsWithWarningCount > 0) {
-    resultObservationLines.push(
-      `${requirementsWithWarningCount} medida(s) exigida(s) permanecem com avaliacao operacional parcial e exigem conclusao do checklist para julgamento tecnico definitivo.`,
-    );
-  }
-
-  if (form.observacoesGerais.trim()) {
-    resultObservationLines.push(form.observacoesGerais.trim());
-  }
-
+  const isTechnicalReport = form.reportMode === "tecnico";
+  const reportTitle = form.titulo.trim() || getDefaultReportTitle(form.reportMode);
+  const reportSubtitle = isTechnicalReport
+    ? "Relatorio tecnico oficial com potencial validade juridica"
+    : "Relatorio operacional para uso interno e acompanhamento preventivo";
+  const reportLegalNotice = isTechnicalReport
+    ? TECHNICAL_LEGAL_NOTICE
+    : OPERATIONAL_LEGAL_NOTICE;
+  const technicalValidationUrl =
+    isTechnicalReport && id
+      ? `${window.location.origin}/relatorios/${id}`
+      : null;
   const signatureRows =
     reportSignatures.length > 0
       ? reportSignatures
@@ -1998,9 +2283,58 @@ const CompanyReport = () => {
     equipmentCatalog,
     signers: signatureRows,
   });
+  const annexNaoAplicavelCount = checklistPrintSections.reduce(
+    (total, section) =>
+      total + section.items.filter((item) => item.status === "NA").length,
+    0,
+  );
   const missingExecutionTraceabilityCount = checklistPrintSections.filter(
     (section) => section.signers.length === 0,
   ).length;
+
+  const conclusionParagraphs = form.conclusao.trim()
+    ? form.conclusao
+        .split(/\n{2,}/)
+        .map((paragraph) => paragraph.trim())
+        .filter(Boolean)
+    : [
+        `A inspecao tecnica preventiva realizada consolidou ${technicalSummary.total} item(ns), sendo ${technicalSummary.conforme} conforme(s), ${technicalSummary.naoConforme} nao conformidade(s), ${technicalSummary.naoAplicavel} nao aplicavel(is) e ${technicalSummary.pendentes} pendente(s).`,
+        annexNaoAplicavelCount !== technicalSummary.naoAplicavel
+          ? `${annexNaoAplicavelCount} item(ns) nao aplicavel(is) permaneceram considerados no relatorio por integrarem checklists com ao menos um item conforme ou nao conforme.`
+          : null,
+        riskSummary.high > 0
+          ? `${riskSummary.high} nao conformidade(s) foi(foram) classificada(s) como de risco alto, exigindo tratamento imediato para preservar a seguranca da vida e do patrimonio.`
+          : "Nao foram identificadas nao conformidades classificadas como risco alto nos registros detalhados anexos.",
+        missingTechnicalResponsible
+          ? "Este documento permanece com validade tecnica limitada ate a identificacao completa do responsavel tecnico e de sua funcao na inspecao."
+          : "Os registros detalhados com comentarios e imagens foram incorporados ao presente relatorio e estruturados em anexo fotografico e plano de correcao, permitindo rastreabilidade das medidas corretivas recomendadas.",
+        `A adocao tempestiva das acoes propostas e a reavaliacao tecnica dos itens corrigidos sao essenciais para a manutencao das condicoes de seguranca contra incendios e emergencias da edificacao.`,
+      ].filter((paragraph): paragraph is string => Boolean(paragraph));
+  const resultObservationLines = [
+    isTechnicalReport
+      ? "Modo do documento: relatorio tecnico oficial."
+      : "Modo do documento: relatorio operacional sem validade tecnica legal.",
+    `Consolidacao tecnica: ${technicalSummary.conforme} C + ${technicalSummary.naoConforme} NC + ${technicalSummary.naoAplicavel} NA + ${technicalSummary.pendentes} P = ${technicalSummary.total} item(ns).`,
+    `Nao aplicaveis considerados nos anexos e no resumo operacional: ${annexNaoAplicavelCount}.`,
+    `${generalChecklistLines.length} checklist(s) gerais tiveram ao menos um item verificado nesta emissao, considerando somente o checklist principal de extintores, hidrantes e luminarias.`,
+    `Medidas com atendimento tecnico pleno: ${requirementsAttendedCount} de ${requirementMeasureEntries.length}.`,
+  ];
+
+  if (reportEntries.length > 0) {
+    resultObservationLines.push(
+      `${reportEntries.length} registro(s) detalhado(s) com imagem e comentario foram incorporados aos anexos e ao plano de correcao, com classificacao de risco.`,
+    );
+  }
+
+  if (requirementsWithWarningCount > 0) {
+    resultObservationLines.push(
+      `${requirementsWithWarningCount} medida(s) exigida(s) permanecem com avaliacao operacional parcial e exigem conclusao do checklist para julgamento tecnico definitivo.`,
+    );
+  }
+
+  if (form.observacoesGerais.trim()) {
+    resultObservationLines.push(form.observacoesGerais.trim());
+  }
 
   if (missingExecutionTraceabilityCount > 0) {
     resultObservationLines.push(
@@ -2264,7 +2598,7 @@ const CompanyReport = () => {
             <div className="text-[9px] font-semibold uppercase tracking-[0.08em] text-amber-700">
               Nao aplicaveis
             </div>
-            <div className="mt-2 text-[24px] font-bold text-amber-800">{technicalSummary.naoAplicavel}</div>
+            <div className="mt-2 text-[24px] font-bold text-amber-800">{annexNaoAplicavelCount}</div>
           </div>
           <div className="rounded-sm border border-zinc-300 bg-slate-50 px-3 py-4">
             <div className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-600">
@@ -2366,34 +2700,42 @@ const CompanyReport = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-[1fr_260px] gap-4">
-            <div className="rounded-sm border border-zinc-300 bg-zinc-50 px-4 py-4">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
-                Matriz de criticidade
-              </p>
-              <div className="mt-3">
-                <RiskMatrix />
-              </div>
+        </div>
+      </section>
+    </div>,
+  );
+
+  pages.push(
+    <div className="space-y-6">
+      <section className="space-y-4">
+        <SectionHeading index="4" title="Resultado da Avaliacao - Matriz de Criticidade" />
+        <div className="grid grid-cols-[minmax(0,1fr)_220px] items-start gap-4">
+          <div className="min-w-0 overflow-hidden rounded-sm border border-zinc-300 bg-zinc-50 px-4 py-4">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+              Matriz de criticidade
+            </p>
+            <div className="mt-3">
+              <RiskMatrix />
             </div>
-            <div className="space-y-3">
-              <div className="rounded-sm border border-red-200 bg-red-50 px-4 py-4">
-                <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-red-700">
-                  Risco alto
-                </p>
-                <p className="mt-2 text-[24px] font-bold text-red-800">{riskSummary.high}</p>
-              </div>
-              <div className="rounded-sm border border-amber-200 bg-amber-50 px-4 py-4">
-                <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-amber-700">
-                  Risco medio
-                </p>
-                <p className="mt-2 text-[24px] font-bold text-amber-800">{riskSummary.medium}</p>
-              </div>
-              <div className="rounded-sm border border-zinc-200 bg-zinc-50 px-4 py-4">
-                <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-600">
-                  Risco baixo
-                </p>
-                <p className="mt-2 text-[24px] font-bold text-zinc-900">{riskSummary.low}</p>
-              </div>
+          </div>
+          <div className="min-w-0 space-y-3">
+            <div className="rounded-sm border border-red-200 bg-red-50 px-4 py-4">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-red-700">
+                Risco alto
+              </p>
+              <p className="mt-2 text-[24px] font-bold text-red-800">{riskSummary.high}</p>
+            </div>
+            <div className="rounded-sm border border-amber-200 bg-amber-50 px-4 py-4">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-amber-700">
+                Risco medio
+              </p>
+              <p className="mt-2 text-[24px] font-bold text-amber-800">{riskSummary.medium}</p>
+            </div>
+            <div className="rounded-sm border border-zinc-200 bg-zinc-50 px-4 py-4">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-600">
+                Risco baixo
+              </p>
+              <p className="mt-2 text-[24px] font-bold text-zinc-900">{riskSummary.low}</p>
             </div>
           </div>
         </div>
@@ -2527,6 +2869,14 @@ const CompanyReport = () => {
             <div className="grid grid-cols-1">
               <DataCell label="Responsavel tecnico" value={form.inspetorNome || "-"} />
               <DataCell label="Cargo / Funcao" value={form.inspetorCargo || "-"} />
+              <DataCell
+                label="Tipo de documento"
+                value={isTechnicalReport ? "Relatorio tecnico oficial" : "Relatorio operacional"}
+              />
+              <DataCell
+                label="ART / RRT"
+                value={isTechnicalReport ? form.artRrtNumero || "-" : "Nao se aplica"}
+              />
               <DataCell label="Representante da empresa" value={form.representanteNome || "-"} />
               <DataCell label="Cargo do representante" value={form.representanteCargo || "-"} />
               <DataCell label="Data da inspecao" value={formatDate(form.dataInspecao)} />
@@ -2544,17 +2894,63 @@ const CompanyReport = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          {signatureChunks[0].map((signer) => renderSignatureCard(signer))}
+        <div className="grid grid-cols-[1.2fr_1fr] gap-4">
+          <div className="rounded-sm border border-zinc-300 bg-zinc-50 px-4 py-4 text-[12px] leading-6 text-zinc-800">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+              Aviso legal e enquadramento
+            </p>
+            <p className="mt-3">{reportLegalNotice}</p>
+            {isTechnicalReport ? (
+              <p className="mt-3">
+                Emissao tecnica condicionada a validacao final por responsavel tecnico vinculado a FIRE TETRAEDRO.
+              </p>
+            ) : (
+              <p className="mt-3">
+                Este documento foi estruturado para rotina preventiva, brigada, sindico, bombeiro civil e acompanhamento operacional.
+              </p>
+            )}
+          </div>
+          <div className="rounded-sm border border-zinc-300 bg-white px-4 py-4">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+              Validacao
+            </p>
+            {isTechnicalReport && validationQrCodeDataUrl ? (
+              <div className="mt-3 flex items-center gap-4">
+                <img
+                  src={validationQrCodeDataUrl}
+                  alt="QR Code de validacao do relatorio"
+                  className="h-28 w-28 border border-zinc-200 p-1"
+                />
+                <div className="space-y-2 text-[10.5px] leading-5 text-zinc-700">
+                  <p className="font-semibold text-zinc-900">QR Code de validacao</p>
+                  <p>{technicalValidationUrl || "-"}</p>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-3 text-[10.5px] leading-5 text-zinc-700">
+                {isTechnicalReport
+                  ? "QR Code de validacao sera gerado apos a emissao tecnica."
+                  : "Relatorio operacional: sem QR Code de validacao juridica."}
+              </div>
+            )}
+          </div>
         </div>
+
       </section>
     </div>,
   );
 
-  signatureChunks.slice(1).forEach((chunk) => {
+  signatureChunks.forEach((chunk, chunkIndex) => {
     pages.push(
       <div className="space-y-5">
-        <SectionHeading index="7" title="Parecer Final e Assinaturas - Continuacao" />
+        <SectionHeading
+          index="7"
+          title={
+            chunkIndex === 0
+              ? "Assinaturas do Relatorio"
+              : "Assinaturas do Relatorio - Continuacao"
+          }
+        />
         <div className="grid grid-cols-2 gap-4">
           {chunk.map((signer) => renderSignatureCard(signer))}
         </div>
@@ -2563,7 +2959,7 @@ const CompanyReport = () => {
   });
 
   checklistPrintSections.forEach((section, sectionIndex) => {
-    const itemChunks = chunkArray(section.items, 14);
+    const itemChunks = chunkArray(section.items, 10);
 
     itemChunks.forEach((itemChunk, chunkIndex) => {
       const isLastChunk = chunkIndex === itemChunks.length - 1;
@@ -2674,13 +3070,26 @@ const CompanyReport = () => {
             max-width: none !important;
           }
 
+          .report-print-wrapper > * + * {
+            margin-top: 0 !important;
+          }
+
+          .report-pages > * + * {
+            margin-top: 0 !important;
+          }
+
           .report-page {
+            box-sizing: border-box;
             break-after: page;
+            page-break-after: always;
+            break-inside: avoid;
+            page-break-inside: avoid;
             margin: 0 auto !important;
           }
 
           .report-page:last-child {
             break-after: auto;
+            page-break-after: auto;
           }
         }
       `}</style>
@@ -2695,6 +3104,11 @@ const CompanyReport = () => {
           saving={saving}
           snapshotIsCurrent={snapshotIsCurrent}
           statusLabel={statusMeta.label}
+          finalizeLabel={
+            isTechnicalReport
+              ? "Emitir relatorio tecnico"
+              : "Finalizar relatorio operacional"
+          }
         />
 
         <div className="report-editor grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
@@ -2704,9 +3118,52 @@ const CompanyReport = () => {
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2 md:col-span-2">
+                <Label>Tipo do relatorio</Label>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant={form.reportMode === "operacional" ? "default" : "outline"}
+                    onClick={() => handleReportModeChange("operacional")}
+                  >
+                    Relatorio operacional
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={form.reportMode === "tecnico" ? "default" : "outline"}
+                    onClick={() => handleReportModeChange("tecnico")}
+                    disabled={!isSystemAdmin && form.reportMode !== "tecnico"}
+                  >
+                    Relatorio tecnico oficial
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {!isSystemAdmin
+                    ? "Somente o responsavel tecnico da FIRE TETRAEDRO pode emitir a versao tecnica oficial."
+                    : "Como administrador tecnico, voce pode revisar o pre-relatorio operacional e emitir a versao oficial."}
+                </p>
+              </div>
+              <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="titulo">Titulo</Label>
                 <Input id="titulo" value={form.titulo} onChange={(event) => handleInputChange("titulo", event.target.value)} />
               </div>
+              {form.reportMode === "tecnico" ? (
+                <div className="space-y-2">
+                  <Label htmlFor="artRrtNumero">Numero da ART / RRT</Label>
+                  <Input
+                    id="artRrtNumero"
+                    value={form.artRrtNumero}
+                    onChange={(event) => handleInputChange("artRrtNumero", event.target.value)}
+                    placeholder="Informe a ART/RRT vinculada"
+                  />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label>Aviso legal</Label>
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    {OPERATIONAL_LEGAL_NOTICE}
+                  </div>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="numeroRelatorio">Numero do relatorio</Label>
                 <Input id="numeroRelatorio" value={form.numeroRelatorio} onChange={(event) => handleInputChange("numeroRelatorio", event.target.value)} />
@@ -2790,9 +3247,16 @@ const CompanyReport = () => {
           <Card><CardContent className="pt-6"><div className="text-xs uppercase text-muted-foreground">Checklist base</div><div className="mt-2 text-sm font-semibold">{formatDateTime(snapshot.generated_at)}</div><div className="mt-2 text-xs text-muted-foreground">{missingTechnicalResponsible ? "Validade tecnica pendente" : "Validade tecnica apta"}</div></CardContent></Card>
         </div>
 
-        <div className="space-y-8">
+        <div className="report-pages space-y-8">
           {pages.map((page, index) => (
-            <PageFrame key={`report-page-${index + 1}`} pageNumber={index + 1} totalPages={pages.length}>
+            <PageFrame
+              key={`report-page-${index + 1}`}
+              pageNumber={index + 1}
+              totalPages={pages.length}
+              title={reportTitle}
+              subtitle={reportSubtitle}
+              legalNotice={reportLegalNotice}
+            >
               {page}
             </PageFrame>
           ))}
