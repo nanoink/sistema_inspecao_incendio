@@ -10,6 +10,8 @@ import EquipmentChecklistPage from "./pages/EquipmentChecklistPage";
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Index = lazy(() => import("./pages/Index"));
 const EditCompanyPage = lazy(() => import("./pages/EditCompanyPage"));
+const EditCompanyUserPage = lazy(() => import("./pages/EditCompanyUserPage"));
+const CompanyUserActivitiesPage = lazy(() => import("./pages/CompanyUserActivitiesPage"));
 const CompanyRequirements = lazy(() => import("./pages/CompanyRequirements"));
 const CompanyChecklists = lazy(() => import("./pages/CompanyChecklists"));
 const CompanyReport = lazy(() => import("./pages/CompanyReport"));
@@ -44,6 +46,8 @@ const App = () => (
             <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/cadastro" element={<ProtectedRoute><Index /></ProtectedRoute>} />
             <Route path="/empresas/:id/editar" element={<ProtectedRoute><EditCompanyPage /></ProtectedRoute>} />
+            <Route path="/empresas/:companyId/usuarios/:userId/editar" element={<ProtectedRoute><EditCompanyUserPage /></ProtectedRoute>} />
+            <Route path="/empresas/:companyId/usuarios/:userId/atividades" element={<ProtectedRoute><CompanyUserActivitiesPage /></ProtectedRoute>} />
             <Route path="/exigencias/:id" element={<ProtectedRoute><CompanyRequirements /></ProtectedRoute>} />
             <Route path="/checklists/:id" element={<ProtectedRoute><CompanyChecklists /></ProtectedRoute>} />
             <Route path="/relatorios/:id" element={<ProtectedRoute><CompanyReport /></ProtectedRoute>} />

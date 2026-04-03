@@ -81,6 +81,9 @@ Deno.serve(async (request) => {
     companyId?: string;
     nome?: string;
     email?: string;
+    cpf?: string;
+    cargo?: string;
+    crea?: string;
     password?: string;
     role?: "gestor" | "membro";
   };
@@ -94,6 +97,9 @@ Deno.serve(async (request) => {
   const companyId = (body.companyId || "").trim();
   const nome = (body.nome || "").trim();
   const email = (body.email || "").trim().toLowerCase();
+  const cpf = (body.cpf || "").trim();
+  const cargo = (body.cargo || "").trim();
+  const crea = (body.crea || "").trim();
   const password = (body.password || "").trim();
   const role = body.role === "gestor" ? "gestor" : "membro";
 
@@ -186,6 +192,9 @@ Deno.serve(async (request) => {
       email_confirm: true,
       user_metadata: {
         nome,
+        cpf,
+        cargo,
+        crea,
         temporary_password: true,
         created_by_admin_flow: true,
       },
@@ -237,6 +246,9 @@ Deno.serve(async (request) => {
     user_id: createdUser.id,
     nome,
     email,
+    cpf: cpf || null,
+    cargo: cargo || null,
+    crea: crea || null,
     papel: role,
     temporary_password: true,
   });

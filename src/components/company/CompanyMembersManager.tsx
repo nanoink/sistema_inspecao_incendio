@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
+  ClipboardList,
   Crown,
   Loader2,
+  Pencil,
   ShieldCheck,
   Trash2,
   UserPlus,
@@ -24,6 +27,7 @@ import {
   normalizeCpf,
   removeCompanyMember,
   setCompanyMemberChecklistPermission,
+  setCompanyMemberAsTechnicalResponsible,
   setCompanyMemberRole,
   type CompanyMemberSummary,
 } from "@/lib/company-members";
@@ -37,6 +41,7 @@ export const CompanyMembersManager = ({
   companyId,
   responsavelName,
 }: CompanyMembersManagerProps) => {
+  const navigate = useNavigate();
   const { toast } = useToast();
   const { user, isSystemAdmin } = useAuth();
   const [members, setMembers] = useState<CompanyMemberSummary[]>([]);
@@ -46,7 +51,9 @@ export const CompanyMembersManager = ({
   const [email, setEmail] = useState("");
   const [cpf, setCpf] = useState("");
   const [cargo, setCargo] = useState("");
+  const [crea, setCrea] = useState("");
   const [password, setPassword] = useState("");
+  const [isTechnicalResponsible, setIsTechnicalResponsible] = useState(false);
 
   const fetchMembers = useCallback(async () => {
     try {
@@ -83,7 +90,9 @@ export const CompanyMembersManager = ({
     setEmail("");
     setCpf("");
     setCargo("");
+    setCrea("");
     setPassword("");
+    setIsTechnicalResponsible(false);
   };
 
   const handleCreateUser = async () => {
@@ -126,6 +135,15 @@ export const CompanyMembersManager = ({
       return;
     }
 
+    if (isTechnicalResponsible && !crea.trim()) {
+      toast({
+        title: "Informe o CREA",
+        description: "Digite o numero do CREA do responsavel tecnico.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (password.trim().length < 6) {
       toast({
         title: "Senha provisoria invalida",
@@ -137,23 +155,37 @@ export const CompanyMembersManager = ({
 
     try {
       setSaving(true);
-      await createCompanyUser(supabase, {
+      const createdUser = await createCompanyUser(supabase, {
         companyId,
         nome: normalizedName,
         email: normalizedEmail,
         cpf,
         cargo,
+        crea: crea.trim(),
         password: password.trim(),
         role: creationRole,
       });
+
+      if (isTechnicalResponsible) {
+        await setCompanyMemberAsTechnicalResponsible(supabase, {
+          companyId,
+          userId: createdUser.user_id,
+          isTechnicalResponsible: true,
+        });
+      }
+
       resetCreationForm();
       await fetchMembers();
       toast({
         title: "Usuario criado",
         description:
           creationRole === "gestor"
-            ? "O primeiro usuario da empresa foi criado como gestor."
-            : "O usuario foi criado com senha provisoria e vinculado a empresa.",
+            ? isTechnicalResponsible
+              ? "O primeiro usuario da empresa foi criado como gestor e responsavel tecnico."
+              : "O primeiro usuario da empresa foi criado como gestor."
+            : isTechnicalResponsible
+              ? "O usuario foi criado com senha provisoria, vinculado a empresa e definido como responsavel tecnico."
+              : "O usuario foi criado com senha provisoria e vinculado a empresa.",
       });
     } catch (error) {
       console.error("Error creating company user:", error);
@@ -300,7 +332,7 @@ export const CompanyMembersManager = ({
 
           <div className="grid gap-3 md:grid-cols-2">
             <Input
-              placeholder="Nome completo"
+              placeholder="Nome completo do usuario"
               value={name}
               onChange={(event) => setName(event.target.value)}
               disabled={saving || !canManageMembers}
@@ -316,23 +348,34 @@ export const CompanyMembersManager = ({
 
           <div className="grid gap-3 md:grid-cols-2">
             <Input
-              placeholder="CPF"
-              value={formatCpf(cpf)}
+              placeholder="CPF do usuario"
+              value={cpf ? formatCpf(cpf) : ""}
               onChange={(event) => setCpf(normalizeCpf(event.target.value))}
               disabled={saving || !canManageMembers}
               inputMode="numeric"
             />
             <Input
-              placeholder="Cargo"
+              placeholder="Cargo ou funcao"
               value={cargo}
               onChange={(event) => setCargo(event.target.value)}
               disabled={saving || !canManageMembers}
             />
           </div>
 
+          {isTechnicalResponsible ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              <Input
+                placeholder="Numero do CREA"
+                value={crea}
+                onChange={(event) => setCrea(event.target.value)}
+                disabled={saving || !canManageMembers}
+              />
+            </div>
+          ) : null}
+
           <div className="grid gap-3 md:grid-cols-[1fr_auto]">
             <Input
-              placeholder="Senha provisoria"
+              placeholder="Defina uma senha provisoria"
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
@@ -352,6 +395,28 @@ export const CompanyMembersManager = ({
               Criar
             </Button>
           </div>
+
+          <div className="flex flex-col gap-3 rounded-md border border-border/70 bg-background/70 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">
+                Definir como responsavel tecnico
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Ative para que este usuario seja registrado como responsavel tecnico atual da empresa.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 self-start sm:self-auto">
+              <Switch
+                checked={isTechnicalResponsible}
+                onCheckedChange={setIsTechnicalResponsible}
+                disabled={saving || !canManageMembers}
+                aria-label="Definir usuario como responsavel tecnico"
+              />
+              <span className="text-xs font-medium text-muted-foreground">
+                {isTechnicalResponsible ? "Ativado" : "Desativado"}
+              </span>
+            </div>
+          </div>
         </div>
 
         <div className="rounded-md border">
@@ -368,7 +433,8 @@ export const CompanyMembersManager = ({
             <div className="divide-y">
               {members.map((member) => {
                 const isGestor = member.papel === "gestor";
-                const canEditThisMember = canManageMembers && !isGestor;
+                const canEditThisMember = canManageMembers;
+                const canManageThisMember = canManageMembers && !isGestor;
                 const canExecuteChecklists = canCompanyMemberExecuteChecklists(member);
 
                 return (
@@ -383,6 +449,14 @@ export const CompanyMembersManager = ({
                           <Badge variant={isGestor ? "default" : "outline"}>
                             {isGestor ? "Gestor" : "Membro"}
                           </Badge>
+                          {member.is_responsavel_tecnico ? (
+                            <Badge
+                              variant="outline"
+                              className="border-sky-200 bg-sky-50 text-sky-700"
+                            >
+                              Responsavel tecnico
+                            </Badge>
+                          ) : null}
                           <Badge
                             variant="outline"
                             className={
@@ -404,6 +478,39 @@ export const CompanyMembersManager = ({
 
                       <div className="flex flex-wrap gap-2">
                         {canEditThisMember ? (
+                          <>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              title={`Editar ${member.nome}`}
+                              aria-label={`Editar ${member.nome}`}
+                              onClick={() =>
+                                navigate(`/empresas/${companyId}/usuarios/${member.user_id}/editar`)
+                              }
+                              disabled={saving}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              title={`Ver registros de atividades de ${member.nome}`}
+                              aria-label={`Ver registros de atividades de ${member.nome}`}
+                              onClick={() =>
+                                navigate(
+                                  `/empresas/${companyId}/usuarios/${member.user_id}/atividades`,
+                                )
+                              }
+                              disabled={saving}
+                            >
+                              <ClipboardList className="h-4 w-4" />
+                            </Button>
+                          </>
+                        ) : null}
+
+                        {canManageThisMember ? (
                           <>
                             <Button
                               type="button"

@@ -27,6 +27,9 @@ export interface ChecklistExecutionSummary {
   total_saves: number;
 }
 
+export type CompanyMemberActivityRecord =
+  Database["public"]["Tables"]["empresa_checklist_execucoes"]["Row"];
+
 export interface CompanyReportSignatureRow
   extends Omit<
     Database["public"]["Functions"]["get_empresa_relatorio_assinaturas"]["Returns"][number],
@@ -95,6 +98,77 @@ const createEphemeralSignupClient = () =>
       storageKey: "company-user-signup-fallback",
     },
   });
+
+const createCompanyUserViaEdgeFunction = async (
+  supabase: AppSupabaseClient,
+  {
+    companyId,
+    nome,
+    email,
+    cpf,
+    cargo,
+    crea,
+    password,
+    role,
+  }: {
+    companyId: string;
+    nome: string;
+    email: string;
+    cpf: string;
+    cargo: string;
+    crea?: string;
+    password: string;
+    role?: CompanyMemberRole;
+  },
+) => {
+  const normalizedName = nome.trim();
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedCpf = normalizeCpf(cpf);
+  const normalizedCargo = cargo.trim();
+  const normalizedCrea = (crea || "").trim();
+  const targetRole = role || "membro";
+
+  const { data, error } = await supabase.functions.invoke("create-company-user", {
+    body: {
+      companyId,
+      nome: normalizedName,
+      email: normalizedEmail,
+      cpf: normalizedCpf,
+      cargo: normalizedCargo,
+      crea: normalizedCrea,
+      password,
+      role: targetRole,
+    },
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  const responseData =
+    data && typeof data === "object" ? (data as Record<string, unknown>) : null;
+  const userId =
+    responseData && typeof responseData.user_id === "string"
+      ? responseData.user_id
+      : "";
+
+  if (!userId) {
+    throw new Error("Nao foi possivel identificar o usuario criado.");
+  }
+
+  return {
+    user_id: userId,
+    nome: normalizedName,
+    email: normalizedEmail,
+    cpf: normalizedCpf || null,
+    cargo: normalizedCargo || null,
+    crea: normalizedCrea || null,
+    papel: targetRole,
+    is_responsavel_tecnico: false,
+    pode_executar_checklists: true,
+    temporary_password: true,
+  } as CreatedCompanyUserSummary;
+};
 
 const isObject = (value: Json | null | undefined): value is Record<string, Json> =>
   !!value && typeof value === "object" && !Array.isArray(value);
@@ -168,6 +242,44 @@ export const loadCompanyMembers = async (
   }
 
   return (data || []) as CompanyMemberSummary[];
+};
+
+export const loadCompanyMember = async (
+  supabase: AppSupabaseClient,
+  {
+    companyId,
+    userId,
+  }: {
+    companyId: string;
+    userId: string;
+  },
+) => {
+  const members = await loadCompanyMembers(supabase, companyId);
+  return members.find((member) => member.user_id === userId) || null;
+};
+
+export const loadCompanyMemberActivityHistory = async (
+  supabase: AppSupabaseClient,
+  {
+    companyId,
+    userId,
+  }: {
+    companyId: string;
+    userId: string;
+  },
+) => {
+  const { data, error } = await supabase
+    .from("empresa_checklist_execucoes")
+    .select("*")
+    .eq("empresa_id", companyId)
+    .eq("user_id", userId)
+    .order("last_activity_at", { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data || []) as CompanyMemberActivityRecord[];
 };
 
 export const addCompanyMemberByEmail = async (
@@ -383,6 +495,24 @@ export const createCompanyUser = async (
     role?: CompanyMemberRole;
   },
 ) => {
+  try {
+    return await createCompanyUserViaEdgeFunction(supabase, {
+      companyId,
+      nome,
+      email,
+      cpf,
+      cargo,
+      crea,
+      password,
+      role,
+    });
+  } catch (edgeFunctionError) {
+    console.warn(
+      "Falling back to client signup for company user creation:",
+      edgeFunctionError,
+    );
+  }
+
   return await createCompanyUserViaClientSignup(supabase, {
     companyId,
     nome,
@@ -393,6 +523,60 @@ export const createCompanyUser = async (
     password,
     role,
   });
+};
+
+export const updateCompanyUser = async (
+  supabase: AppSupabaseClient,
+  {
+    companyId,
+    userId,
+    nome,
+    cpf,
+    cargo,
+    crea,
+    isTechnicalResponsible,
+    canExecuteChecklists,
+  }: {
+    companyId: string;
+    userId: string;
+    nome: string;
+    cpf: string;
+    cargo: string;
+    crea?: string;
+    isTechnicalResponsible: boolean;
+    canExecuteChecklists: boolean;
+  },
+) => {
+  const normalizedName = nome.trim();
+  const normalizedCpf = normalizeCpf(cpf);
+  const normalizedCargo = cargo.trim();
+  const normalizedCrea = (crea || "").trim();
+
+  const { data, error } = await supabase.functions.invoke("update-company-user", {
+    body: {
+      companyId,
+      userId,
+      nome: normalizedName,
+      cpf: normalizedCpf,
+      cargo: normalizedCargo,
+      crea: normalizedCrea,
+      isTechnicalResponsible,
+      canExecuteChecklists,
+    },
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  const responseData =
+    data && typeof data === "object" ? (data as Record<string, unknown>) : null;
+
+  if (!responseData || typeof responseData.user_id !== "string") {
+    throw new Error("Nao foi possivel confirmar a atualizacao do usuario.");
+  }
+
+  return responseData as CompanyMemberSummary;
 };
 
 export const setCompanyMemberRole = async (
