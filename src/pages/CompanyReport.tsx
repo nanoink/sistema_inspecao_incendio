@@ -14,8 +14,10 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import {
   formatCpf,
+  loadCompanyMembers,
   loadCompanyReportSignatures,
   parseCompanyReportSignatures,
+  type CompanyMemberSummary,
   type ChecklistExecutionSummary,
   type CompanyReportSignatureRow,
 } from "@/lib/company-members";
@@ -30,6 +32,7 @@ import {
   type EquipmentChecklistSnapshot,
 } from "@/lib/checklist-equipment";
 import {
+  isMissingColumnError,
   isMissingFunctionError,
   isMissingRelationError,
 } from "@/lib/supabase-errors";
@@ -68,6 +71,7 @@ type Company = Pick<
   | "altura_descricao"
   | "altura_real_m"
   | "grau_risco"
+  | "possui_responsavel_tecnico"
   | "possui_atrio"
 >;
 
@@ -250,6 +254,8 @@ const getToday = () => new Date().toISOString().slice(0, 10);
 
 const OPERATIONAL_REPORT_TITLE = "Relatorio de Inspecao Preventiva";
 const TECHNICAL_REPORT_TITLE = "Relatorio Tecnico de Inspecao Contra Incendio";
+const ART_STORAGE_BUCKET = "empresa-art";
+const MAX_ART_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 const OPERATIONAL_LEGAL_NOTICE =
   "Documento de uso interno, sem validade tecnica legal. Este relatorio nao substitui inspecao tecnica realizada por profissional habilitado.";
 const TECHNICAL_LEGAL_NOTICE =
@@ -372,6 +378,23 @@ const formatDate = (value?: string | null) => {
   }
 
   return normalized.toLocaleDateString("pt-BR");
+};
+
+const formatDateFullPtBr = (value?: string | null) => {
+  if (!value) {
+    return "-";
+  }
+
+  const normalized = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(normalized.getTime())) {
+    return "-";
+  }
+
+  return normalized.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
 };
 
 const formatDateTime = (value?: string | null) => {
@@ -1628,8 +1651,9 @@ const CompanyReport = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { isSystemAdmin, email } = useAuth();
+  const { isSystemAdmin, email, user } = useAuth();
   const [company, setCompany] = useState<Company | null>(null);
+  const [companyMembers, setCompanyMembers] = useState<CompanyMemberSummary[]>([]);
   const [report, setReport] = useState<ReportRow | null>(null);
   const [reportRequirements, setReportRequirements] = useState<ReportRequirement[]>([]);
   const [form, setForm] = useState<ReportFormState>(emptyForm());
@@ -1644,6 +1668,12 @@ const CompanyReport = () => {
   const [reportSignatures, setReportSignatures] = useState<CompanyReportSignatureRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingArt, setUploadingArt] = useState(false);
+  const [artFilePath, setArtFilePath] = useState<string | null>(null);
+  const [artFileName, setArtFileName] = useState<string | null>(null);
+  const [artUploadedAt, setArtUploadedAt] = useState<string | null>(null);
+  const [artUploadedBy, setArtUploadedBy] = useState<string | null>(null);
+  const [artSignedUrl, setArtSignedUrl] = useState<string | null>(null);
   const [validationQrCodeDataUrl, setValidationQrCodeDataUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1665,10 +1695,11 @@ const CompanyReport = () => {
           hydrantsResult,
           luminairesResult,
           reportSignaturesResult,
+          companyMembersResult,
         ] = await Promise.all([
           supabase
             .from("empresa")
-            .select("id, razao_social, nome_fantasia, cnpj, responsavel, telefone, email, rua, numero, bairro, cidade, estado, cep, divisao, grupo, ocupacao_uso, area_m2, area_maior_pavimento_m2, area_depositos_m2, numero_ocupantes, altura_denominacao, altura_descricao, altura_real_m, grau_risco, possui_atrio")
+            .select("id, razao_social, nome_fantasia, cnpj, responsavel, telefone, email, rua, numero, bairro, cidade, estado, cep, divisao, grupo, ocupacao_uso, area_m2, area_maior_pavimento_m2, area_depositos_m2, numero_ocupantes, altura_denominacao, altura_descricao, altura_real_m, grau_risco, possui_responsavel_tecnico, possui_atrio")
             .eq("id", id)
             .maybeSingle(),
           supabase
@@ -1720,10 +1751,39 @@ const CompanyReport = () => {
 
             throw error;
           }),
+          loadCompanyMembers(supabase, id).catch((error) => {
+            if (isMissingFunctionError(error, "list_empresa_usuarios")) {
+              return [] as CompanyMemberSummary[];
+            }
+
+            throw error;
+          }),
         ]);
 
-        if (companyResult.error) {
-          throw companyResult.error;
+        let companyData = companyResult.data;
+        let companyError = companyResult.error;
+
+        if (
+          companyError &&
+          isMissingColumnError(companyError, ["possui_responsavel_tecnico"])
+        ) {
+          const companyFallbackResult = await supabase
+            .from("empresa")
+            .select("id, razao_social, nome_fantasia, cnpj, responsavel, telefone, email, rua, numero, bairro, cidade, estado, cep, divisao, grupo, ocupacao_uso, area_m2, area_maior_pavimento_m2, area_depositos_m2, numero_ocupantes, altura_denominacao, altura_descricao, altura_real_m, grau_risco, possui_atrio")
+            .eq("id", id)
+            .maybeSingle();
+
+          companyData = companyFallbackResult.data
+            ? {
+                ...companyFallbackResult.data,
+                possui_responsavel_tecnico: false,
+              }
+            : null;
+          companyError = companyFallbackResult.error;
+        }
+
+        if (companyError) {
+          throw companyError;
         }
         if (reportResult.error && !isMissingRelationError(reportResult.error, "empresa_relatorios")) {
           throw reportResult.error;
@@ -1743,11 +1803,17 @@ const CompanyReport = () => {
         if (luminairesResult.error) {
           throw luminairesResult.error;
         }
-        if (!companyResult.data) {
+        if (!companyData) {
           throw new Error("Empresa nao encontrada");
         }
 
         const reportData = reportResult.error ? null : reportResult.data;
+        const additionalData =
+          reportData?.dados_adicionais &&
+          typeof reportData.dados_adicionais === "object" &&
+          !Array.isArray(reportData.dados_adicionais)
+            ? (reportData.dados_adicionais as Record<string, Json>)
+            : null;
         const persistedSignatureValue =
           reportData?.status === "finalizado" &&
           reportData.dados_adicionais &&
@@ -1791,18 +1857,23 @@ const CompanyReport = () => {
             ];
           }) ?? [];
 
-        setCompany(companyResult.data);
+        setCompany(companyData);
         setReport(reportData);
         setReportRequirements(mappedRequirements);
         setLiveSnapshot(computedSnapshot);
         setSnapshot(persistedSnapshot || computedSnapshot);
         setReportStatus(reportData?.status === "finalizado" ? "finalizado" : "rascunho");
         setReportStorageAvailable(!reportResult.error);
-        setForm(buildDefaultForm(companyResult.data, reportData));
+        setForm(buildDefaultForm(companyData, reportData));
+        setCompanyMembers(companyMembersResult || []);
         setNonConformityRecords(nonConformitiesResult.data || []);
         setExtinguishers(extinguishersResult.data || []);
         setHydrants(hydrantsResult.data || []);
         setLuminaires(luminairesResult.data || []);
+        setArtFilePath(getJsonString(additionalData, "art_file_path"));
+        setArtFileName(getJsonString(additionalData, "art_file_name"));
+        setArtUploadedAt(getJsonString(additionalData, "art_uploaded_at"));
+        setArtUploadedBy(getJsonString(additionalData, "art_uploaded_by"));
         setReportSignatures(
           persistedSignatures.length > 0
             ? persistedSignatures
@@ -1869,6 +1940,157 @@ const CompanyReport = () => {
 
     void generateValidationQrCode();
   }, [form.reportMode, id, report?.updated_at, snapshot?.generated_at]);
+
+  useEffect(() => {
+    const refreshArtSignedUrl = async () => {
+      if (!artFilePath) {
+        setArtSignedUrl(null);
+        return;
+      }
+
+      const { data, error } = await supabase.storage
+        .from(ART_STORAGE_BUCKET)
+        .createSignedUrl(artFilePath, 60 * 60);
+
+      if (error) {
+        console.error("Error creating signed URL for ART:", error);
+        setArtSignedUrl(null);
+        return;
+      }
+
+      setArtSignedUrl(data?.signedUrl || null);
+    };
+
+    void refreshArtSignedUrl();
+  }, [artFilePath, report?.updated_at]);
+
+  const currentUserMember =
+    companyMembers.find((member) => member.user_id === user?.id) || null;
+  const technicalResponsibleMember =
+    companyMembers.find((member) => member.is_responsavel_tecnico) || null;
+  const isCurrentUserTechnicalResponsible = Boolean(
+    currentUserMember?.is_responsavel_tecnico,
+  );
+  const canUploadArt = Boolean(isSystemAdmin || isCurrentUserTechnicalResponsible);
+
+  const handleArtUpload = async (file: File | null) => {
+    if (!id || !file) {
+      return;
+    }
+
+    if (!canUploadArt) {
+      toast({
+        title: "Permissao insuficiente",
+        description:
+          "Somente o responsavel tecnico da empresa pode enviar a ART para este relatorio.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const isPdf =
+      file.type === "application/pdf" ||
+      file.name.toLowerCase().endsWith(".pdf");
+
+    if (!isPdf) {
+      toast({
+        title: "Arquivo invalido",
+        description: "Envie a ART em formato PDF.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (file.size > MAX_ART_FILE_SIZE_BYTES) {
+      toast({
+        title: "Arquivo muito grande",
+        description: "A ART deve ter no maximo 15 MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setUploadingArt(true);
+
+      const safeName = file.name
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9._-]/g, "_");
+      const filePath = `${id}/art/${Date.now()}-${safeName}`;
+      const uploadedAt = new Date().toISOString();
+      const uploadedBy = user?.id || null;
+
+      const { error: uploadError } = await supabase.storage
+        .from(ART_STORAGE_BUCKET)
+        .upload(filePath, file, {
+          contentType: "application/pdf",
+          upsert: true,
+        });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      if (artFilePath && artFilePath !== filePath) {
+        await supabase.storage
+          .from(ART_STORAGE_BUCKET)
+          .remove([artFilePath])
+          .catch(() => undefined);
+      }
+
+      const previousAdditionalData =
+        report?.dados_adicionais &&
+        typeof report.dados_adicionais === "object" &&
+        !Array.isArray(report.dados_adicionais)
+          ? (report.dados_adicionais as Record<string, Json>)
+          : {};
+
+      const { data, error } = await supabase
+        .from("empresa_relatorios")
+        .upsert(
+          {
+            empresa_id: id,
+            dados_adicionais: {
+              ...previousAdditionalData,
+              art_file_bucket: ART_STORAGE_BUCKET,
+              art_file_path: filePath,
+              art_file_name: file.name,
+              art_uploaded_at: uploadedAt,
+              art_uploaded_by: uploadedBy,
+            },
+          },
+          { onConflict: "empresa_id" },
+        )
+        .select("*")
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      setReport(data);
+      setArtFilePath(filePath);
+      setArtFileName(file.name);
+      setArtUploadedAt(uploadedAt);
+      setArtUploadedBy(uploadedBy);
+
+      toast({
+        title: "ART enviada",
+        description: "O arquivo da ART foi anexado ao relatorio com sucesso.",
+      });
+    } catch (error) {
+      console.error("Error uploading ART file:", error);
+      toast({
+        title: "Erro ao enviar ART",
+        description:
+          "Nao foi possivel anexar a ART. Verifique as permissoes do bucket empresa-art.",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingArt(false);
+    }
+  };
 
   const handleInputChange = (field: keyof ReportFormState, value: string) => {
     setForm((current) => ({
@@ -1953,6 +2175,16 @@ const CompanyReport = () => {
           title: "ART/RRT obrigatoria",
           description:
             "Informe o numero da ART/RRT antes de emitir o relatorio tecnico oficial.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (company.possui_responsavel_tecnico && !artFilePath) {
+        toast({
+          title: "Arquivo da ART obrigatorio",
+          description:
+            "Como a empresa possui responsavel tecnico, anexe o arquivo PDF da ART antes de emitir o relatorio tecnico.",
           variant: "destructive",
         });
         return;
@@ -2056,6 +2288,11 @@ const CompanyReport = () => {
               : null,
           report_validated_by:
             form.reportMode === "tecnico" ? normalizeNullable(email) : null,
+          art_file_bucket: artFilePath ? ART_STORAGE_BUCKET : null,
+          art_file_path: artFilePath,
+          art_file_name: artFileName,
+          art_uploaded_at: artUploadedAt,
+          art_uploaded_by: artUploadedBy,
           non_conformities_count: nonConformityRecords.length,
           report_signatures: persistedSignatures,
           report_signatures_generated_at: new Date().toISOString(),
@@ -2278,6 +2515,30 @@ const CompanyReport = () => {
           } satisfies CompanyReportSignatureRow,
         ];
   const signatureChunks = chunkArray(signatureRows, 4);
+  const technicalResponsibleSigner = technicalResponsibleMember
+    ? signatureRows.find(
+        (signer) => signer.user_id === technicalResponsibleMember.user_id,
+      ) || null
+    : null;
+  const technicalSignatureName =
+    technicalResponsibleSigner?.assinatura_nome ||
+    technicalResponsibleMember?.nome ||
+    form.inspetorNome ||
+    "Responsavel tecnico nao identificado";
+  const technicalSignatureCpf =
+    technicalResponsibleSigner?.cpf || technicalResponsibleMember?.cpf || null;
+  const technicalSignatureCargo =
+    technicalResponsibleSigner?.cargo ||
+    technicalResponsibleMember?.cargo ||
+    form.inspetorCargo ||
+    "Nao informado";
+  const technicalSignatureCrea =
+    technicalResponsibleMember?.crea?.trim() || "Nao informado";
+  const technicalSignatureTimestamp =
+    technicalResponsibleSigner?.last_activity_at || artUploadedAt || report?.updated_at;
+  const shouldRenderArtPages = Boolean(
+    isTechnicalReport && company.possui_responsavel_tecnico,
+  );
   const checklistPrintSections = buildChecklistPrintSections({
     snapshot,
     equipmentCatalog,
@@ -3046,6 +3307,114 @@ const CompanyReport = () => {
     });
   });
 
+  if (shouldRenderArtPages) {
+    pages.push(
+      <div className="space-y-6">
+        <SectionHeading
+          index="9"
+          title="Assinatura do Responsavel Tecnico"
+        />
+
+        <div className="space-y-4 border border-zinc-300 px-6 py-5">
+          <div className="border-b border-zinc-300 pb-3">
+            <p className="text-[15px] font-semibold text-zinc-800">7. Entidade de Classe</p>
+            <p className="mt-1 text-[13px] uppercase tracking-[0.02em] text-zinc-900">
+              ASSOCIACAO DE ENGENHARIA DE SEGURANCA DO TRABALHO DO ESTADO DO PARA
+            </p>
+          </div>
+
+          <div className="space-y-2 border-b border-zinc-300 pb-4">
+            <p className="text-[15px] font-semibold text-zinc-800">8. Assinaturas</p>
+            <p className="text-[12.5px] text-zinc-700">
+              Declaro serem verdadeiras as informacoes acima.
+            </p>
+
+            <div className="grid grid-cols-[1.1fr_1fr] gap-5 pt-2">
+              <div className="min-h-[140px] border border-zinc-300 px-4 py-3">
+                <p className="text-[11px] uppercase tracking-[0.08em] text-zinc-500">
+                  Assinatura do profissional
+                </p>
+                <div className="mt-7 border-b border-zinc-400 pb-2">
+                  <p className="text-[28px] font-semibold tracking-[0.02em] text-zinc-900">
+                    {technicalSignatureName}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2 border border-zinc-300 px-4 py-3">
+                <p className="border-b border-zinc-300 pb-2 text-[12.5px] font-semibold uppercase text-zinc-900">
+                  {technicalSignatureName}
+                </p>
+                <p className="text-[12px] text-zinc-800">CPF: {formatCpf(technicalSignatureCpf)}</p>
+                <p className="text-[12px] text-zinc-800">Cargo: {technicalSignatureCargo}</p>
+                <p className="text-[12px] text-zinc-800">CREA: {technicalSignatureCrea}</p>
+                <p className="text-[12px] text-zinc-800">
+                  Data e hora da assinatura: {formatDateTime(technicalSignatureTimestamp)}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 pt-2 text-[12px] text-zinc-700">
+              <div className="border-b border-zinc-300 py-2">
+                <span className="font-semibold">Local:</span> Belem/PA
+              </div>
+              <div className="border-b border-zinc-300 py-2">
+                <span className="font-semibold">Data:</span> {formatDateFullPtBr(form.dataEmissao)}
+              </div>
+              <div className="border-b border-zinc-300 py-2">
+                <span className="font-semibold">Empresa:</span> {company.razao_social}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-[15px] font-semibold text-zinc-800">9. Informacoes</p>
+            <ul className="list-disc space-y-1 pl-5 text-[12px] text-zinc-700">
+              <li>
+                A ART e valida somente quando quitada, mediante apresentacao do comprovante de pagamento ou conferencia no site do CREA.
+              </li>
+              <li>
+                O comprovante de pagamento deve ser anexado para comprovacao de quitacao quando aplicavel.
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>,
+    );
+
+    pages.push(
+      <div className="space-y-4">
+        <SectionHeading index="10" title="ART - Anotacao de Responsabilidade Tecnica" />
+
+        <div className="rounded-sm border border-zinc-300 bg-white px-4 py-4">
+          {artSignedUrl ? (
+            <object
+              data={artSignedUrl}
+              type="application/pdf"
+              className="h-[760px] w-full"
+            >
+              <div className="space-y-3 text-center text-[12.5px] text-zinc-700">
+                <p>Nao foi possivel renderizar o PDF da ART neste navegador.</p>
+                <a
+                  href={artSignedUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold text-blue-700 underline"
+                >
+                  Abrir arquivo da ART em nova aba
+                </a>
+              </div>
+            </object>
+          ) : (
+            <div className="py-20 text-center text-[13px] text-zinc-600">
+              Nenhum arquivo de ART foi anexado para esta emissao.
+            </div>
+          )}
+        </div>
+      </div>,
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#edf0f5]">
       <style>{`
@@ -3164,6 +3533,47 @@ const CompanyReport = () => {
                   </div>
                 </div>
               )}
+              {form.reportMode === "tecnico" && company.possui_responsavel_tecnico ? (
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="artFile">Arquivo PDF da ART</Label>
+                  <Input
+                    id="artFile"
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    disabled={!canUploadArt || uploadingArt}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] || null;
+                      void handleArtUpload(file);
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {canUploadArt
+                      ? "Somente PDF (max. 15 MB). O arquivo sera inserido na ultima pagina do relatorio."
+                      : "Apenas o responsavel tecnico da empresa pode anexar a ART."}
+                  </p>
+                  <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700">
+                    <p>
+                      <span className="font-semibold">Arquivo atual:</span>{" "}
+                      {artFileName || "Nao enviado"}
+                    </p>
+                    <p>
+                      <span className="font-semibold">Enviado em:</span>{" "}
+                      {formatDateTime(artUploadedAt)}
+                    </p>
+                    {artSignedUrl ? (
+                      <a
+                        href={artSignedUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1 inline-block font-semibold text-blue-700 underline"
+                      >
+                        Visualizar ART atual
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
               <div className="space-y-2">
                 <Label htmlFor="numeroRelatorio">Numero do relatorio</Label>
                 <Input id="numeroRelatorio" value={form.numeroRelatorio} onChange={(event) => handleInputChange("numeroRelatorio", event.target.value)} />

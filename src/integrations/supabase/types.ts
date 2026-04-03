@@ -205,6 +205,7 @@ export type Database = {
           numero_ocupantes: number
           ocupacao_uso: string | null
           possui_atrio: boolean | null
+          possui_responsavel_tecnico: boolean
           razao_social: string
           responsavel: string
           rua: string
@@ -238,6 +239,7 @@ export type Database = {
           numero_ocupantes: number
           ocupacao_uso?: string | null
           possui_atrio?: boolean | null
+          possui_responsavel_tecnico?: boolean
           razao_social: string
           responsavel: string
           rua: string
@@ -271,6 +273,7 @@ export type Database = {
           numero_ocupantes?: number
           ocupacao_uso?: string | null
           possui_atrio?: boolean | null
+          possui_responsavel_tecnico?: boolean
           razao_social?: string
           responsavel?: string
           rua?: string
@@ -790,7 +793,9 @@ export type Database = {
           created_at: string
           empresa_id: string
           id: string
+          is_responsavel_tecnico: boolean
           papel: string
+          pode_executar_checklists: boolean
           updated_at: string
           user_id: string
         }
@@ -798,7 +803,9 @@ export type Database = {
           created_at?: string
           empresa_id: string
           id?: string
+          is_responsavel_tecnico?: boolean
           papel: string
+          pode_executar_checklists?: boolean
           updated_at?: string
           user_id: string
         }
@@ -806,7 +813,9 @@ export type Database = {
           created_at?: string
           empresa_id?: string
           id?: string
+          is_responsavel_tecnico?: boolean
           papel?: string
+          pode_executar_checklists?: boolean
           updated_at?: string
           user_id?: string
         }
@@ -958,6 +967,7 @@ export type Database = {
       profiles: {
         Row: {
           cargo: string | null
+          crea: string | null
           cpf: string | null
           created_at: string
           email: string | null
@@ -967,6 +977,7 @@ export type Database = {
         }
         Insert: {
           cargo?: string | null
+          crea?: string | null
           cpf?: string | null
           created_at?: string
           email?: string | null
@@ -976,6 +987,7 @@ export type Database = {
         }
         Update: {
           cargo?: string | null
+          crea?: string | null
           cpf?: string | null
           created_at?: string
           email?: string | null
@@ -998,11 +1010,14 @@ export type Database = {
         }
         Returns: {
           cargo: string | null
+          crea: string | null
           created_at: string
           cpf: string | null
           email: string
+          is_responsavel_tecnico: boolean
           nome: string
           papel: string
+          pode_executar_checklists: boolean
           updated_at: string
           user_id: string
         }[]
@@ -1060,11 +1075,14 @@ export type Database = {
         Args: { p_empresa_id: string }
         Returns: {
           cargo: string | null
+          crea: string | null
           created_at: string
           cpf: string | null
           email: string
+          is_responsavel_tecnico: boolean
           nome: string
           papel: string
+          pode_executar_checklists: boolean
           updated_at: string
           user_id: string
         }[]
@@ -1116,11 +1134,54 @@ export type Database = {
         }
         Returns: {
           cargo: string | null
+          crea: string | null
           created_at: string
           cpf: string | null
           email: string
+          is_responsavel_tecnico: boolean
           nome: string
           papel: string
+          pode_executar_checklists: boolean
+          updated_at: string
+          user_id: string
+        }[]
+      }
+      set_empresa_usuario_checklist_permission: {
+        Args: {
+          p_empresa_id: string
+          p_pode_executar_checklists: boolean
+          p_user_id: string
+        }
+        Returns: {
+          cargo: string | null
+          crea: string | null
+          created_at: string
+          cpf: string | null
+          email: string
+          is_responsavel_tecnico: boolean
+          nome: string
+          papel: string
+          pode_executar_checklists: boolean
+          updated_at: string
+          user_id: string
+        }[]
+      }
+      set_empresa_usuario_responsavel_tecnico: {
+        Args: {
+          p_empresa_id: string
+          p_is_responsavel_tecnico?: boolean
+          p_user_id: string
+        }
+        Returns: {
+          cargo: string | null
+          crea: string | null
+          created_at: string
+          cpf: string | null
+          email: string
+          is_responsavel_tecnico: boolean
+          nome: string
+          papel: string
+          pode_executar_checklists: boolean
           updated_at: string
           user_id: string
         }[]

@@ -15,21 +15,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
+  canCompanyMemberExecuteChecklists,
   createCompanyUser,
   formatCpf,
   loadCompanyMembers,
   normalizeCpf,
   removeCompanyMember,
+  setCompanyMemberChecklistPermission,
   setCompanyMemberRole,
-  type CompanyMemberRole,
   type CompanyMemberSummary,
 } from "@/lib/company-members";
 
@@ -52,7 +47,6 @@ export const CompanyMembersManager = ({
   const [cpf, setCpf] = useState("");
   const [cargo, setCargo] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<CompanyMemberRole>("membro");
 
   const fetchMembers = useCallback(async () => {
     try {
@@ -82,15 +76,7 @@ export const CompanyMembersManager = ({
 
   const hasGestor = members.some((member) => member.papel === "gestor");
   const canManageMembers = isSystemAdmin || currentMember?.papel === "gestor";
-  const creationRole = isSystemAdmin ? role : "membro";
-
-  useEffect(() => {
-    if (isSystemAdmin) {
-      setRole(hasGestor ? "membro" : "gestor");
-    } else {
-      setRole("membro");
-    }
-  }, [hasGestor, isSystemAdmin]);
+  const creationRole = hasGestor ? "membro" : "gestor";
 
   const resetCreationForm = () => {
     setName("");
@@ -98,7 +84,6 @@ export const CompanyMembersManager = ({
     setCpf("");
     setCargo("");
     setPassword("");
-    setRole(hasGestor ? "membro" : "gestor");
   };
 
   const handleCreateUser = async () => {
@@ -244,6 +229,39 @@ export const CompanyMembersManager = ({
     }
   };
 
+  const handleChecklistPermissionChange = async (
+    member: CompanyMemberSummary,
+    checked: boolean,
+  ) => {
+    try {
+      setSaving(true);
+      await setCompanyMemberChecklistPermission(supabase, {
+        companyId,
+        userId: member.user_id,
+        canExecuteChecklists: checked,
+      });
+      await fetchMembers();
+      toast({
+        title: checked ? "Checklist liberado" : "Checklist bloqueado",
+        description: checked
+          ? `${member.nome} agora pode executar os checklists desta empresa.`
+          : `${member.nome} nao podera mais executar os checklists desta empresa.`,
+      });
+    } catch (error) {
+      console.error("Error updating checklist permission:", error);
+      toast({
+        title: "Erro ao atualizar permissao",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Nao foi possivel atualizar a permissao de checklist do usuario.",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <Card className="border-dashed">
       <CardHeader>
@@ -312,7 +330,7 @@ export const CompanyMembersManager = ({
             />
           </div>
 
-          <div className="grid gap-3 md:grid-cols-[1.2fr_0.8fr_auto]">
+          <div className="grid gap-3 md:grid-cols-[1fr_auto]">
             <Input
               placeholder="Senha provisoria"
               type="password"
@@ -320,24 +338,6 @@ export const CompanyMembersManager = ({
               onChange={(event) => setPassword(event.target.value)}
               disabled={saving || !canManageMembers}
             />
-
-            {isSystemAdmin ? (
-              <Select
-                value={role}
-                onValueChange={(value) => setRole(value as CompanyMemberRole)}
-                disabled={saving || !canManageMembers || (!hasGestor && role === "gestor")}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Papel" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="membro">Membro</SelectItem>
-                  <SelectItem value="gestor">Gestor</SelectItem>
-                </SelectContent>
-              </Select>
-            ) : (
-              <Input value="Membro" disabled className="bg-muted" />
-            )}
 
             <Button
               type="button"
@@ -369,50 +369,93 @@ export const CompanyMembersManager = ({
               {members.map((member) => {
                 const isGestor = member.papel === "gestor";
                 const canEditThisMember = canManageMembers && !isGestor;
+                const canExecuteChecklists = canCompanyMemberExecuteChecklists(member);
 
                 return (
                   <div
                     key={member.user_id}
-                    className="flex flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between"
+                    className="flex flex-col gap-4 px-4 py-3"
                   >
-                    <div className="space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium text-foreground">{member.nome}</span>
-                        <Badge variant={isGestor ? "default" : "outline"}>
-                          {isGestor ? "Gestor" : "Membro"}
-                        </Badge>
+                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-foreground">{member.nome}</span>
+                          <Badge variant={isGestor ? "default" : "outline"}>
+                            {isGestor ? "Gestor" : "Membro"}
+                          </Badge>
+                          <Badge
+                            variant="outline"
+                            className={
+                              canExecuteChecklists
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                : "border-amber-200 bg-amber-50 text-amber-700"
+                            }
+                          >
+                            {canExecuteChecklists
+                              ? "Checklist liberado"
+                              : "Checklist bloqueado"}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">{member.email}</p>
+                        <p className="text-xs text-muted-foreground">
+                          CPF: {formatCpf(member.cpf)} | Cargo: {member.cargo || "-"}
+                        </p>
                       </div>
-                      <p className="text-sm text-muted-foreground">{member.email}</p>
-                      <p className="text-xs text-muted-foreground">
-                        CPF: {formatCpf(member.cpf)} | Cargo: {member.cargo || "-"}
-                      </p>
+
+                      <div className="flex flex-wrap gap-2">
+                        {canEditThisMember ? (
+                          <>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void handlePromoteToGestor(member)}
+                              disabled={saving}
+                            >
+                              <Crown className="mr-2 h-4 w-4" />
+                              Definir como gestor
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void handleRemoveMember(member)}
+                              disabled={saving}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Remover
+                            </Button>
+                          </>
+                        ) : null}
+                      </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      {canEditThisMember ? (
-                        <>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void handlePromoteToGestor(member)}
-                            disabled={saving}
-                          >
-                            <Crown className="mr-2 h-4 w-4" />
-                            Definir como gestor
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void handleRemoveMember(member)}
-                            disabled={saving}
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Remover
-                          </Button>
-                        </>
-                      ) : null}
+                    <div className="flex flex-col gap-3 rounded-lg border border-border/70 bg-muted/20 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-foreground">
+                          Permissao para executar checklists
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {isGestor
+                            ? "O gestor sempre permanece liberado para preencher checklists."
+                            : canExecuteChecklists
+                              ? "Este usuario pode abrir, preencher e salvar checklists desta empresa."
+                              : "Este usuario fica em modo consulta e nao pode executar checklists."}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3 self-start sm:self-auto">
+                        <Switch
+                          checked={canExecuteChecklists}
+                          onCheckedChange={(checked) =>
+                            void handleChecklistPermissionChange(member, checked)
+                          }
+                          disabled={saving || !canManageMembers || isGestor}
+                          aria-label={`Permitir checklist para ${member.nome}`}
+                        />
+                        <span className="text-xs font-medium text-muted-foreground">
+                          {canExecuteChecklists ? "Liberado" : "Bloqueado"}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -424,7 +467,7 @@ export const CompanyMembersManager = ({
         <p className="text-xs text-muted-foreground">
           O administrador geral cria as empresas e pode definir o primeiro gestor.
           Depois disso, o gestor da empresa cria os demais usuarios com senha
-          provisoria.
+          provisoria e controla quem pode executar os checklists.
         </p>
       </CardContent>
     </Card>

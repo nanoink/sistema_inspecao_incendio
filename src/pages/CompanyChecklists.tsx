@@ -2,8 +2,11 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -65,12 +68,22 @@ import {
   loadChecklistResponses,
   saveChecklistResponses,
 } from "@/lib/checklist-source";
-import { registerChecklistExecution } from "@/lib/company-members";
+import {
+  canCompanyMemberExecuteChecklists,
+  createCompanyUser,
+  formatCpf,
+  loadCompanyMembers,
+  normalizeCpf,
+  registerChecklistExecution,
+  setCompanyMemberAsTechnicalResponsible,
+  type CompanyMemberSummary,
+} from "@/lib/company-members";
 import {
   subscribeEquipmentChecklistUpdates,
 } from "@/lib/equipment-checklist-sync";
 import {
   isMissingEquipmentQrSchemaError,
+  isMissingColumnError,
   isMissingFunctionError,
   isMissingRelationError,
 } from "@/lib/supabase-errors";
@@ -119,6 +132,7 @@ import {
 
 interface Company {
   id: string;
+  possui_responsavel_tecnico: boolean;
   razao_social: string;
 }
 
@@ -489,7 +503,13 @@ const CompanyChecklists = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user, loading: authLoading, isSystemAdmin } = useAuth();
   const [company, setCompany] = useState<Company | null>(null);
+  const [companyMembers, setCompanyMembers] = useState<CompanyMemberSummary[]>(
+    [],
+  );
+  const [currentCompanyMember, setCurrentCompanyMember] =
+    useState<CompanyMemberSummary | null>(null);
   const [models, setModels] = useState<ChecklistModelShape[]>([]);
   const [groupsByModel, setGroupsByModel] = useState<
     Map<string, ChecklistGroupWithItems[]>
@@ -560,6 +580,17 @@ const CompanyChecklists = () => {
     inspectionName: string;
     entries: EquipmentChecklistProgressEntry[];
   } | null>(null);
+  const [technicalResponsibleDialogOpen, setTechnicalResponsibleDialogOpen] =
+    useState(false);
+  const [creatingTechnicalResponsible, setCreatingTechnicalResponsible] =
+    useState(false);
+  const [technicalResponsibleName, setTechnicalResponsibleName] = useState("");
+  const [technicalResponsibleEmail, setTechnicalResponsibleEmail] = useState("");
+  const [technicalResponsibleCpf, setTechnicalResponsibleCpf] = useState("");
+  const [technicalResponsibleCargo, setTechnicalResponsibleCargo] = useState("");
+  const [technicalResponsibleCrea, setTechnicalResponsibleCrea] = useState("");
+  const [technicalResponsiblePassword, setTechnicalResponsiblePassword] =
+    useState("");
   const initialEquipmentSyncDone = useRef(false);
   const responsesRefreshTimeoutRef = useRef<number | null>(null);
   const luminaireRefreshTimeoutRef = useRef<number | null>(null);
@@ -969,18 +1000,41 @@ const CompanyChecklists = () => {
   useEffect(() => () => clearCardLongPress(), [clearCardLongPress]);
 
   const fetchData = useCallback(async () => {
-    if (!id) {
+    if (!id || authLoading) {
       return;
     }
 
     try {
       setLoading(true);
+      setCurrentCompanyMember(null);
 
-      const { data: companyData, error: companyError } = await supabase
+      const companyWithTechnicalResponsibleQuery = await supabase
         .from("empresa")
-        .select("id, razao_social")
+        .select("id, razao_social, possui_responsavel_tecnico")
         .eq("id", id)
         .maybeSingle();
+
+      let companyData = companyWithTechnicalResponsibleQuery.data;
+      let companyError = companyWithTechnicalResponsibleQuery.error;
+
+      if (
+        companyError &&
+        isMissingColumnError(companyError, ["possui_responsavel_tecnico"])
+      ) {
+        const companyFallbackQuery = await supabase
+          .from("empresa")
+          .select("id, razao_social")
+          .eq("id", id)
+          .maybeSingle();
+
+        companyData = companyFallbackQuery.data
+          ? {
+              ...companyFallbackQuery.data,
+              possui_responsavel_tecnico: false,
+            }
+          : null;
+        companyError = companyFallbackQuery.error;
+      }
 
       if (companyError) {
         throw companyError;
@@ -992,6 +1046,7 @@ const CompanyChecklists = () => {
 
       const [
         checklistData,
+        companyMembers,
         companyRequirements,
         equipmentData,
         principalNonConformityRecords,
@@ -1001,6 +1056,7 @@ const CompanyChecklists = () => {
       ] =
         await Promise.all([
         loadChecklistData(supabase, id),
+        loadCompanyMembers(supabase, id),
         supabase
           .from("empresa_exigencias")
           .select(`
@@ -1041,6 +1097,10 @@ const CompanyChecklists = () => {
       );
 
       setCompany(companyData);
+      setCompanyMembers(companyMembers);
+      setCurrentCompanyMember(
+        companyMembers.find((member) => member.user_id === user?.id) || null,
+      );
       setModels(checklistData.models);
       setGroupsByModel(checklistData.groupsByModel);
       setSelectedRequirementCodes(requirementCodes);
@@ -1066,7 +1126,153 @@ const CompanyChecklists = () => {
     } finally {
       setLoading(false);
     }
-  }, [id, toast]);
+  }, [authLoading, id, toast, user?.id]);
+
+  const hasTechnicalResponsibleMember = useMemo(
+    () =>
+      companyMembers.some(
+        (member) => member.is_responsavel_tecnico === true,
+      ),
+    [companyMembers],
+  );
+
+  const mustRegisterTechnicalResponsible = Boolean(
+    !isSystemAdmin &&
+      company?.possui_responsavel_tecnico &&
+      currentCompanyMember?.papel === "gestor" &&
+      !hasTechnicalResponsibleMember,
+  );
+
+  useEffect(() => {
+    if (mustRegisterTechnicalResponsible) {
+      setTechnicalResponsibleDialogOpen(true);
+      return;
+    }
+
+    setTechnicalResponsibleDialogOpen(false);
+  }, [mustRegisterTechnicalResponsible]);
+
+  const handleCreateTechnicalResponsible = useCallback(async () => {
+    if (!id) {
+      return;
+    }
+
+    const normalizedName = technicalResponsibleName.trim();
+    const normalizedEmail = technicalResponsibleEmail.trim().toLowerCase();
+    const normalizedCargo = technicalResponsibleCargo.trim();
+    const normalizedCrea = technicalResponsibleCrea.trim();
+    const normalizedPassword = technicalResponsiblePassword.trim();
+    const normalizedCpf = normalizeCpf(technicalResponsibleCpf);
+
+    if (!normalizedName || !normalizedEmail) {
+      toast({
+        title: "Dados obrigatorios",
+        description: "Informe nome e e-mail do responsavel tecnico.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (normalizedPassword.length < 6) {
+      toast({
+        title: "Senha provisoria invalida",
+        description: "A senha provisoria precisa ter no minimo 6 caracteres.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (normalizedCpf.length !== 11) {
+      toast({
+        title: "CPF invalido",
+        description: "Informe um CPF valido para o responsavel tecnico.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!normalizedCargo) {
+      toast({
+        title: "Cargo obrigatorio",
+        description: "Informe o cargo do responsavel tecnico.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!normalizedCrea) {
+      toast({
+        title: "CREA obrigatorio",
+        description: "Informe o numero do CREA do responsavel tecnico.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setCreatingTechnicalResponsible(true);
+
+      const createdUser = await createCompanyUser(supabase, {
+        companyId: id,
+        nome: normalizedName,
+        email: normalizedEmail,
+        cpf: normalizedCpf,
+        cargo: normalizedCargo,
+        crea: normalizedCrea,
+        password: normalizedPassword,
+        role: "membro",
+      });
+
+      await setCompanyMemberAsTechnicalResponsible(supabase, {
+        companyId: id,
+        userId: createdUser.user_id,
+        isTechnicalResponsible: true,
+      });
+
+      const refreshedMembers = await loadCompanyMembers(supabase, id);
+      setCompanyMembers(refreshedMembers);
+      setCurrentCompanyMember(
+        refreshedMembers.find((member) => member.user_id === user?.id) || null,
+      );
+
+      setTechnicalResponsibleName("");
+      setTechnicalResponsibleEmail("");
+      setTechnicalResponsibleCpf("");
+      setTechnicalResponsibleCargo("");
+      setTechnicalResponsibleCrea("");
+      setTechnicalResponsiblePassword("");
+      setTechnicalResponsibleDialogOpen(false);
+
+      toast({
+        title: "Responsavel tecnico cadastrado",
+        description:
+          "Cadastro concluido. Agora os checklists podem seguir com fluxo tecnico.",
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Nao foi possivel cadastrar o responsavel tecnico.";
+
+      toast({
+        title: "Erro ao cadastrar responsavel tecnico",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setCreatingTechnicalResponsible(false);
+    }
+  }, [
+    id,
+    technicalResponsibleName,
+    technicalResponsibleEmail,
+    technicalResponsibleCpf,
+    technicalResponsibleCargo,
+    technicalResponsibleCrea,
+    technicalResponsiblePassword,
+    toast,
+    user?.id,
+  ]);
 
   useEffect(() => {
     fetchData();
@@ -2067,7 +2273,7 @@ const CompanyChecklists = () => {
     }
   }, [openInspection, visibleModels]);
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -2085,6 +2291,46 @@ const CompanyChecklists = () => {
             </p>
           </CardContent>
         </Card>
+      </div>
+    );
+  }
+
+  const canExecuteCompanyChecklists = canCompanyMemberExecuteChecklists(
+    currentCompanyMember,
+    isSystemAdmin,
+  );
+
+  if (!canExecuteCompanyChecklists) {
+    return (
+      <div className="min-h-screen bg-background px-4 py-10">
+        <div className="mx-auto max-w-2xl">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xl">
+                Checklists bloqueados para esta conta
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Seu usuario esta vinculado a <strong>{company.razao_social}</strong>,
+                mas o gestor ainda nao liberou a execucao dos checklists para esta
+                conta.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Quando essa permissao for liberada no popup de usuarios da empresa,
+                voce podera voltar a preencher e salvar os checklists normalmente.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate(-1)}
+              >
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Voltar
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
@@ -2349,6 +2595,128 @@ const CompanyChecklists = () => {
                   Nenhum equipamento cadastrado para este checklist ainda.
                 </div>
               )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={technicalResponsibleDialogOpen}
+          onOpenChange={(open) => {
+            if (!open && mustRegisterTechnicalResponsible) {
+              return;
+            }
+
+            setTechnicalResponsibleDialogOpen(open);
+          }}
+        >
+          <DialogContent className="max-w-xl">
+            <DialogHeader>
+              <DialogTitle>Cadastro obrigatorio do responsavel tecnico</DialogTitle>
+              <DialogDescription>
+                Esta empresa foi configurada com relatorio tecnico. Antes de seguir, o
+                gestor precisa cadastrar o segundo usuario (responsavel tecnico) com
+                cargo e numero CREA.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="technical-name">Nome completo *</Label>
+                <Input
+                  id="technical-name"
+                  value={technicalResponsibleName}
+                  onChange={(event) =>
+                    setTechnicalResponsibleName(event.target.value)
+                  }
+                  placeholder="Nome do responsavel tecnico"
+                />
+              </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="technical-email">E-mail *</Label>
+                <Input
+                  id="technical-email"
+                  type="email"
+                  value={technicalResponsibleEmail}
+                  onChange={(event) =>
+                    setTechnicalResponsibleEmail(event.target.value)
+                  }
+                  placeholder="tecnico@empresa.com"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="technical-cpf">CPF *</Label>
+                <Input
+                  id="technical-cpf"
+                  value={formatCpf(technicalResponsibleCpf)}
+                  onChange={(event) =>
+                    setTechnicalResponsibleCpf(
+                      normalizeCpf(event.target.value),
+                    )
+                  }
+                  placeholder="000.000.000-00"
+                  inputMode="numeric"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="technical-cargo">Cargo *</Label>
+                <Input
+                  id="technical-cargo"
+                  value={technicalResponsibleCargo}
+                  onChange={(event) =>
+                    setTechnicalResponsibleCargo(event.target.value)
+                  }
+                  placeholder="Engenheiro(a) de Seguranca"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="technical-crea">Numero CREA *</Label>
+                <Input
+                  id="technical-crea"
+                  value={technicalResponsibleCrea}
+                  onChange={(event) =>
+                    setTechnicalResponsibleCrea(event.target.value)
+                  }
+                  placeholder="CREA 0000000000"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="technical-password">Senha provisoria *</Label>
+                <Input
+                  id="technical-password"
+                  type="password"
+                  value={technicalResponsiblePassword}
+                  onChange={(event) =>
+                    setTechnicalResponsiblePassword(event.target.value)
+                  }
+                  placeholder="No minimo 6 caracteres"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate("/")}
+                disabled={creatingTechnicalResponsible}
+              >
+                Voltar ao dashboard
+              </Button>
+              <Button
+                type="button"
+                onClick={handleCreateTechnicalResponsible}
+                disabled={creatingTechnicalResponsible}
+              >
+                {creatingTechnicalResponsible ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                Cadastrar responsavel tecnico
+              </Button>
             </div>
           </DialogContent>
         </Dialog>

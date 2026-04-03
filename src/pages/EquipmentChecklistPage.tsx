@@ -21,7 +21,11 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { registerChecklistExecution } from "@/lib/company-members";
+import {
+  canCompanyMemberExecuteChecklists,
+  loadCompanyMembers,
+  registerChecklistExecution,
+} from "@/lib/company-members";
 import {
   isMissingEquipmentChecklistSaveRpcError,
   isMissingFunctionError,
@@ -213,7 +217,7 @@ const renderEquipmentDetails = (
 const EquipmentChecklistPage = () => {
   const { kind, token } = useParams<{ kind: string; token: string }>();
   const { toast } = useToast();
-  const { user, loading: authLoading, signIn } = useAuth();
+  const { user, loading: authLoading, signIn, isSystemAdmin } = useAuth();
   const isMobile = useIsMobile();
   const equipmentType =
     kind === "extintor" || kind === "hidrante" || kind === "luminaria"
@@ -223,6 +227,7 @@ const EquipmentChecklistPage = () => {
   const [checklistSnapshot, setChecklistSnapshot] =
     useState<EquipmentChecklistSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
+  const [canExecuteChecklist, setCanExecuteChecklist] = useState(true);
   const [saveIndicator, setSaveIndicator] =
     useState<SaveIndicatorState>("idle");
   const [notFound, setNotFound] = useState(false);
@@ -436,6 +441,7 @@ const EquipmentChecklistPage = () => {
     setSelectedNonConformityItem(null);
     setNonConformityDialogOpen(false);
     setSaveIndicator("idle");
+    setCanExecuteChecklist(true);
     activeSnapshotRef.current = null;
     confirmedSnapshotRef.current = null;
     pendingSnapshotRef.current = null;
@@ -465,11 +471,29 @@ const EquipmentChecklistPage = () => {
           return;
         }
 
+        let executionAllowed = true;
+
+        try {
+          const members = await loadCompanyMembers(supabase, data.empresa_id);
+          const currentMember =
+            members.find((member) => member.user_id === user?.id) || null;
+          executionAllowed = canCompanyMemberExecuteChecklists(
+            currentMember,
+            isSystemAdmin,
+          );
+        } catch (permissionError) {
+          console.error(
+            "Error loading company checklist permission for equipment page:",
+            permissionError,
+          );
+        }
+
         const baseSnapshot = getEquipmentChecklistSnapshotForType(
           equipmentType,
           data.checklist_snapshot,
         );
         setRecord(data);
+        setCanExecuteChecklist(executionAllowed);
         setNonConformities(new Map());
         setChecklistSnapshot(baseSnapshot);
         activeSnapshotRef.current = baseSnapshot;
@@ -483,6 +507,7 @@ const EquipmentChecklistPage = () => {
         setRecord(null);
         setChecklistSnapshot(null);
         setNonConformities(new Map());
+        setCanExecuteChecklist(true);
         activeSnapshotRef.current = null;
         confirmedSnapshotRef.current = null;
         pendingSnapshotRef.current = null;
@@ -492,7 +517,7 @@ const EquipmentChecklistPage = () => {
     };
 
     void fetchRecord();
-  }, [authLoading, equipmentType, toast, token, user]);
+  }, [authLoading, equipmentType, isSystemAdmin, toast, token, user, user?.id]);
 
   const queueSnapshotSave = useCallback(
     (nextSnapshot: EquipmentChecklistSnapshot) => {
@@ -845,12 +870,6 @@ const EquipmentChecklistPage = () => {
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-                  Cada clique em `C`, `NC` ou `NA` salva automaticamente este
-                  checklist. O checklist principal da empresa assume o pior
-                  status por item em tempo real.
-                </div>
-
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   <div className="rounded-xl border bg-background p-4">
                     <p className="text-xs uppercase text-muted-foreground">
@@ -886,11 +905,25 @@ const EquipmentChecklistPage = () => {
                   </div>
                 </div>
 
-                {checklistSnapshot.items.length === 0 ? (
+                {!canExecuteChecklist ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                    Seu usuario esta em modo consulta para esta empresa. O gestor
+                    precisa liberar a execucao de checklists para que voce possa
+                    marcar os itens e registrar nao conformidades neste equipamento.
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+                    Cada clique em `C`, `NC` ou `NA` salva automaticamente este
+                    checklist. O checklist principal da empresa assume o pior
+                    status por item em tempo real.
+                  </div>
+                )}
+
+                {canExecuteChecklist && checklistSnapshot.items.length === 0 ? (
                   <div className="rounded-xl border border-dashed bg-background p-6 text-center text-sm text-muted-foreground">
                     O checklist principal deste equipamento ainda nao foi sincronizado.
                   </div>
-                ) : (
+                ) : canExecuteChecklist ? (
                   <div className="overflow-x-auto rounded-xl border bg-background">
                     {isProgressivelyRenderingMobileItems ? (
                       <div className="border-b bg-amber-50 px-4 py-2 text-xs text-amber-900 md:hidden">
@@ -1018,7 +1051,7 @@ const EquipmentChecklistPage = () => {
                       </TableBody>
                     </Table>
                   </div>
-                )}
+                ) : null}
               </CardContent>
             </Card>
           </div>

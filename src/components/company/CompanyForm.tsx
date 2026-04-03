@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
@@ -15,6 +16,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAuth } from "@/hooks/useAuth";
 import { createCompanyUser, formatCpf, normalizeCpf } from "@/lib/company-members";
+import { isMissingColumnError } from "@/lib/supabase-errors";
 import { cn } from "@/lib/utils";
 
 const formSchema = z.object({
@@ -24,6 +26,7 @@ const formSchema = z.object({
   responsavel: z.string().min(1, "Responsável é obrigatório"),
   email: z.string().email("E-mail inválido"),
   telefone: z.string().min(10, "Telefone inválido"),
+  possui_responsavel_tecnico: z.boolean(),
   cep: z.string().min(8, "CEP inválido"),
   rua: z.string().min(1, "Rua é obrigatória"),
   numero: z.string().min(1, "Número é obrigatório"),
@@ -80,6 +83,7 @@ export function CompanyForm() {
       responsavel: "",
       email: "",
       telefone: "",
+      possui_responsavel_tecnico: false,
       cep: "",
       rua: "",
       numero: "",
@@ -388,11 +392,38 @@ export function CompanyForm() {
         grau_risco: grauRisco,
       };
 
-      const { data: insertedData, error } = await supabase
+      const empresaDataWithTechnicalResponsible = {
+        ...empresaData,
+        possui_responsavel_tecnico: data.possui_responsavel_tecnico,
+      };
+
+      let insertedData: { id: string } | null = null;
+      let error: unknown = null;
+
+      const insertWithTechnicalResponsible = await supabase
         .from("empresa")
-        .insert(empresaData)
+        .insert(empresaDataWithTechnicalResponsible)
         .select()
         .single();
+
+      if (
+        insertWithTechnicalResponsible.error &&
+        isMissingColumnError(insertWithTechnicalResponsible.error, [
+          "possui_responsavel_tecnico",
+        ])
+      ) {
+        const insertFallback = await supabase
+          .from("empresa")
+          .insert(empresaData)
+          .select()
+          .single();
+
+        insertedData = insertFallback.data;
+        error = insertFallback.error;
+      } else {
+        insertedData = insertWithTechnicalResponsible.data;
+        error = insertWithTechnicalResponsible.error;
+      }
 
       if (error) throw error;
 
@@ -533,6 +564,29 @@ export function CompanyForm() {
               {form.formState.errors.telefone && (
                 <p className="text-sm text-destructive">{form.formState.errors.telefone.message}</p>
               )}
+            </div>
+          </div>
+
+          <div className="rounded-md border border-border/80 p-3">
+            <div className="flex items-start gap-3">
+              <Checkbox
+                id="possui_responsavel_tecnico"
+                checked={form.watch("possui_responsavel_tecnico")}
+                onCheckedChange={(checked) =>
+                  form.setValue("possui_responsavel_tecnico", checked === true, {
+                    shouldDirty: true,
+                  })
+                }
+              />
+              <div className="space-y-1">
+                <Label htmlFor="possui_responsavel_tecnico" className="cursor-pointer">
+                  A empresa possui responsavel tecnico
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Marque quando houver responsavel tecnico habilitado para emissao do relatorio
+                  tecnico.
+                </p>
+              </div>
             </div>
           </div>
         </CardContent>

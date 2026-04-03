@@ -15,7 +15,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Pencil, Trash2, Loader2, ClipboardCheck, FileText } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { isMissingRelationError } from "@/lib/supabase-errors";
-import { EditCompanyDialog } from "./EditCompanyDialog";
 import { useAuth } from "@/hooks/useAuth";
 import {
   AlertDialog,
@@ -36,7 +35,6 @@ export const CompanyTable = () => {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [reportCompanyIds, setReportCompanyIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
-  const [editingCompany, setEditingCompany] = useState<Company | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -178,7 +176,7 @@ export const CompanyTable = () => {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => setEditingCompany(company)}
+                          onClick={() => navigate(`/empresas/${company.id}/editar`)}
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -200,16 +198,6 @@ export const CompanyTable = () => {
           </div>
         </CardContent>
       </Card>
-
-      <EditCompanyDialog
-        company={editingCompany}
-        open={!!editingCompany}
-        onOpenChange={(open) => !open && setEditingCompany(null)}
-        onSuccess={() => {
-          setEditingCompany(null);
-          fetchCompanies();
-        }}
-      />
 
       <AlertDialog open={!!deletingId} onOpenChange={() => setDeletingId(null)}>
         <AlertDialogContent>

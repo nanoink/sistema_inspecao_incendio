@@ -41,9 +41,34 @@ export interface CreatedCompanyUserSummary {
   email: string;
   cpf: string | null;
   cargo: string | null;
+  crea: string | null;
   papel: CompanyMemberRole;
+  is_responsavel_tecnico: boolean;
+  pode_executar_checklists: boolean;
   temporary_password: boolean;
 }
+
+export const canCompanyMemberExecuteChecklists = (
+  member:
+    | Pick<CompanyMemberSummary, "papel" | "pode_executar_checklists">
+    | null
+    | undefined,
+  isSystemAdmin = false,
+) => {
+  if (isSystemAdmin) {
+    return true;
+  }
+
+  if (!member) {
+    return false;
+  }
+
+  if (member.papel === "gestor") {
+    return true;
+  }
+
+  return member.pode_executar_checklists !== false;
+};
 
 export const normalizeCpf = (value: string) =>
   value.replace(/\D/g, "").slice(0, 11);
@@ -178,6 +203,7 @@ const createCompanyUserViaClientSignup = async (
     email,
     cpf,
     cargo,
+    crea,
     password,
     role,
   }: {
@@ -186,6 +212,7 @@ const createCompanyUserViaClientSignup = async (
     email: string;
     cpf: string;
     cargo: string;
+    crea?: string;
     password: string;
     role?: CompanyMemberRole;
   },
@@ -195,6 +222,7 @@ const createCompanyUserViaClientSignup = async (
   const normalizedEmail = email.trim().toLowerCase();
   const normalizedCpf = normalizeCpf(cpf);
   const normalizedCargo = cargo.trim();
+  const normalizedCrea = (crea || "").trim();
   const targetRole = role || "membro";
 
   try {
@@ -206,6 +234,7 @@ const createCompanyUserViaClientSignup = async (
           nome: normalizedName,
           cpf: normalizedCpf,
           cargo: normalizedCargo,
+          crea: normalizedCrea,
           temporary_password: true,
           created_by_admin_flow: true,
         },
@@ -248,6 +277,7 @@ const createCompanyUserViaClientSignup = async (
           email: normalizedEmail,
           cpf: normalizedCpf || null,
           cargo: normalizedCargo || null,
+          crea: normalizedCrea || null,
         })
         .eq("id", targetUserId);
 
@@ -272,7 +302,10 @@ const createCompanyUserViaClientSignup = async (
             email: normalizedEmail,
             cpf: normalizedCpf || null,
             cargo: normalizedCargo || null,
+            crea: normalizedCrea || null,
             papel: targetRole,
+            is_responsavel_tecnico: false,
+            pode_executar_checklists: true,
             temporary_password: true,
           } as CreatedCompanyUserSummary;
         }
@@ -300,7 +333,10 @@ const createCompanyUserViaClientSignup = async (
           email: normalizedEmail,
           cpf: normalizedCpf || null,
           cargo: normalizedCargo || null,
+          crea: normalizedCrea || null,
           papel: targetRole,
+          is_responsavel_tecnico: false,
+          pode_executar_checklists: true,
           temporary_password: true,
         } as CreatedCompanyUserSummary;
       }
@@ -314,7 +350,10 @@ const createCompanyUserViaClientSignup = async (
       email: normalizedEmail,
       cpf: normalizedCpf || null,
       cargo: normalizedCargo || null,
+      crea: normalizedCrea || null,
       papel: targetRole,
+      is_responsavel_tecnico: false,
+      pode_executar_checklists: true,
       temporary_password: true,
     } as CreatedCompanyUserSummary;
   } finally {
@@ -330,6 +369,7 @@ export const createCompanyUser = async (
     email,
     cpf,
     cargo,
+    crea,
     password,
     role,
   }: {
@@ -338,6 +378,7 @@ export const createCompanyUser = async (
     email: string;
     cpf: string;
     cargo: string;
+    crea?: string;
     password: string;
     role?: CompanyMemberRole;
   },
@@ -348,6 +389,7 @@ export const createCompanyUser = async (
     email,
     cpf,
     cargo,
+    crea,
     password,
     role,
   });
@@ -396,6 +438,62 @@ export const removeCompanyMember = async (
   if (error) {
     throw error;
   }
+};
+
+export const setCompanyMemberChecklistPermission = async (
+  supabase: AppSupabaseClient,
+  {
+    companyId,
+    userId,
+    canExecuteChecklists,
+  }: {
+    companyId: string;
+    userId: string;
+    canExecuteChecklists: boolean;
+  },
+) => {
+  const { data, error } = await supabase.rpc(
+    "set_empresa_usuario_checklist_permission",
+    {
+      p_empresa_id: companyId,
+      p_user_id: userId,
+      p_pode_executar_checklists: canExecuteChecklists,
+    },
+  );
+
+  if (error) {
+    throw error;
+  }
+
+  return ((data || [])[0] || null) as CompanyMemberSummary | null;
+};
+
+export const setCompanyMemberAsTechnicalResponsible = async (
+  supabase: AppSupabaseClient,
+  {
+    companyId,
+    userId,
+    isTechnicalResponsible = true,
+  }: {
+    companyId: string;
+    userId: string;
+    isTechnicalResponsible?: boolean;
+  },
+) => {
+  const { data, error } = await supabase.rpc(
+    "set_empresa_usuario_responsavel_tecnico",
+    {
+      p_empresa_id: companyId,
+      p_user_id: userId,
+      p_is_responsavel_tecnico: isTechnicalResponsible,
+    },
+  );
+
+  if (error) {
+    throw error;
+  }
+
+  return ((data || [])[0] || null) as CompanyMemberSummary | null;
 };
 
 export const registerChecklistExecution = async (
