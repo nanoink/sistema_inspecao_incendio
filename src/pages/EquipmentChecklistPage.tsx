@@ -12,6 +12,7 @@ import {
   Flame,
   Droplets,
   Lightbulb,
+  Save,
   ShieldCheck,
   Check,
   Minus,
@@ -48,6 +49,7 @@ import {
 } from "@/lib/checklist-non-conformities";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -315,10 +317,11 @@ const EquipmentChecklistPage = () => {
 
   const flushPendingSave = useCallback(async () => {
     if (!token || !equipmentType || !user || saveInFlightRef.current) {
-      return;
+      return false;
     }
 
     saveInFlightRef.current = true;
+    let hasError = false;
 
     try {
       while (pendingSnapshotRef.current) {
@@ -403,6 +406,7 @@ const EquipmentChecklistPage = () => {
         }
       }
     } catch (error) {
+      hasError = true;
       pendingSnapshotRef.current = null;
       console.error("Error saving equipment checklist:", error);
 
@@ -426,6 +430,8 @@ const EquipmentChecklistPage = () => {
         void flushPendingSave();
       }
     }
+
+    return !hasError;
   }, [equipmentType, record, toast, token, user]);
 
   useEffect(() => {
@@ -529,6 +535,26 @@ const EquipmentChecklistPage = () => {
     },
     [flushPendingSave],
   );
+
+  const handleSaveCurrentChecklist = useCallback(async () => {
+    const currentSnapshot = activeSnapshotRef.current;
+
+    if (!currentSnapshot || !canExecuteChecklist) {
+      return;
+    }
+
+    pendingSnapshotRef.current = currentSnapshot;
+    setSaveIndicator("saving");
+
+    const success = await flushPendingSave();
+
+    if (success && mountedRef.current) {
+      toast({
+        title: "Checklist salvo",
+        description: "O checklist deste equipamento foi salvo com sucesso.",
+      });
+    }
+  }, [canExecuteChecklist, flushPendingSave, toast]);
 
   const handleStatusChange = (
     itemId: string,
@@ -710,6 +736,7 @@ const EquipmentChecklistPage = () => {
       : saveIndicator === "saved"
         ? "text-emerald-700"
         : "text-muted-foreground";
+  const isPersistingChecklist = saveIndicator === "saving";
   const saveIndicatorLabel =
     saveIndicator === "saving"
       ? "Salvando..."
@@ -1050,6 +1077,27 @@ const EquipmentChecklistPage = () => {
                         })}
                       </TableBody>
                     </Table>
+                  </div>
+                ) : null}
+
+                {canExecuteChecklist && checklistSnapshot.items.length > 0 ? (
+                  <div className="border-t px-4 py-4 md:px-0 md:pt-5">
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => void handleSaveCurrentChecklist()}
+                        disabled={isPersistingChecklist}
+                        className="w-full sm:w-auto"
+                      >
+                        {isPersistingChecklist ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Save className="mr-2 h-4 w-4" />
+                        )}
+                        Salvar este checklist
+                      </Button>
+                    </div>
                   </div>
                 ) : null}
               </CardContent>
