@@ -410,6 +410,44 @@ const formatDateTime = (value?: string | null) => {
   return date.toLocaleString("pt-BR");
 };
 
+const formatCnpj = (value?: string | null) => {
+  const digits = value?.replace(/\D/g, "") || "";
+
+  if (digits.length !== 14) {
+    return value?.trim() || "-";
+  }
+
+  return digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
+};
+
+const getDatePartsForArtSignature = (value?: string | null) => {
+  if (!value) {
+    return {
+      day: "-",
+      month: "-",
+      year: "-",
+    };
+  }
+
+  const normalized = value.includes("T") ? new Date(value) : new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(normalized.getTime())) {
+    return {
+      day: "-",
+      month: "-",
+      year: "-",
+    };
+  }
+
+  return {
+    day: normalized.toLocaleDateString("pt-BR", { day: "2-digit" }),
+    month: normalized
+      .toLocaleDateString("pt-BR", { month: "long" })
+      .toUpperCase(),
+    year: normalized.toLocaleDateString("pt-BR", { year: "numeric" }),
+  };
+};
+
 const formatNumber = (value?: number | null, suffix?: string) => {
   if (value === null || value === undefined || Number.isNaN(value)) {
     return "-";
@@ -1535,6 +1573,151 @@ const ChecklistDigitalSignatureStamp = ({
     </div>
   </div>
 );
+
+const TechnicalResponsibleArtSignatureSheet = ({
+  company,
+  signerName,
+  signerCpf,
+  signerCargo,
+  signerCrea,
+  signatureTimestamp,
+  validationQrCodeDataUrl,
+  technicalValidationUrl,
+}: {
+  company: Company;
+  signerName: string;
+  signerCpf?: string | null;
+  signerCargo: string;
+  signerCrea: string;
+  signatureTimestamp?: string | null;
+  validationQrCodeDataUrl?: string | null;
+  technicalValidationUrl?: string | null;
+}) => {
+  const signatureDateParts = getDatePartsForArtSignature(signatureTimestamp);
+  const localLabel =
+    company.cidade?.trim() && company.estado?.trim()
+      ? `${company.cidade.trim()}/${company.estado.trim()}`
+      : "Belem/PA";
+  const printedTimestamp = formatDateTime(signatureTimestamp);
+
+  return (
+    <div className="space-y-5 border border-zinc-300 bg-white px-6 py-5 text-zinc-900">
+      <div className="border-b border-zinc-300 pb-3">
+        <div className="grid grid-cols-[1.25fr_0.95fr] items-end gap-6">
+          <div className="space-y-1">
+            <p className="text-[15px] font-semibold text-zinc-800">7. Entidade de Classe</p>
+            <p className="text-[13px] uppercase tracking-[0.03em] text-zinc-900">
+              ASSOCIACAO DE ENGENHARIA DE SEGURANCA DO TRABALHO DO ESTADO DO PARA
+            </p>
+          </div>
+
+          <div className="relative min-h-[72px] border-b border-zinc-400 pb-1">
+            <div className="pointer-events-none absolute right-0 top-[-4px] w-[82%] text-indigo-800/80">
+              <svg viewBox="0 0 280 100" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-16 w-full">
+                <path
+                  d="M19 69C48 38 59 16 79 19C94 22 93 41 78 55C61 71 42 73 49 53C55 36 80 22 108 22C126 22 136 29 145 42C152 52 161 65 176 67C189 68 197 54 198 41C199 29 193 18 202 18C213 18 223 48 232 59C241 70 253 75 263 63"
+                  stroke="currentColor"
+                  strokeWidth="3.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+
+            <div className="relative pt-7 text-right text-[11px] leading-4 text-zinc-700">
+              <p className="font-semibold uppercase text-zinc-900">{signerName}</p>
+              <p>{signerCargo}</p>
+              <p>CREA: {signerCrea}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-4 border-b border-zinc-300 pb-4">
+        <p className="text-[15px] font-semibold text-zinc-800">8. Assinaturas</p>
+
+        <div className="grid grid-cols-[1.04fr_1fr] gap-7">
+          <div className="space-y-4">
+            <p className="text-[12.5px] text-zinc-700">
+              Declaro serem verdadeiras as informacoes acima
+            </p>
+
+            <div className="space-y-2">
+              <div className="border-b border-zinc-400 pb-2">
+                <p className="font-serif text-[28px] italic leading-none tracking-[0.03em] text-blue-800/80">
+                  {localLabel}, {signatureDateParts.day} de {signatureDateParts.month} de{" "}
+                  {signatureDateParts.year}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-[1.18fr_0.92fr] gap-4 text-center text-[10.5px] text-zinc-600">
+                <p>Local</p>
+                <p>data</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="border-b border-zinc-400 pb-1 text-center text-[11.5px] font-semibold uppercase tracking-[0.02em] text-zinc-900">
+              {signerName} - CPF: {formatCpf(signerCpf)}
+            </div>
+            <div className="border-b border-zinc-400 pb-1 text-center text-[11.5px] font-semibold uppercase tracking-[0.02em] text-zinc-900">
+              {company.razao_social} - CNPJ: {formatCnpj(company.cnpj)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <p className="text-[15px] font-semibold text-zinc-800">9. Informacoes</p>
+
+        <div className="grid grid-cols-[1fr_116px] gap-6">
+          <div className="space-y-1 text-[12px] leading-5 text-zinc-700">
+            <p>
+              - A ART e valida somente quando quitada, mediante apresentacao do comprovante
+              de pagamento ou conferencia no site do CREA.
+            </p>
+            <p>
+              - O comprovante de pagamento devera ser apensado para comprovacao de quitacao,
+              quando aplicavel.
+            </p>
+
+            <div className="pt-4 text-[10.5px] leading-5 text-zinc-500">
+              <p>
+                Autenticidade vinculada ao relatorio tecnico e ao registro institucional do
+                responsavel tecnico.
+              </p>
+              <p>Impresso em: {printedTimestamp}</p>
+              <p>
+                Responsavel tecnico: {signerName} | CPF: {formatCpf(signerCpf)} | CREA:{" "}
+                {signerCrea}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col items-center justify-end gap-2 text-center">
+            {validationQrCodeDataUrl ? (
+              <img
+                src={validationQrCodeDataUrl}
+                alt="QR Code de validacao da assinatura tecnica"
+                className="h-[104px] w-[104px] border border-zinc-300 p-1"
+              />
+            ) : (
+              <div className="flex h-[104px] w-[104px] items-center justify-center border border-dashed border-zinc-300 px-3 text-[9px] leading-4 text-zinc-400">
+                QR Code de validacao
+              </div>
+            )}
+
+            <div className="space-y-0.5 text-[9px] leading-4 text-zinc-500">
+              <p className="font-semibold tracking-[0.08em] text-zinc-700">CREA-PA</p>
+              <p className="break-all">{technicalValidationUrl || "Validacao vinculada ao sistema"}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const RiskMatrix = () => (
   <table className="w-full table-fixed border-collapse text-center text-[11px] font-semibold text-zinc-900">
@@ -3310,75 +3493,16 @@ const CompanyReport = () => {
   if (shouldRenderArtPages) {
     pages.push(
       <div className="space-y-6">
-        <SectionHeading
-          index="9"
-          title="Assinatura do Responsavel Tecnico"
+        <TechnicalResponsibleArtSignatureSheet
+          company={company}
+          signerName={technicalSignatureName}
+          signerCpf={technicalSignatureCpf}
+          signerCargo={technicalSignatureCargo}
+          signerCrea={technicalSignatureCrea}
+          signatureTimestamp={technicalSignatureTimestamp || form.dataEmissao}
+          validationQrCodeDataUrl={validationQrCodeDataUrl}
+          technicalValidationUrl={technicalValidationUrl}
         />
-
-        <div className="space-y-4 border border-zinc-300 px-6 py-5">
-          <div className="border-b border-zinc-300 pb-3">
-            <p className="text-[15px] font-semibold text-zinc-800">7. Entidade de Classe</p>
-            <p className="mt-1 text-[13px] uppercase tracking-[0.02em] text-zinc-900">
-              ASSOCIACAO DE ENGENHARIA DE SEGURANCA DO TRABALHO DO ESTADO DO PARA
-            </p>
-          </div>
-
-          <div className="space-y-2 border-b border-zinc-300 pb-4">
-            <p className="text-[15px] font-semibold text-zinc-800">8. Assinaturas</p>
-            <p className="text-[12.5px] text-zinc-700">
-              Declaro serem verdadeiras as informacoes acima.
-            </p>
-
-            <div className="grid grid-cols-[1.1fr_1fr] gap-5 pt-2">
-              <div className="min-h-[140px] border border-zinc-300 px-4 py-3">
-                <p className="text-[11px] uppercase tracking-[0.08em] text-zinc-500">
-                  Assinatura do profissional
-                </p>
-                <div className="mt-7 border-b border-zinc-400 pb-2">
-                  <p className="text-[28px] font-semibold tracking-[0.02em] text-zinc-900">
-                    {technicalSignatureName}
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-2 border border-zinc-300 px-4 py-3">
-                <p className="border-b border-zinc-300 pb-2 text-[12.5px] font-semibold uppercase text-zinc-900">
-                  {technicalSignatureName}
-                </p>
-                <p className="text-[12px] text-zinc-800">CPF: {formatCpf(technicalSignatureCpf)}</p>
-                <p className="text-[12px] text-zinc-800">Cargo: {technicalSignatureCargo}</p>
-                <p className="text-[12px] text-zinc-800">CREA: {technicalSignatureCrea}</p>
-                <p className="text-[12px] text-zinc-800">
-                  Data e hora da assinatura: {formatDateTime(technicalSignatureTimestamp)}
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3 pt-2 text-[12px] text-zinc-700">
-              <div className="border-b border-zinc-300 py-2">
-                <span className="font-semibold">Local:</span> Belem/PA
-              </div>
-              <div className="border-b border-zinc-300 py-2">
-                <span className="font-semibold">Data:</span> {formatDateFullPtBr(form.dataEmissao)}
-              </div>
-              <div className="border-b border-zinc-300 py-2">
-                <span className="font-semibold">Empresa:</span> {company.razao_social}
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <p className="text-[15px] font-semibold text-zinc-800">9. Informacoes</p>
-            <ul className="list-disc space-y-1 pl-5 text-[12px] text-zinc-700">
-              <li>
-                A ART e valida somente quando quitada, mediante apresentacao do comprovante de pagamento ou conferencia no site do CREA.
-              </li>
-              <li>
-                O comprovante de pagamento deve ser anexado para comprovacao de quitacao quando aplicavel.
-              </li>
-            </ul>
-          </div>
-        </div>
       </div>,
     );
 
