@@ -28,6 +28,10 @@ import {
   registerChecklistExecution,
 } from "@/lib/company-members";
 import {
+  formatChecklistItemAuditSummary,
+  type ChecklistSnapshotItem,
+} from "@/lib/checklist";
+import {
   isMissingEquipmentChecklistSaveRpcError,
   isMissingFunctionError,
 } from "@/lib/supabase-errors";
@@ -574,6 +578,9 @@ const EquipmentChecklistPage = () => {
         status,
         observacoes:
           status === "NC" ? existingNonConformity?.descricao || null : null,
+        preenchido_por_nome: currentActorName,
+        preenchido_por_user_id: user?.id || null,
+        preenchido_em: new Date().toISOString(),
       },
     );
 
@@ -676,6 +683,9 @@ const EquipmentChecklistPage = () => {
           selectedNonConformityItem.checklist_item_id,
           {
             observacoes: description,
+            preenchido_por_nome: currentActorName,
+            preenchido_por_user_id: user?.id || null,
+            preenchido_em: new Date().toISOString(),
           },
         );
         queueSnapshotSave(nextSnapshot);
@@ -821,6 +831,13 @@ const EquipmentChecklistPage = () => {
     : checklistSnapshot.items;
   const isProgressivelyRenderingMobileItems =
     isMobile && visibleChecklistItems.length < totalChecklistItems;
+  const currentActorName =
+    (typeof user?.user_metadata?.nome === "string" &&
+    user.user_metadata.nome.trim()
+      ? user.user_metadata.nome.trim()
+      : "") ||
+    user?.email?.trim() ||
+    "Usuario nao identificado";
 
   return (
     <div className="min-h-screen bg-muted/20">
@@ -961,7 +978,7 @@ const EquipmentChecklistPage = () => {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead colSpan={5} className="text-center">
+                          <TableHead colSpan={6} className="text-center">
                             {checklistSnapshot.inspection_name.toUpperCase()}
                           </TableHead>
                         </TableRow>
@@ -986,6 +1003,9 @@ const EquipmentChecklistPage = () => {
                                   </TableCell>
                                   <TableCell className="font-medium text-xs md:text-sm">
                                     {item.secao}
+                                  </TableCell>
+                                  <TableCell className="font-medium text-xs md:text-sm">
+                                    Registro
                                   </TableCell>
                                   <TableCell className="font-medium text-center whitespace-nowrap text-xs md:text-sm">
                                     C
@@ -1034,6 +1054,9 @@ const EquipmentChecklistPage = () => {
                                         : "clique na linha para descrever e anexar a imagem desta nao conformidade."}
                                     </div>
                                   )}
+                                </TableCell>
+                                <TableCell className="whitespace-pre-line text-[11px] leading-5 text-muted-foreground">
+                                  {formatChecklistItemAuditSummary(item)}
                                 </TableCell>
                                 {STATUS_ORDER.map((statusValue) => {
                                   const meta = STATUS_META[statusValue];

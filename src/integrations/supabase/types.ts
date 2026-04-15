@@ -480,6 +480,9 @@ export type Database = {
           empresa_id: string
           id: string
           observacoes: string | null
+          preenchido_em: string | null
+          preenchido_por_nome: string | null
+          preenchido_por_user_id: string | null
           status: string
           updated_at: string
         }
@@ -489,6 +492,9 @@ export type Database = {
           empresa_id: string
           id?: string
           observacoes?: string | null
+          preenchido_em?: string | null
+          preenchido_por_nome?: string | null
+          preenchido_por_user_id?: string | null
           status?: string
           updated_at?: string
         }
@@ -498,6 +504,9 @@ export type Database = {
           empresa_id?: string
           id?: string
           observacoes?: string | null
+          preenchido_em?: string | null
+          preenchido_por_nome?: string | null
+          preenchido_por_user_id?: string | null
           status?: string
           updated_at?: string
         }

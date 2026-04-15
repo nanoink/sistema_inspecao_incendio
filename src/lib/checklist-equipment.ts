@@ -305,6 +305,9 @@ const toSnapshotItem = (value: unknown): ChecklistSnapshotItem | null => {
         ? value.status
         : "P",
     observacoes: toNullableStringValue(value.observacoes),
+    preenchido_por_nome: toNullableStringValue(value.preenchido_por_nome),
+    preenchido_por_user_id: toNullableStringValue(value.preenchido_por_user_id),
+    preenchido_em: toNullableStringValue(value.preenchido_em),
   };
 };
 
@@ -400,6 +403,9 @@ export const mergeEquipmentChecklistSnapshotWithTemplate = ({
       ...templateItem,
       status: existingItem.status,
       observacoes: existingItem.observacoes,
+      preenchido_por_nome: existingItem.preenchido_por_nome || null,
+      preenchido_por_user_id: existingItem.preenchido_por_user_id || null,
+      preenchido_em: existingItem.preenchido_em || null,
     };
   });
 
@@ -643,7 +649,16 @@ export const updateEquipmentChecklistSnapshotItemStatus = (
 export const updateEquipmentChecklistSnapshotItem = (
   snapshot: EquipmentChecklistSnapshot,
   itemId: string,
-  updates: Partial<Pick<ChecklistSnapshotItem, "status" | "observacoes">>,
+  updates: Partial<
+    Pick<
+      ChecklistSnapshotItem,
+      | "status"
+      | "observacoes"
+      | "preenchido_por_nome"
+      | "preenchido_por_user_id"
+      | "preenchido_em"
+    >
+  >,
 ) =>
   buildEquipmentChecklistSnapshotFromItems({
     inspectionCode: snapshot.inspection_code,

@@ -34,6 +34,9 @@ export interface ChecklistResponseShape {
   checklist_item_id: string;
   status: string;
   observacoes: string | null;
+  preenchido_por_nome?: string | null;
+  preenchido_por_user_id?: string | null;
+  preenchido_em?: string | null;
 }
 
 export type ChecklistTableRow =
@@ -69,6 +72,9 @@ export interface ChecklistSnapshotItem {
   descricao: string;
   status: ChecklistSnapshotStatus;
   observacoes: string | null;
+  preenchido_por_nome?: string | null;
+  preenchido_por_user_id?: string | null;
+  preenchido_em?: string | null;
 }
 
 export interface ChecklistSnapshotInspection {
@@ -96,6 +102,12 @@ export interface ChecklistSnapshot {
   non_conformities: ChecklistSnapshotItem[];
 }
 
+export interface ChecklistResponseAuditShape {
+  preenchido_por_nome?: string | null;
+  preenchido_por_user_id?: string | null;
+  preenchido_em?: string | null;
+}
+
 const normalizeSnapshotStatus = (
   status: string | null | undefined,
 ): ChecklistSnapshotStatus => {
@@ -104,6 +116,20 @@ const normalizeSnapshotStatus = (
   }
 
   return "P";
+};
+
+export const isChecklistSnapshot = (value: unknown): value is ChecklistSnapshot => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const snapshot = value as Partial<ChecklistSnapshot>;
+  return (
+    typeof snapshot.generated_at === "string" &&
+    typeof snapshot.overall === "object" &&
+    Array.isArray(snapshot.inspections) &&
+    Array.isArray(snapshot.non_conformities)
+  );
 };
 
 export const buildChecklistItemText = (
@@ -218,6 +244,9 @@ export const buildChecklistSnapshot = (
         descricao: buildChecklistItemText(row.description, row.complement),
         status,
         observacoes: response?.observacoes || null,
+        preenchido_por_nome: response?.preenchido_por_nome || null,
+        preenchido_por_user_id: response?.preenchido_por_user_id || null,
+        preenchido_em: response?.preenchido_em || null,
       };
 
       items.push(itemSnapshot);
@@ -254,4 +283,58 @@ export const buildChecklistSnapshot = (
     inspections: inspectionSnapshots,
     non_conformities: nonConformities,
   };
+};
+
+export const buildChecklistSnapshotAuditMap = (
+  snapshot?: ChecklistSnapshot | null,
+) => {
+  const auditMap = new Map<string, ChecklistResponseAuditShape>();
+
+  if (!snapshot) {
+    return auditMap;
+  }
+
+  snapshot.inspections.forEach((inspection) => {
+    inspection.itens.forEach((item) => {
+      auditMap.set(item.checklist_item_id, {
+        preenchido_por_nome: item.preenchido_por_nome || null,
+        preenchido_por_user_id: item.preenchido_por_user_id || null,
+        preenchido_em: item.preenchido_em || null,
+      });
+    });
+  });
+
+  return auditMap;
+};
+
+export const mergeChecklistResponseWithAudit = (
+  response: ChecklistResponseShape,
+  audit?: ChecklistResponseAuditShape | null,
+): ChecklistResponseShape => ({
+  ...response,
+  preenchido_por_nome:
+    response.preenchido_por_nome || audit?.preenchido_por_nome || null,
+  preenchido_por_user_id:
+    response.preenchido_por_user_id || audit?.preenchido_por_user_id || null,
+  preenchido_em: response.preenchido_em || audit?.preenchido_em || null,
+});
+
+export const formatChecklistItemAuditSummary = (
+  audit?: ChecklistResponseAuditShape | ChecklistSnapshotItem | null,
+) => {
+  if (!audit?.preenchido_em && !audit?.preenchido_por_nome) {
+    return "-";
+  }
+
+  const filledAt = audit.preenchido_em ? new Date(audit.preenchido_em) : null;
+  const formattedDate =
+    filledAt && !Number.isNaN(filledAt.getTime())
+      ? filledAt.toLocaleString("pt-BR")
+      : "-";
+
+  if (!audit.preenchido_por_nome) {
+    return formattedDate;
+  }
+
+  return `${audit.preenchido_por_nome} | ${formattedDate}`;
 };

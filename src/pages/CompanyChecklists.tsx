@@ -57,7 +57,11 @@ import {
 import { cn } from "@/lib/utils";
 import {
   buildChecklistSnapshot,
+  buildChecklistSnapshotAuditMap,
   buildChecklistTableRows,
+  formatChecklistItemAuditSummary,
+  isChecklistSnapshot,
+  mergeChecklistResponseWithAudit,
   type ChecklistGroupWithItems,
   type ChecklistModelShape,
   type ChecklistResponseShape,
@@ -603,6 +607,19 @@ const CompanyChecklists = () => {
   const touchedInspectionExecutionsRef = useRef<
     Map<string, { inspectionCode: string; inspectionName: string }>
   >(new Map());
+  const currentActorName = useMemo(() => {
+    const metadataName =
+      typeof user?.user_metadata?.nome === "string"
+        ? user.user_metadata.nome.trim()
+        : "";
+
+    return (
+      currentCompanyMember?.nome?.trim() ||
+      metadataName ||
+      user?.email?.trim() ||
+      "Usuario nao identificado"
+    );
+  }, [currentCompanyMember?.nome, user?.email, user?.user_metadata?.nome]);
   const visibleChecklistCodes = useMemo(() => {
     const next = new Set(ALWAYS_VISIBLE_CHECKLIST_CODES);
 
@@ -1049,6 +1066,7 @@ const CompanyChecklists = () => {
         companyMembers,
         companyRequirements,
         equipmentData,
+        reportSnapshotResult,
         principalNonConformityRecords,
         luminaireNonConformityRecords,
         extinguisherNonConformityRecords,
@@ -1066,6 +1084,11 @@ const CompanyChecklists = () => {
           `)
           .eq("empresa_id", id),
         loadChecklistEquipmentData(supabase, id),
+        supabase
+          .from("empresa_relatorios")
+          .select("checklist_snapshot")
+          .eq("empresa_id", id)
+          .maybeSingle(),
         loadChecklistNonConformities(supabase, { companyId: id }),
         loadEquipmentChecklistNonConformitiesByType(supabase, {
           companyId: id,
@@ -1084,6 +1107,29 @@ const CompanyChecklists = () => {
       if (companyRequirements.error) {
         throw companyRequirements.error;
       }
+
+      if (reportSnapshotResult.error) {
+        if (!isMissingRelationError(reportSnapshotResult.error, "empresa_relatorios")) {
+          throw reportSnapshotResult.error;
+        }
+      }
+
+      const persistedChecklistSnapshot = isChecklistSnapshot(
+        reportSnapshotResult.data?.checklist_snapshot,
+      )
+        ? reportSnapshotResult.data.checklist_snapshot
+        : null;
+      const responseAuditMap = buildChecklistSnapshotAuditMap(
+        persistedChecklistSnapshot,
+      );
+      const hydratedResponses = new Map<string, ChecklistResponseShape>();
+
+      checklistData.responses.forEach((response, itemId) => {
+        hydratedResponses.set(
+          itemId,
+          mergeChecklistResponseWithAudit(response, responseAuditMap.get(itemId)),
+        );
+      });
 
       const requirementCodes = new Set(
         ((companyRequirements.data as CompanyRequirementChecklistRow[] | null) || [])
@@ -1104,7 +1150,7 @@ const CompanyChecklists = () => {
       setModels(checklistData.models);
       setGroupsByModel(checklistData.groupsByModel);
       setSelectedRequirementCodes(requirementCodes);
-      setResponses(checklistData.responses);
+      setResponses(hydratedResponses);
       setPrincipalNonConformities(
         mapChecklistNonConformitiesByItemId(principalNonConformityRecords),
       );
@@ -1774,6 +1820,7 @@ const CompanyChecklists = () => {
       const next = new Map(previous);
       const existing = previous.get(itemId);
       const existingNonConformity = principalNonConformities.get(itemId);
+      const now = new Date().toISOString();
       next.set(itemId, {
         checklist_item_id: itemId,
         status,
@@ -1781,6 +1828,9 @@ const CompanyChecklists = () => {
           status === "NC"
             ? existingNonConformity?.descricao || existing?.observacoes || null
             : null,
+        preenchido_por_nome: currentActorName,
+        preenchido_por_user_id: user?.id || null,
+        preenchido_em: now,
       });
       return next;
     });
@@ -1976,12 +2026,16 @@ const CompanyChecklists = () => {
       setResponses((previous) => {
         const next = new Map(previous);
         const existing = next.get(selectedNonConformityItem.itemId);
+        const now = new Date().toISOString();
 
         if (existing?.status === "NC") {
           next.set(selectedNonConformityItem.itemId, {
             checklist_item_id: selectedNonConformityItem.itemId,
             status: existing.status,
             observacoes: description,
+            preenchido_por_nome: currentActorName,
+            preenchido_por_user_id: user?.id || null,
+            preenchido_em: now,
           });
         }
 
@@ -3299,7 +3353,7 @@ const CompanyChecklists = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead colSpan={5} className="text-center whitespace-nowrap">
+                      <TableHead colSpan={6} className="text-center whitespace-nowrap">
                         {checklistTitle.toUpperCase()}
                       </TableHead>
                     </TableRow>
@@ -3319,6 +3373,9 @@ const CompanyChecklists = () => {
                             <TableCell className="font-medium text-xs md:text-sm">
                               {row.title}
                             </TableCell>
+                            <TableCell className="font-medium text-xs md:text-sm">
+                              Registro
+                            </TableCell>
                             <TableCell className="font-medium text-center whitespace-nowrap text-xs md:text-sm">
                               C
                             </TableCell>
@@ -3337,7 +3394,7 @@ const CompanyChecklists = () => {
                           <TableRow key={row.key}>
                             <TableCell className="whitespace-nowrap text-xs md:text-sm" />
                             <TableCell
-                              colSpan={4}
+                              colSpan={5}
                               className="text-xs md:text-sm text-muted-foreground"
                             >
                               <div>{row.description}</div>
@@ -3399,6 +3456,11 @@ const CompanyChecklists = () => {
                         sectionTitleForRow,
                         row.sourceItemNumber,
                       );
+                      const auditSummary = isMirroredEquipmentItem
+                        ? response?.status
+                          ? "Consolidado automaticamente a partir dos equipamentos."
+                          : "-"
+                        : formatChecklistItemAuditSummary(response);
 
                       return (
                         <TableRow
@@ -3474,6 +3536,9 @@ const CompanyChecklists = () => {
                                 equipamento(s) com nao conformidade registrada neste item.
                               </div>
                             )}
+                          </TableCell>
+                          <TableCell className="whitespace-pre-line text-[11px] leading-5 text-muted-foreground">
+                            {auditSummary}
                           </TableCell>
                           {STATUS_ORDER.map((statusValue) => {
                             const meta = STATUS_META[statusValue];

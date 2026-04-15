@@ -23,11 +23,19 @@ import {
 } from "@/lib/company-members";
 import {
   buildChecklistSnapshot,
+  formatChecklistItemAuditSummary,
+  isChecklistSnapshot,
   type ChecklistSnapshot,
   type ChecklistSnapshotItem,
 } from "@/lib/checklist";
 import { loadChecklistData } from "@/lib/checklist-source";
 import {
+  buildExtinguisherSummary,
+  buildHydrantSummary,
+  buildLuminaireSummary,
+  formatMonthYear,
+  isDateExpired,
+  isHydroYearExpired,
   normalizeEquipmentChecklistSnapshot,
   type EquipmentChecklistSnapshot,
 } from "@/lib/checklist-equipment";
@@ -81,11 +89,29 @@ type NonConformityRow =
   Database["public"]["Tables"]["empresa_checklist_nao_conformidades"]["Row"];
 type ExtinguisherRow = Pick<
   Database["public"]["Tables"]["empresa_extintores"]["Row"],
-  "id" | "numero" | "localizacao" | "tipo" | "carga_nominal" | "checklist_snapshot"
+  | "id"
+  | "numero"
+  | "localizacao"
+  | "tipo"
+  | "carga_nominal"
+  | "vencimento_carga"
+  | "vencimento_teste_hidrostatico_ano"
+  | "checklist_snapshot"
 >;
 type HydrantRow = Pick<
   Database["public"]["Tables"]["empresa_hidrantes"]["Row"],
-  "id" | "numero" | "localizacao" | "tipo_hidrante" | "checklist_snapshot"
+  | "id"
+  | "numero"
+  | "localizacao"
+  | "tipo_hidrante"
+  | "mangueira1_tipo"
+  | "mangueira1_vencimento_teste_hidrostatico"
+  | "mangueira2_tipo"
+  | "mangueira2_vencimento_teste_hidrostatico"
+  | "esguicho"
+  | "chave_mangueira"
+  | "status"
+  | "checklist_snapshot"
 >;
 type LuminaireRow = Pick<
   Database["public"]["Tables"]["empresa_luminarias"]["Row"],
@@ -239,6 +265,35 @@ interface ChecklistPrintSection {
   signers: CompanyReportSignatureRow[];
 }
 
+interface EquipmentRegistryIssueEntry {
+  id: string;
+  equipmentType: "extintor" | "hidrante" | "luminaria";
+  equipmentLabel: string;
+  detail: string;
+  correctionAction: string;
+  riskLevel: "ALTA" | "MEDIA" | "BAIXA";
+  riskPriority: string;
+  riskTone: "danger" | "warning" | "neutral";
+}
+
+interface ReportProgressMetric {
+  label: string;
+  completed: number;
+  total: number;
+  percent: number;
+  tone: "emerald" | "amber" | "blue" | "slate";
+}
+
+interface InspectorProgressEntry {
+  userId: string;
+  name: string;
+  roleLabel: string;
+  executed: number;
+  totalSaves: number;
+  percent: number;
+  lastActivityAt: string | null;
+}
+
 interface TechnicalSnapshotSummary {
   total: number;
   checked: number;
@@ -302,20 +357,6 @@ const getJsonString = (
 ) => {
   const value = source?.[key];
   return typeof value === "string" ? value : null;
-};
-
-const isChecklistSnapshot = (value: unknown): value is ChecklistSnapshot => {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const snapshot = value as Partial<ChecklistSnapshot>;
-  return (
-    typeof snapshot.generated_at === "string" &&
-    typeof snapshot.overall === "object" &&
-    Array.isArray(snapshot.inspections) &&
-    Array.isArray(snapshot.non_conformities)
-  );
 };
 
 const getReportStatusBadge = (status: ReportStatus) =>
@@ -593,6 +634,299 @@ const buildCorrectionAction = ({
   const cleanDetail = detailDescription.replace(/\s+/g, " ").trim();
 
   return `Regularizar ${sourceLabel.toLowerCase()} referente ao item "${cleanItem}", executando a correcao descrita no registro de nao conformidade${cleanDetail ? ` (${cleanDetail}).` : "."} Validar novamente a conformidade apos a execucao.`;
+};
+
+const buildEquipmentRegistryIssueEntries = ({
+  extinguishers,
+  hydrants,
+  luminaires,
+}: {
+  extinguishers: ExtinguisherRow[];
+  hydrants: HydrantRow[];
+  luminaires: LuminaireRow[];
+}) => {
+  const entries: EquipmentRegistryIssueEntry[] = [];
+
+  extinguishers.forEach((record) => {
+    if (isDateExpired(record.vencimento_carga)) {
+      entries.push({
+        id: `registro-extintor-recarga-${record.id}`,
+        equipmentType: "extintor",
+        equipmentLabel: `Extintor ${record.numero}`,
+        detail: `Carga vencida em ${formatMonthYear(record.vencimento_carga)}.`,
+        correctionAction: `Providenciar recarga imediata do extintor ${record.numero} e atualizar o controle do equipamento apos a manutencao.`,
+        riskLevel: "ALTA",
+        riskPriority: "Correcao imediata",
+        riskTone: "danger",
+      });
+    }
+
+    if (isHydroYearExpired(record.vencimento_teste_hidrostatico_ano)) {
+      entries.push({
+        id: `registro-extintor-hidro-${record.id}`,
+        equipmentType: "extintor",
+        equipmentLabel: `Extintor ${record.numero}`,
+        detail: `Teste hidrostático vencido em ${record.vencimento_teste_hidrostatico_ano}.`,
+        correctionAction: `Providenciar ensaio hidrostático do extintor ${record.numero} e atualizar o ano de controle no cadastro.`,
+        riskLevel: "MEDIA",
+        riskPriority: "Correcao prioritaria",
+        riskTone: "warning",
+      });
+    }
+  });
+
+  hydrants.forEach((record) => {
+    if (isDateExpired(record.mangueira1_vencimento_teste_hidrostatico)) {
+      entries.push({
+        id: `registro-hidrante-m1-${record.id}`,
+        equipmentType: "hidrante",
+        equipmentLabel: `Hidrante ${record.numero}`,
+        detail: `Mangueira 1 com teste hidrostático vencido em ${formatMonthYear(record.mangueira1_vencimento_teste_hidrostatico)}.`,
+        correctionAction: `Submeter a mangueira 1 do hidrante ${record.numero} ao teste hidrostático ou substituí-la, conforme avaliação técnica.`,
+        riskLevel: "ALTA",
+        riskPriority: "Correcao imediata",
+        riskTone: "danger",
+      });
+    }
+
+    if (isDateExpired(record.mangueira2_vencimento_teste_hidrostatico)) {
+      entries.push({
+        id: `registro-hidrante-m2-${record.id}`,
+        equipmentType: "hidrante",
+        equipmentLabel: `Hidrante ${record.numero}`,
+        detail: `Mangueira 2 com teste hidrostático vencido em ${formatMonthYear(record.mangueira2_vencimento_teste_hidrostatico)}.`,
+        correctionAction: `Submeter a mangueira 2 do hidrante ${record.numero} ao teste hidrostático ou substituí-la, conforme avaliação técnica.`,
+        riskLevel: "ALTA",
+        riskPriority: "Correcao imediata",
+        riskTone: "danger",
+      });
+    }
+
+    if (!record.esguicho) {
+      entries.push({
+        id: `registro-hidrante-esguicho-${record.id}`,
+        equipmentType: "hidrante",
+        equipmentLabel: `Hidrante ${record.numero}`,
+        detail: "Esguicho ausente no cadastro do equipamento.",
+        correctionAction: `Providenciar o esguicho do hidrante ${record.numero} e confirmar a disponibilidade operacional do conjunto.`,
+        riskLevel: "MEDIA",
+        riskPriority: "Correcao prioritaria",
+        riskTone: "warning",
+      });
+    }
+
+    if (!record.chave_mangueira) {
+      entries.push({
+        id: `registro-hidrante-chave-${record.id}`,
+        equipmentType: "hidrante",
+        equipmentLabel: `Hidrante ${record.numero}`,
+        detail: "Chave de mangueira ausente no cadastro do equipamento.",
+        correctionAction: `Providenciar a chave de mangueira do hidrante ${record.numero} e validar o conjunto completo para uso operacional.`,
+        riskLevel: "MEDIA",
+        riskPriority: "Correcao prioritaria",
+        riskTone: "warning",
+      });
+    }
+
+    if ((record.status || "").trim().toLowerCase() === "nao conforme") {
+      entries.push({
+        id: `registro-hidrante-status-${record.id}`,
+        equipmentType: "hidrante",
+        equipmentLabel: `Hidrante ${record.numero}`,
+        detail: "Cadastro do hidrante classificado como não conforme.",
+        correctionAction: `Reavaliar o hidrante ${record.numero}, corrigir os itens pendentes e atualizar o status operacional no cadastro.`,
+        riskLevel: "MEDIA",
+        riskPriority: "Correcao prioritaria",
+        riskTone: "warning",
+      });
+    }
+  });
+
+  luminaires.forEach((record) => {
+    if ((record.status || "").trim().toLowerCase() === "nao conforme") {
+      entries.push({
+        id: `registro-luminaria-status-${record.id}`,
+        equipmentType: "luminaria",
+        equipmentLabel: `Luminaria ${record.numero}`,
+        detail: "Cadastro da luminária classificado como não conforme.",
+        correctionAction: `Regularizar a luminária ${record.numero}, executar teste funcional e atualizar o status no cadastro do equipamento.`,
+        riskLevel: "ALTA",
+        riskPriority: "Correcao imediata",
+        riskTone: "danger",
+      });
+    }
+  });
+
+  return entries.sort((left, right) =>
+    `${left.equipmentType}-${left.equipmentLabel}-${left.detail}`.localeCompare(
+      `${right.equipmentType}-${right.equipmentLabel}-${right.detail}`,
+      "pt-BR",
+      { numeric: true, sensitivity: "base" },
+    ),
+  );
+};
+
+const sortReportRecordsByNumber = <T extends { numero: string }>(records: T[]) =>
+  records
+    .slice()
+    .sort((left, right) =>
+      left.numero.localeCompare(right.numero, "pt-BR", {
+        numeric: true,
+        sensitivity: "base",
+      }),
+    );
+
+const getExtinguisherRegistryIssueLabels = (record: ExtinguisherRow) => {
+  const issues: string[] = [];
+
+  if (isDateExpired(record.vencimento_carga)) {
+    issues.push(`Carga vencida (${formatMonthYear(record.vencimento_carga)})`);
+  }
+
+  if (isHydroYearExpired(record.vencimento_teste_hidrostatico_ano)) {
+    issues.push(
+      `Teste hidrostatico vencido (${record.vencimento_teste_hidrostatico_ano})`,
+    );
+  }
+
+  return issues;
+};
+
+const getHydrantRegistryIssueLabels = (record: HydrantRow) => {
+  const issues: string[] = [];
+
+  if (isDateExpired(record.mangueira1_vencimento_teste_hidrostatico)) {
+    issues.push(
+      `Mangueira 1 vencida (${formatMonthYear(
+        record.mangueira1_vencimento_teste_hidrostatico,
+      )})`,
+    );
+  }
+
+  if (isDateExpired(record.mangueira2_vencimento_teste_hidrostatico)) {
+    issues.push(
+      `Mangueira 2 vencida (${formatMonthYear(
+        record.mangueira2_vencimento_teste_hidrostatico,
+      )})`,
+    );
+  }
+
+  if (!record.esguicho) {
+    issues.push("Esguicho ausente");
+  }
+
+  if (!record.chave_mangueira) {
+    issues.push("Chave de mangueira ausente");
+  }
+
+  if ((record.status || "").trim().toLowerCase() === "nao conforme") {
+    issues.push("Status cadastral nao conforme");
+  }
+
+  return issues;
+};
+
+const getLuminaireRegistryIssueLabels = (record: LuminaireRow) => {
+  const issues: string[] = [];
+
+  if ((record.status || "").trim().toLowerCase() === "nao conforme") {
+    issues.push("Status cadastral nao conforme");
+  }
+
+  return issues;
+};
+
+const buildReportProgressMetrics = ({
+  snapshot,
+  equipmentCatalog,
+}: {
+  snapshot: ChecklistSnapshot;
+  equipmentCatalog: Map<string, EquipmentCatalogEntry>;
+}) => {
+  const principalCompleted = snapshot.overall.total - snapshot.overall.pendentes;
+  const equipmentTotals = {
+    extintor: { completed: 0, total: 0 },
+    hidrante: { completed: 0, total: 0 },
+    luminaria: { completed: 0, total: 0 },
+  };
+
+  Array.from(equipmentCatalog.values()).forEach((entry) => {
+    const completed = entry.snapshot.total - entry.snapshot.pendentes;
+    equipmentTotals[entry.type].completed += completed;
+    equipmentTotals[entry.type].total += entry.snapshot.total;
+  });
+
+  const buildMetric = (
+    label: string,
+    completed: number,
+    total: number,
+    tone: ReportProgressMetric["tone"],
+  ): ReportProgressMetric => ({
+    label,
+    completed,
+    total,
+    percent: total > 0 ? Math.round((completed / total) * 100) : 0,
+    tone,
+  });
+
+  const metrics = [
+    buildMetric("Checklist principal", principalCompleted, snapshot.overall.total, "blue"),
+    buildMetric(
+      "Extintores",
+      equipmentTotals.extintor.completed,
+      equipmentTotals.extintor.total,
+      "emerald",
+    ),
+    buildMetric(
+      "Hidrantes",
+      equipmentTotals.hidrante.completed,
+      equipmentTotals.hidrante.total,
+      "amber",
+    ),
+    buildMetric(
+      "Luminarias",
+      equipmentTotals.luminaria.completed,
+      equipmentTotals.luminaria.total,
+      "slate",
+    ),
+  ];
+
+  const overallCompleted = metrics.reduce((total, item) => total + item.completed, 0);
+  const overallTotal = metrics.reduce((total, item) => total + item.total, 0);
+
+  return {
+    overall: buildMetric("Avaliacao consolidada", overallCompleted, overallTotal, "emerald"),
+    metrics,
+  };
+};
+
+const buildInspectorProgressEntries = (signers: CompanyReportSignatureRow[]) => {
+  const maxChecklists = Math.max(
+    1,
+    ...signers.map((signer) => signer.total_checklists || 0),
+  );
+
+  return signers
+    .filter((signer) => signer.total_checklists > 0 || signer.is_gestor)
+    .map((signer) => ({
+      userId: signer.user_id,
+      name: signer.assinatura_nome,
+      roleLabel: signer.is_gestor ? "Gestor" : "Vistoriador",
+      executed: signer.total_checklists || 0,
+      totalSaves: signer.executed_checklists.reduce(
+        (total, execution) => total + execution.total_saves,
+        0,
+      ),
+      percent: Math.round(((signer.total_checklists || 0) / maxChecklists) * 100),
+      lastActivityAt: signer.last_activity_at,
+    }))
+    .sort((left, right) => {
+      if (right.executed !== left.executed) {
+        return right.executed - left.executed;
+      }
+
+      return right.totalSaves - left.totalSaves;
+    });
 };
 
 const buildReportNonConformityEntries = ({
@@ -1328,11 +1662,9 @@ const getChecklistItemsEligibleForReportAnnex = (
 
 const buildChecklistPrintSections = ({
   snapshot,
-  equipmentCatalog,
   signers,
 }: {
   snapshot: ChecklistSnapshot;
-  equipmentCatalog: Map<string, EquipmentCatalogEntry>;
   signers: CompanyReportSignatureRow[];
 }) => {
   const sections: ChecklistPrintSection[] = [];
@@ -1357,32 +1689,6 @@ const buildChecklistPrintSections = ({
           (execution) =>
             execution.context_type === "principal" &&
             execution.inspection_code === inspection.codigo,
-        ),
-      ),
-    });
-  });
-
-  Array.from(equipmentCatalog.values()).forEach((entry) => {
-    const answeredItems = getChecklistItemsEligibleForReportAnnex(
-      entry.snapshot.items,
-    );
-
-    if (answeredItems.length === 0) {
-      return;
-    }
-
-    sections.push({
-      key: `${entry.type}:${entry.recordId}`,
-      title: `${entry.snapshot.inspection_code || "-"} - ${entry.snapshot.inspection_name || getEquipmentTypeLabel(entry.type)}`,
-      subtitle: `${entry.label} | ${entry.subtitle}`,
-      generatedAt: entry.snapshot.generated_at,
-      items: answeredItems,
-      signers: signers.filter((signer) =>
-        signer.executed_checklists.some(
-          (execution) =>
-            execution.context_type === "equipamento" &&
-            execution.equipment_type === entry.type &&
-            execution.equipment_record_id === entry.recordId,
         ),
       ),
     });
@@ -1484,6 +1790,68 @@ const RequirementStatusBadge = ({
     {label}
   </span>
 );
+
+const getProgressToneClasses = (tone: ReportProgressMetric["tone"]) => {
+  if (tone === "emerald") {
+    return {
+      track: "bg-emerald-100",
+      fill: "bg-emerald-600",
+      text: "text-emerald-700",
+    };
+  }
+
+  if (tone === "amber") {
+    return {
+      track: "bg-amber-100",
+      fill: "bg-amber-500",
+      text: "text-amber-700",
+    };
+  }
+
+  if (tone === "blue") {
+    return {
+      track: "bg-blue-100",
+      fill: "bg-blue-600",
+      text: "text-blue-700",
+    };
+  }
+
+  return {
+    track: "bg-slate-200",
+    fill: "bg-slate-600",
+    text: "text-slate-700",
+  };
+};
+
+const ReportProgressBar = ({
+  label,
+  completed,
+  total,
+  percent,
+  tone,
+}: ReportProgressMetric) => {
+  const toneClasses = getProgressToneClasses(tone);
+
+  return (
+    <div className="space-y-2 rounded-sm border border-zinc-300 bg-white px-4 py-3">
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-700">
+          {label}
+        </p>
+        <p className={`text-[11px] font-bold ${toneClasses.text}`}>{percent}%</p>
+      </div>
+      <div className={`h-2.5 overflow-hidden rounded-full ${toneClasses.track}`}>
+        <div
+          className={`h-full rounded-full ${toneClasses.fill}`}
+          style={{ width: `${Math.max(0, Math.min(percent, 100))}%` }}
+        />
+      </div>
+      <p className="text-[11px] text-zinc-600">
+        {completed} de {total} itens avaliados
+      </p>
+    </div>
+  );
+};
 
 const getDigitalSignatureHeading = (
   signer: CompanyReportSignatureRow,
@@ -1914,12 +2282,16 @@ const CompanyReport = () => {
             .order("updated_at", { ascending: false }),
           supabase
             .from("empresa_extintores")
-            .select("id, numero, localizacao, tipo, carga_nominal, checklist_snapshot")
+            .select(
+              "id, numero, localizacao, tipo, carga_nominal, vencimento_carga, vencimento_teste_hidrostatico_ano, checklist_snapshot",
+            )
             .eq("empresa_id", id)
             .order("numero", { ascending: true }),
           supabase
             .from("empresa_hidrantes")
-            .select("id, numero, localizacao, tipo_hidrante, checklist_snapshot")
+            .select(
+              "id, numero, localizacao, tipo_hidrante, mangueira1_tipo, mangueira1_vencimento_teste_hidrostatico, mangueira2_tipo, mangueira2_vencimento_teste_hidrostatico, esguicho, chave_mangueira, status, checklist_snapshot",
+            )
             .eq("empresa_id", id)
             .order("numero", { ascending: true }),
           supabase
@@ -2549,6 +2921,11 @@ const CompanyReport = () => {
     equipmentCatalog,
     form,
   });
+  const equipmentRegistryIssueEntries = buildEquipmentRegistryIssueEntries({
+    extinguishers,
+    hydrants,
+    luminaires,
+  });
   const annexChunks = chunkArray(
     reportEntries.length > 0
       ? reportEntries
@@ -2622,17 +2999,34 @@ const CompanyReport = () => {
     detailedEntries: reportEntries,
     form,
   });
+  const equipmentRegistryCorrectionPlanEntries: CorrectionPlanEntry[] =
+    equipmentRegistryIssueEntries.map((entry) => ({
+      id: entry.id,
+      contextLabel: `${getEquipmentTypeLabel(entry.equipmentType)} | ${entry.equipmentLabel}`,
+      itemDisplay: "Cadastro",
+      correctionAction: `${entry.detail} ${entry.correctionAction}`,
+      startDate: form.dataInspecao || form.dataEmissao || getToday(),
+      dueDate: addDaysToDate(form.dataInspecao || form.dataEmissao || getToday(), 30),
+      riskLevel: entry.riskLevel,
+      riskPriority: entry.riskPriority,
+      riskTone: entry.riskTone,
+    }));
   const requirementCorrectionPlanEntries = buildRequirementCorrectionPlanEntries({
     requirementMeasureEntries,
     form,
   });
+  const technicalCorrectionEntries = [
+    ...reportEntries,
+    ...snapshotCorrectionPlanEntries,
+    ...equipmentRegistryCorrectionPlanEntries,
+  ];
   const correctionPlanEntries: CorrectionPlanEntry[] =
-    reportEntries.length > 0 ||
+    technicalCorrectionEntries.length > 0 ||
     snapshotCorrectionPlanEntries.length > 0 ||
+    equipmentRegistryCorrectionPlanEntries.length > 0 ||
     requirementCorrectionPlanEntries.length > 0
       ? [
-          ...reportEntries,
-          ...snapshotCorrectionPlanEntries,
+          ...technicalCorrectionEntries,
           ...requirementCorrectionPlanEntries,
         ]
       : [
@@ -2651,7 +3045,7 @@ const CompanyReport = () => {
         ];
   const planChunks = chunkArray(correctionPlanEntries, 3);
 
-  const riskSummary = reportEntries.reduce(
+  const riskSummary = technicalCorrectionEntries.reduce(
     (summary, entry) => {
       if (entry.riskLevel === "ALTA") {
         summary.high += 1;
@@ -2664,6 +3058,16 @@ const CompanyReport = () => {
     },
     { high: 0, medium: 0, low: 0 },
   );
+  const extinguisherSummary = buildExtinguisherSummary(extinguishers);
+  const hydrantSummary = buildHydrantSummary(hydrants);
+  const luminaireSummary = buildLuminaireSummary(luminaires);
+  const sortedExtinguishers = sortReportRecordsByNumber(extinguishers);
+  const sortedHydrants = sortReportRecordsByNumber(hydrants);
+  const sortedLuminaires = sortReportRecordsByNumber(luminaires);
+  const progressMetrics = buildReportProgressMetrics({
+    snapshot,
+    equipmentCatalog,
+  });
   const missingTechnicalResponsible =
     !form.inspetorNome.trim() || !form.inspetorCargo.trim();
   const isTechnicalReport = form.reportMode === "tecnico";
@@ -2697,6 +3101,12 @@ const CompanyReport = () => {
             total_checklists: 0,
           } satisfies CompanyReportSignatureRow,
         ];
+  const inspectorProgressEntries = buildInspectorProgressEntries(signatureRows);
+  const inspectorProgressChunks = chunkArray(inspectorProgressEntries, 6);
+  const totalInspectorChecklists = signatureRows.reduce(
+    (total, signer) => total + (signer.total_checklists || 0),
+    0,
+  );
   const signatureChunks = chunkArray(signatureRows, 4);
   const technicalResponsibleSigner = technicalResponsibleMember
     ? signatureRows.find(
@@ -2724,9 +3134,11 @@ const CompanyReport = () => {
   );
   const checklistPrintSections = buildChecklistPrintSections({
     snapshot,
-    equipmentCatalog,
     signers: signatureRows,
   });
+  const extinguisherControlChunks = chunkArray(sortedExtinguishers, 11);
+  const hydrantControlChunks = chunkArray(sortedHydrants, 9);
+  const luminaireControlChunks = chunkArray(sortedLuminaires, 12);
   const annexNaoAplicavelCount = checklistPrintSections.reduce(
     (total, section) =>
       total + section.items.filter((item) => item.status === "NA").length,
@@ -2735,6 +3147,14 @@ const CompanyReport = () => {
   const missingExecutionTraceabilityCount = checklistPrintSections.filter(
     (section) => section.signers.length === 0,
   ).length;
+  const automaticConclusionHeadline =
+    riskSummary.high > 0 || equipmentRegistryIssueEntries.length > 0
+      ? "Conclui-se que a edificacao permanece com nao conformidades relevantes, demandando tratamento corretivo prioritario antes de nova validacao tecnica."
+      : technicalSummary.naoConforme > 0 || requirementsWithWarningCount > 0
+        ? "Conclui-se que a edificacao apresenta atendimento parcial aos criterios avaliados, exigindo saneamento das pendencias antes da conclusao definitiva."
+        : technicalSummary.pendentes > 0
+          ? "Conclui-se que a avaliacao permanece parcial, pois ainda existem itens pendentes de verificacao para encerramento tecnico do processo."
+          : "Conclui-se que a edificacao atende aos criterios avaliados neste relatorio, sem pendencias impeditivas identificadas na presente emissao.";
 
   const conclusionParagraphs = form.conclusao.trim()
     ? form.conclusao
@@ -2742,10 +3162,14 @@ const CompanyReport = () => {
         .map((paragraph) => paragraph.trim())
         .filter(Boolean)
     : [
+        automaticConclusionHeadline,
         `A inspecao tecnica preventiva realizada consolidou ${technicalSummary.total} item(ns), sendo ${technicalSummary.conforme} conforme(s), ${technicalSummary.naoConforme} nao conformidade(s), ${technicalSummary.naoAplicavel} nao aplicavel(is) e ${technicalSummary.pendentes} pendente(s).`,
         annexNaoAplicavelCount !== technicalSummary.naoAplicavel
           ? `${annexNaoAplicavelCount} item(ns) nao aplicavel(is) permaneceram considerados no relatorio por integrarem checklists com ao menos um item conforme ou nao conforme.`
           : null,
+        equipmentRegistryIssueEntries.length > 0
+          ? `${equipmentRegistryIssueEntries.length} nao conformidade(s) adicional(is) foram identificadas diretamente no cadastro dos equipamentos, considerando vencimentos, componentes faltantes e status operacionais declarados.`
+          : "Nao foram identificadas pendencias adicionais no cadastro de extintores, hidrantes e luminarias alem das inconsistencias de checklist registradas.",
         riskSummary.high > 0
           ? `${riskSummary.high} nao conformidade(s) foi(foram) classificada(s) como de risco alto, exigindo tratamento imediato para preservar a seguranca da vida e do patrimonio.`
           : "Nao foram identificadas nao conformidades classificadas como risco alto nos registros detalhados anexos.",
@@ -2762,11 +3186,24 @@ const CompanyReport = () => {
     `Nao aplicaveis considerados nos anexos e no resumo operacional: ${annexNaoAplicavelCount}.`,
     `${generalChecklistLines.length} checklist(s) gerais tiveram ao menos um item verificado nesta emissao, considerando somente o checklist principal de extintores, hidrantes e luminarias.`,
     `Medidas com atendimento tecnico pleno: ${requirementsAttendedCount} de ${requirementMeasureEntries.length}.`,
+    `Progresso consolidado da avaliacao: ${progressMetrics.overall.completed} de ${progressMetrics.overall.total} item(ns) avaliados (${progressMetrics.overall.percent}%).`,
   ];
 
   if (reportEntries.length > 0) {
     resultObservationLines.push(
       `${reportEntries.length} registro(s) detalhado(s) com imagem e comentario foram incorporados aos anexos e ao plano de correcao, com classificacao de risco.`,
+    );
+  }
+
+  if (equipmentRegistryIssueEntries.length > 0) {
+    resultObservationLines.push(
+      `${equipmentRegistryIssueEntries.length} pendencia(s) originada(s) do cadastro dos equipamentos foram incorporadas ao plano de correcao e ao anexo de controle operacional.`,
+    );
+  }
+
+  if (extinguishers.length + hydrants.length + luminaires.length > 0) {
+    resultObservationLines.push(
+      "Os controles operacionais de extintores, hidrantes e luminarias cadastrados foram anexados ao relatorio para suporte da analise tecnica e do plano de correcao.",
     );
   }
 
@@ -3187,10 +3624,476 @@ const CompanyReport = () => {
     </div>,
   );
 
+  (inspectorProgressChunks.length > 0 ? inspectorProgressChunks : [[]]).forEach(
+    (chunk, chunkIndex) => {
+      const isFirstChunk = chunkIndex === 0;
+
+      pages.push(
+        <div className="space-y-6">
+          <section className="space-y-4">
+            <SectionHeading
+              index="5"
+              title={
+                isFirstChunk
+                  ? "Indicadores de Progresso"
+                  : "Indicadores de Progresso - Continuacao"
+              }
+            />
+
+            {isFirstChunk ? (
+              <>
+                <div className="grid grid-cols-4 gap-3">
+                  <div className="rounded-sm border border-zinc-300 bg-white px-4 py-4">
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                      Progresso geral
+                    </p>
+                    <p className="mt-2 text-[24px] font-bold text-zinc-900">
+                      {progressMetrics.overall.percent}%
+                    </p>
+                    <p className="mt-1 text-[11px] text-zinc-600">
+                      {progressMetrics.overall.completed} de {progressMetrics.overall.total} itens
+                    </p>
+                  </div>
+                  <div className="rounded-sm border border-zinc-300 bg-white px-4 py-4">
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                      Checklists executados
+                    </p>
+                    <p className="mt-2 text-[24px] font-bold text-zinc-900">
+                      {totalInspectorChecklists}
+                    </p>
+                    <p className="mt-1 text-[11px] text-zinc-600">
+                      Registros distribuidos entre os vistoriadores
+                    </p>
+                  </div>
+                  <div className="rounded-sm border border-zinc-300 bg-white px-4 py-4">
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                      Pendencias cadastrais
+                    </p>
+                    <p className="mt-2 text-[24px] font-bold text-zinc-900">
+                      {equipmentRegistryIssueEntries.length}
+                    </p>
+                    <p className="mt-1 text-[11px] text-zinc-600">
+                      Itens oriundos do cadastro dos equipamentos
+                    </p>
+                  </div>
+                  <div className="rounded-sm border border-zinc-300 bg-white px-4 py-4">
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                      Rastreabilidade
+                    </p>
+                    <p className="mt-2 text-[24px] font-bold text-zinc-900">
+                      {Math.max(signatureRows.length - missingExecutionTraceabilityCount, 0)}
+                    </p>
+                    <p className="mt-1 text-[11px] text-zinc-600">
+                      Executor(es) com autoria identificada
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-[1.05fr_0.95fr] gap-4">
+                  <div className="space-y-3 rounded-sm border border-zinc-300 bg-zinc-50 px-4 py-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                      Evolucao da avaliacao
+                    </p>
+                    <div className="space-y-3">
+                      {progressMetrics.metrics.map((metric) => (
+                        <ReportProgressBar key={metric.label} {...metric} />
+                      ))}
+                      <ReportProgressBar {...progressMetrics.overall} />
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 rounded-sm border border-zinc-300 bg-white px-4 py-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                      Progresso por vistoriador
+                    </p>
+                    {chunk.length > 0 ? (
+                      chunk.map((entry) => (
+                        <div
+                          key={`inspector-progress-${entry.userId}`}
+                          className="space-y-2 rounded-sm border border-zinc-200 bg-zinc-50 px-3 py-3"
+                        >
+                          <div className="flex items-center justify-between gap-4">
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-800">
+                                {entry.name}
+                              </p>
+                              <p className="text-[10px] text-zinc-500">
+                                {entry.roleLabel} | {entry.executed} checklist(s) | {entry.totalSaves} salvamento(s)
+                              </p>
+                            </div>
+                            <p className="text-[11px] font-bold text-blue-700">{entry.percent}%</p>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-blue-100">
+                            <div
+                              className="h-full rounded-full bg-blue-600"
+                              style={{
+                                width: `${Math.max(0, Math.min(entry.percent, 100))}%`,
+                              }}
+                            />
+                          </div>
+                          <p className="text-[10px] text-zinc-500">
+                            Ultima atividade: {formatDateTime(entry.lastActivityAt)}
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-sm border border-dashed border-zinc-300 px-4 py-6 text-center text-[11px] text-zinc-500">
+                        Nenhum vistoriador com checklist executado foi identificado neste relatorio.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-sm border border-zinc-300 bg-zinc-50 px-4 py-4 text-[11.5px] leading-5 text-zinc-700">
+                  Esta pagina consolida a evolucao da avaliacao geral, o progresso por sistema e a distribuicao
+                  dos checklists executados por vistoriador, permitindo acompanhamento gerencial da execucao e
+                  da rastreabilidade dos registros.
+                </div>
+              </>
+            ) : (
+              <div className="space-y-3 rounded-sm border border-zinc-300 bg-white px-4 py-4">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                  Progresso por vistoriador
+                </p>
+                {chunk.map((entry) => (
+                  <div
+                    key={`inspector-progress-continuation-${entry.userId}`}
+                    className="space-y-2 rounded-sm border border-zinc-200 bg-zinc-50 px-3 py-3"
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-800">
+                          {entry.name}
+                        </p>
+                        <p className="text-[10px] text-zinc-500">
+                          {entry.roleLabel} | {entry.executed} checklist(s) | {entry.totalSaves} salvamento(s)
+                        </p>
+                      </div>
+                      <p className="text-[11px] font-bold text-blue-700">{entry.percent}%</p>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-blue-100">
+                      <div
+                        className="h-full rounded-full bg-blue-600"
+                        style={{
+                          width: `${Math.max(0, Math.min(entry.percent, 100))}%`,
+                        }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-zinc-500">
+                      Ultima atividade: {formatDateTime(entry.lastActivityAt)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>,
+      );
+    },
+  );
+
+  extinguisherControlChunks.forEach((chunk, chunkIndex) => {
+    pages.push(
+      <div className="space-y-5">
+        <SectionHeading
+          index="6"
+          title={
+            chunkIndex === 0
+              ? "Controle Operacional - Extintores"
+              : "Controle Operacional - Extintores - Continuacao"
+          }
+        />
+
+        {chunkIndex === 0 ? (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-sm border border-zinc-300 bg-white px-4 py-4">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                Extintores cadastrados
+              </p>
+              <p className="mt-2 text-[24px] font-bold text-zinc-900">
+                {extinguisherSummary.total}
+              </p>
+            </div>
+            <div className="rounded-sm border border-red-200 bg-red-50 px-4 py-4">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-red-700">
+                Cargas vencidas
+              </p>
+              <p className="mt-2 text-[24px] font-bold text-red-800">
+                {extinguisherSummary.expiredRecharge}
+              </p>
+            </div>
+            <div className="rounded-sm border border-amber-200 bg-amber-50 px-4 py-4">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-amber-700">
+                Hidrostatico vencido
+              </p>
+              <p className="mt-2 text-[24px] font-bold text-amber-800">
+                {extinguisherSummary.expiredHydroTest}
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="overflow-hidden rounded-sm border border-zinc-300">
+          <table className="w-full border-collapse text-[10.5px] text-zinc-800">
+            <thead>
+              <tr className="bg-zinc-100 text-left uppercase tracking-[0.08em] text-zinc-600">
+                <th className="w-[42px] border border-zinc-300 px-2 py-2">Nº</th>
+                <th className="w-[118px] border border-zinc-300 px-2 py-2">Localizacao</th>
+                <th className="w-[112px] border border-zinc-300 px-2 py-2">Tipo / Carga</th>
+                <th className="w-[70px] border border-zinc-300 px-2 py-2">Carga</th>
+                <th className="w-[76px] border border-zinc-300 px-2 py-2">Hidro</th>
+                <th className="border border-zinc-300 px-2 py-2">Pendencias identificadas</th>
+              </tr>
+            </thead>
+            <tbody>
+              {chunk.map((record) => {
+                const issues = getExtinguisherRegistryIssueLabels(record);
+
+                return (
+                  <tr
+                    key={`extinguisher-control-${record.id}`}
+                    className={issues.length > 0 ? "bg-red-50/50" : "bg-white"}
+                  >
+                    <td className="border border-zinc-300 px-2 py-2 font-semibold">{record.numero}</td>
+                    <td className="border border-zinc-300 px-2 py-2">{record.localizacao}</td>
+                    <td className="border border-zinc-300 px-2 py-2">
+                      {record.tipo} {record.carga_nominal}
+                    </td>
+                    <td className="border border-zinc-300 px-2 py-2">
+                      {formatMonthYear(record.vencimento_carga)}
+                    </td>
+                    <td className="border border-zinc-300 px-2 py-2">
+                      {record.vencimento_teste_hidrostatico_ano || "-"}
+                    </td>
+                    <td className="border border-zinc-300 px-2 py-2">
+                      {issues.length > 0 ? (
+                        <div className="space-y-1">
+                          {issues.map((issue) => (
+                            <p key={`${record.id}-${issue}`}>- {issue}</p>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="font-semibold text-emerald-700">
+                          Sem pendencias cadastrais detectadas.
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {chunkIndex === 0 ? (
+          <div className="rounded-sm border border-zinc-300 bg-zinc-50 px-4 py-4 text-[11.5px] leading-5 text-zinc-700">
+            As pendencias destacadas neste controle operacional foram consideradas no plano de correcao mesmo
+            quando originadas diretamente do cadastro do equipamento, incluindo carga vencida e testes
+            hidrostaticos fora da validade.
+          </div>
+        ) : null}
+      </div>,
+    );
+  });
+
+  hydrantControlChunks.forEach((chunk, chunkIndex) => {
+    pages.push(
+      <div className="space-y-5">
+        <SectionHeading
+          index="6"
+          title={
+            chunkIndex === 0
+              ? "Controle Operacional - Hidrantes"
+              : "Controle Operacional - Hidrantes - Continuacao"
+          }
+        />
+
+        {chunkIndex === 0 ? (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-sm border border-zinc-300 bg-white px-4 py-4">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                Hidrantes cadastrados
+              </p>
+              <p className="mt-2 text-[24px] font-bold text-zinc-900">
+                {hydrantSummary.total}
+              </p>
+            </div>
+            <div className="rounded-sm border border-red-200 bg-red-50 px-4 py-4">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-red-700">
+                Mangueiras vencidas
+              </p>
+              <p className="mt-2 text-[24px] font-bold text-red-800">
+                {hydrantSummary.expiredHoses}
+              </p>
+            </div>
+            <div className="rounded-sm border border-amber-200 bg-amber-50 px-4 py-4">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-amber-700">
+                Componentes faltantes
+              </p>
+              <p className="mt-2 text-[24px] font-bold text-amber-800">
+                {hydrantSummary.missingComponents}
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="overflow-hidden rounded-sm border border-zinc-300">
+          <table className="w-full border-collapse text-[10px] text-zinc-800">
+            <thead>
+              <tr className="bg-zinc-100 text-left uppercase tracking-[0.08em] text-zinc-600">
+                <th className="w-[38px] border border-zinc-300 px-2 py-2">Nº</th>
+                <th className="w-[100px] border border-zinc-300 px-2 py-2">Localizacao</th>
+                <th className="w-[92px] border border-zinc-300 px-2 py-2">Tipo</th>
+                <th className="w-[92px] border border-zinc-300 px-2 py-2">Mangueira 1</th>
+                <th className="w-[92px] border border-zinc-300 px-2 py-2">Mangueira 2</th>
+                <th className="w-[76px] border border-zinc-300 px-2 py-2">Componentes</th>
+                <th className="border border-zinc-300 px-2 py-2">Pendencias identificadas</th>
+              </tr>
+            </thead>
+            <tbody>
+              {chunk.map((record) => {
+                const issues = getHydrantRegistryIssueLabels(record);
+                const hose1Label = record.mangueira1_tipo
+                  ? `${record.mangueira1_tipo} | ${formatMonthYear(
+                      record.mangueira1_vencimento_teste_hidrostatico,
+                    )}`
+                  : "-";
+                const hose2Label = record.mangueira2_tipo
+                  ? `${record.mangueira2_tipo} | ${formatMonthYear(
+                      record.mangueira2_vencimento_teste_hidrostatico,
+                    )}`
+                  : "-";
+
+                return (
+                  <tr
+                    key={`hydrant-control-${record.id}`}
+                    className={issues.length > 0 ? "bg-red-50/50" : "bg-white"}
+                  >
+                    <td className="border border-zinc-300 px-2 py-2 font-semibold">{record.numero}</td>
+                    <td className="border border-zinc-300 px-2 py-2">{record.localizacao}</td>
+                    <td className="border border-zinc-300 px-2 py-2">{record.tipo_hidrante}</td>
+                    <td className="border border-zinc-300 px-2 py-2">{hose1Label}</td>
+                    <td className="border border-zinc-300 px-2 py-2">{hose2Label}</td>
+                    <td className="border border-zinc-300 px-2 py-2">
+                      Esguicho: {record.esguicho ? "Sim" : "Nao"}
+                      <br />
+                      Chave: {record.chave_mangueira ? "Sim" : "Nao"}
+                    </td>
+                    <td className="border border-zinc-300 px-2 py-2">
+                      {issues.length > 0 ? (
+                        <div className="space-y-1">
+                          {issues.map((issue) => (
+                            <p key={`${record.id}-${issue}`}>- {issue}</p>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="font-semibold text-emerald-700">
+                          Sem pendencias cadastrais detectadas.
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>,
+    );
+  });
+
+  luminaireControlChunks.forEach((chunk, chunkIndex) => {
+    pages.push(
+      <div className="space-y-5">
+        <SectionHeading
+          index="6"
+          title={
+            chunkIndex === 0
+              ? "Controle Operacional - Luminarias"
+              : "Controle Operacional - Luminarias - Continuacao"
+          }
+        />
+
+        {chunkIndex === 0 ? (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-sm border border-zinc-300 bg-white px-4 py-4">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                Luminarias cadastradas
+              </p>
+              <p className="mt-2 text-[24px] font-bold text-zinc-900">
+                {luminaireSummary.total}
+              </p>
+            </div>
+            <div className="rounded-sm border border-emerald-200 bg-emerald-50 px-4 py-4">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-emerald-700">
+                Status conforme
+              </p>
+              <p className="mt-2 text-[24px] font-bold text-emerald-800">
+                {luminaireSummary.conformes}
+              </p>
+            </div>
+            <div className="rounded-sm border border-red-200 bg-red-50 px-4 py-4">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-red-700">
+                Status nao conforme
+              </p>
+              <p className="mt-2 text-[24px] font-bold text-red-800">
+                {luminaireSummary.naoConformes}
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="overflow-hidden rounded-sm border border-zinc-300">
+          <table className="w-full border-collapse text-[10.5px] text-zinc-800">
+            <thead>
+              <tr className="bg-zinc-100 text-left uppercase tracking-[0.08em] text-zinc-600">
+                <th className="w-[46px] border border-zinc-300 px-2 py-2">Nº</th>
+                <th className="w-[132px] border border-zinc-300 px-2 py-2">Localizacao</th>
+                <th className="w-[128px] border border-zinc-300 px-2 py-2">Tipo</th>
+                <th className="w-[96px] border border-zinc-300 px-2 py-2">Status cadastro</th>
+                <th className="border border-zinc-300 px-2 py-2">Pendencias identificadas</th>
+              </tr>
+            </thead>
+            <tbody>
+              {chunk.map((record) => {
+                const issues = getLuminaireRegistryIssueLabels(record);
+
+                return (
+                  <tr
+                    key={`luminaire-control-${record.id}`}
+                    className={issues.length > 0 ? "bg-red-50/50" : "bg-white"}
+                  >
+                    <td className="border border-zinc-300 px-2 py-2 font-semibold">{record.numero}</td>
+                    <td className="border border-zinc-300 px-2 py-2">{record.localizacao}</td>
+                    <td className="border border-zinc-300 px-2 py-2">{record.tipo_luminaria}</td>
+                    <td className="border border-zinc-300 px-2 py-2">{record.status || "-"}</td>
+                    <td className="border border-zinc-300 px-2 py-2">
+                      {issues.length > 0 ? (
+                        <div className="space-y-1">
+                          {issues.map((issue) => (
+                            <p key={`${record.id}-${issue}`}>- {issue}</p>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="font-semibold text-emerald-700">
+                          Sem pendencias cadastrais detectadas.
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>,
+    );
+  });
+
   annexChunks.forEach((chunk, chunkIndex) => {
     pages.push(
       <div className="space-y-6">
-        <SectionHeading index="5" title="Anexos da Avaliacao" />
+        <SectionHeading index="7" title="Anexos da Avaliacao" />
         {chunk.map((entry) => (
           <div key={entry.id} className="overflow-hidden border border-zinc-300">
             <div className="flex min-h-[250px] items-center justify-center bg-white p-5">
@@ -3235,7 +4138,7 @@ const CompanyReport = () => {
   planChunks.forEach((chunk) => {
     pages.push(
       <div className="space-y-5">
-        <SectionHeading index="6" title="Plano de Correcao" />
+        <SectionHeading index="8" title="Plano de Correcao" />
         <div className="overflow-hidden border border-zinc-300">
           <table className="w-full border-collapse text-[11px] leading-5 text-zinc-800">
             <thead>
@@ -3280,7 +4183,7 @@ const CompanyReport = () => {
   pages.push(
     <div className="space-y-8">
       <section className="space-y-4">
-        <SectionHeading index="7" title="Parecer Final e Assinaturas" />
+        <SectionHeading index="9" title="Parecer Final e Assinaturas" />
         {missingTechnicalResponsible || missingExecutionTraceabilityCount > 0 ? (
           <div className="rounded-sm border border-red-200 bg-red-50 px-4 py-4 text-[12px] leading-6 text-red-800">
             <p className="font-semibold uppercase">Alerta de consistencia tecnica</p>
@@ -3388,7 +4291,7 @@ const CompanyReport = () => {
     pages.push(
       <div className="space-y-5">
         <SectionHeading
-          index="7"
+          index="9"
           title={
             chunkIndex === 0
               ? "Assinaturas do Relatorio"
@@ -3411,7 +4314,7 @@ const CompanyReport = () => {
       pages.push(
         <div className="space-y-4">
           <SectionHeading
-            index="8"
+            index="10"
             title={
               sectionIndex === 0 && chunkIndex === 0
                 ? "Anexos dos Checklists Executados"
@@ -3437,6 +4340,7 @@ const CompanyReport = () => {
                   <th className="w-[110px] border border-zinc-300 px-2 py-2">Secao</th>
                   <th className="border border-zinc-300 px-2 py-2">Descricao</th>
                   <th className="w-[120px] border border-zinc-300 px-2 py-2">Status</th>
+                  <th className="w-[165px] border border-zinc-300 px-2 py-2">Registro</th>
                 </tr>
               </thead>
               <tbody>
@@ -3457,6 +4361,9 @@ const CompanyReport = () => {
                           label={statusMeta.label}
                           tone={statusMeta.tone}
                         />
+                      </td>
+                      <td className="border border-zinc-300 px-2 py-2 text-[10px] leading-4 text-zinc-700">
+                        {formatChecklistItemAuditSummary(item)}
                       </td>
                     </tr>
                   );
@@ -3493,6 +4400,7 @@ const CompanyReport = () => {
   if (shouldRenderArtPages) {
     pages.push(
       <div className="space-y-6">
+        <SectionHeading index="11" title="Assinatura do Responsavel Tecnico" />
         <TechnicalResponsibleArtSignatureSheet
           company={company}
           signerName={technicalSignatureName}
@@ -3508,7 +4416,7 @@ const CompanyReport = () => {
 
     pages.push(
       <div className="space-y-4">
-        <SectionHeading index="10" title="ART - Anotacao de Responsabilidade Tecnica" />
+        <SectionHeading index="12" title="ART - Anotacao de Responsabilidade Tecnica" />
 
         <div className="rounded-sm border border-zinc-300 bg-white px-4 py-4">
           {artSignedUrl ? (
@@ -3761,6 +4669,9 @@ const CompanyReport = () => {
               <div className="space-y-2">
                 <Label htmlFor="conclusao">Conclusao</Label>
                 <Textarea id="conclusao" rows={5} value={form.conclusao} onChange={(event) => handleInputChange("conclusao", event.target.value)} />
+                <p className="text-xs text-muted-foreground">
+                  Se este campo permanecer em branco, o sistema gera automaticamente a conclusao do relatorio com base nas nao conformidades, no progresso da avaliacao e nas pendencias cadastrais dos equipamentos.
+                </p>
               </div>
             </CardContent>
           </Card>

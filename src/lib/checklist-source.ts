@@ -6,6 +6,7 @@ import {
   type ChecklistModelShape,
   type ChecklistResponseShape,
 } from "@/lib/checklist";
+import { isMissingColumnError } from "@/lib/supabase-errors";
 
 type AppSupabaseClient = SupabaseClient<Database>;
 
@@ -13,6 +14,9 @@ interface ChecklistResponseRow {
   checklist_item_id: string;
   status: string;
   observacoes: string | null;
+  preenchido_por_nome?: string | null;
+  preenchido_por_user_id?: string | null;
+  preenchido_em?: string | null;
   updated_at: string;
 }
 
@@ -36,6 +40,9 @@ const buildResponsesMap = (
       checklist_item_id: row.checklist_item_id,
       status: row.status,
       observacoes: row.observacoes,
+      preenchido_por_nome: row.preenchido_por_nome ?? null,
+      preenchido_por_user_id: row.preenchido_por_user_id ?? null,
+      preenchido_em: row.preenchido_em ?? null,
     });
   });
 
@@ -52,9 +59,34 @@ export const loadChecklistResponses = async (
 
   const responsesResult = await supabase
     .from("empresa_checklist_respostas")
-    .select("checklist_item_id, status, observacoes, updated_at")
+    .select(
+      "checklist_item_id, status, observacoes, preenchido_por_nome, preenchido_por_user_id, preenchido_em, updated_at",
+    )
     .eq("empresa_id", companyId)
     .order("updated_at", { ascending: false });
+
+  if (
+    responsesResult.error &&
+    isMissingColumnError(responsesResult.error, [
+      "preenchido_por_nome",
+      "preenchido_por_user_id",
+      "preenchido_em",
+    ])
+  ) {
+    const fallbackResponsesResult = await supabase
+      .from("empresa_checklist_respostas")
+      .select("checklist_item_id, status, observacoes, updated_at")
+      .eq("empresa_id", companyId)
+      .order("updated_at", { ascending: false });
+
+    if (fallbackResponsesResult.error) {
+      throw fallbackResponsesResult.error;
+    }
+
+    return buildResponsesMap(
+      fallbackResponsesResult.data as ChecklistResponseRow[] | null,
+    );
+  }
 
   if (responsesResult.error) {
     throw responsesResult.error;
@@ -184,12 +216,48 @@ export const saveChecklistResponses = async ({
       checklist_item_id: response.checklist_item_id,
       status: response.status,
       observacoes: response.observacoes,
+      preenchido_por_nome: response.preenchido_por_nome ?? null,
+      preenchido_por_user_id: response.preenchido_por_user_id ?? null,
+      preenchido_em: response.preenchido_em ?? null,
     }));
 
   if (payload.length > 0) {
     const { error: insertError } = await supabase
       .from("empresa_checklist_respostas")
       .insert(payload);
+
+    if (
+      insertError &&
+      isMissingColumnError(insertError, [
+        "preenchido_por_nome",
+        "preenchido_por_user_id",
+        "preenchido_em",
+      ])
+    ) {
+      const legacyPayload = payload.map(
+        ({
+          empresa_id,
+          checklist_item_id,
+          status,
+          observacoes,
+        }) => ({
+          empresa_id,
+          checklist_item_id,
+          status,
+          observacoes,
+        }),
+      );
+
+      const { error: legacyInsertError } = await supabase
+        .from("empresa_checklist_respostas")
+        .insert(legacyPayload);
+
+      if (legacyInsertError) {
+        throw legacyInsertError;
+      }
+
+      return;
+    }
 
     if (insertError) {
       throw insertError;
