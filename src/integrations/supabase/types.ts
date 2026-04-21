@@ -480,6 +480,7 @@ export type Database = {
           empresa_id: string
           id: string
           observacoes: string | null
+          relatorio_ciclo_id: string
           preenchido_em: string | null
           preenchido_por_nome: string | null
           preenchido_por_user_id: string | null
@@ -492,6 +493,7 @@ export type Database = {
           empresa_id: string
           id?: string
           observacoes?: string | null
+          relatorio_ciclo_id?: string
           preenchido_em?: string | null
           preenchido_por_nome?: string | null
           preenchido_por_user_id?: string | null
@@ -504,6 +506,7 @@ export type Database = {
           empresa_id?: string
           id?: string
           observacoes?: string | null
+          relatorio_ciclo_id?: string
           preenchido_em?: string | null
           preenchido_por_nome?: string | null
           preenchido_por_user_id?: string | null
@@ -538,6 +541,7 @@ export type Database = {
           equipment_type: string | null
           id: string
           imagem_data_url: string | null
+          relatorio_ciclo_id: string
           updated_at: string
         }
         Insert: {
@@ -550,6 +554,7 @@ export type Database = {
           equipment_type?: string | null
           id?: string
           imagem_data_url?: string | null
+          relatorio_ciclo_id?: string
           updated_at?: string
         }
         Update: {
@@ -562,6 +567,7 @@ export type Database = {
           equipment_type?: string | null
           id?: string
           imagem_data_url?: string | null
+          relatorio_ciclo_id?: string
           updated_at?: string
         }
         Relationships: [
@@ -574,6 +580,50 @@ export type Database = {
           },
           {
             foreignKeyName: "empresa_checklist_nao_conformidades_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresa"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      empresa_relatorio_ciclos: {
+        Row: {
+          created_at: string
+          criado_por: string | null
+          data_abertura: string
+          data_fechamento: string | null
+          empresa_id: string
+          id: string
+          nome: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          criado_por?: string | null
+          data_abertura?: string
+          data_fechamento?: string | null
+          empresa_id: string
+          id?: string
+          nome?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          criado_por?: string | null
+          data_abertura?: string
+          data_fechamento?: string | null
+          empresa_id?: string
+          id?: string
+          nome?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_relatorio_ciclos_empresa_id_fkey"
             columns: ["empresa_id"]
             isOneToOne: false
             referencedRelation: "empresa"
@@ -664,6 +714,7 @@ export type Database = {
           objetivo: string | null
           observacoes_gerais: string | null
           recomendacoes: string | null
+          relatorio_ciclo_id: string
           representante_cargo: string | null
           representante_nome: string | null
           status: string
@@ -688,6 +739,7 @@ export type Database = {
           objetivo?: string | null
           observacoes_gerais?: string | null
           recomendacoes?: string | null
+          relatorio_ciclo_id?: string
           representante_cargo?: string | null
           representante_nome?: string | null
           status?: string
@@ -712,6 +764,7 @@ export type Database = {
           objetivo?: string | null
           observacoes_gerais?: string | null
           recomendacoes?: string | null
+          relatorio_ciclo_id?: string
           representante_cargo?: string | null
           representante_nome?: string | null
           status?: string
@@ -722,8 +775,15 @@ export type Database = {
           {
             foreignKeyName: "empresa_relatorios_empresa_id_fkey"
             columns: ["empresa_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "empresa"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "empresa_relatorios_relatorio_ciclo_id_fkey"
+            columns: ["relatorio_ciclo_id"]
+            isOneToOne: true
+            referencedRelation: "empresa_relatorio_ciclos"
             referencedColumns: ["id"]
           },
         ]
@@ -1080,6 +1140,62 @@ export type Database = {
           user_id: string
         }[]
       }
+      get_or_create_active_report_cycle: {
+        Args: { p_empresa_id: string }
+        Returns: {
+          created_at: string
+          criado_por: string | null
+          data_abertura: string
+          data_fechamento: string | null
+          empresa_id: string
+          id: string
+          nome: string
+          status: string
+          updated_at: string
+        }[]
+      }
+      get_or_create_editable_report_cycle: {
+        Args: { p_empresa_id: string; p_nome?: string | null }
+        Returns: {
+          created_at: string
+          criado_por: string | null
+          data_abertura: string
+          data_fechamento: string | null
+          empresa_id: string
+          id: string
+          nome: string
+          status: string
+          updated_at: string
+        }[]
+      }
+      get_or_create_active_empresa_report: {
+        Args: { p_empresa_id: string }
+        Returns: {
+          checklist_snapshot: Json
+          conclusao: string | null
+          created_at: string
+          dados_adicionais: Json
+          data_emissao: string | null
+          data_inspecao: string | null
+          empresa_id: string
+          escopo: string | null
+          hora_fim: string | null
+          hora_inicio: string | null
+          id: string
+          inspetor_cargo: string | null
+          inspetor_nome: string | null
+          numero_relatorio: string | null
+          objetivo: string | null
+          observacoes_gerais: string | null
+          recomendacoes: string | null
+          relatorio_ciclo_id: string
+          representante_cargo: string | null
+          representante_nome: string | null
+          status: string
+          titulo: string
+          updated_at: string
+        }[]
+      }
       list_empresa_usuarios: {
         Args: { p_empresa_id: string }
         Returns: {
@@ -1099,6 +1215,20 @@ export type Database = {
       normalize_divisao_codigo: {
         Args: { p_value: string | null }
         Returns: string | null
+      }
+      start_new_report_cycle: {
+        Args: { p_empresa_id: string; p_nome?: string | null }
+        Returns: {
+          created_at: string
+          criado_por: string | null
+          data_abertura: string
+          data_fechamento: string | null
+          empresa_id: string
+          id: string
+          nome: string
+          status: string
+          updated_at: string
+        }[]
       }
       register_checklist_execution: {
         Args: {

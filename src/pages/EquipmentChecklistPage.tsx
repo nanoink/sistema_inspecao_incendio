@@ -25,7 +25,6 @@ import { useAuth } from "@/hooks/useAuth";
 import {
   canCompanyMemberExecuteChecklists,
   loadCompanyMembers,
-  registerChecklistExecution,
 } from "@/lib/company-members";
 import {
   formatChecklistItemAuditSummary,
@@ -33,7 +32,6 @@ import {
 } from "@/lib/checklist";
 import {
   isMissingEquipmentChecklistSaveRpcError,
-  isMissingFunctionError,
 } from "@/lib/supabase-errors";
 import {
   formatMonthYear,
@@ -350,37 +348,7 @@ const EquipmentChecklistPage = () => {
             persistedSnapshot.generated_at || new Date().toISOString(),
         };
         const companyId = result?.empresa_id;
-        const equipmentId = result?.equipment_id ?? record?.equipment_id ?? null;
-
         confirmedSnapshotRef.current = nextConfirmedSnapshot;
-
-        if (companyId && equipmentId) {
-          void registerChecklistExecution(supabase, {
-              companyId,
-              inspectionCode:
-                nextConfirmedSnapshot.inspection_code || equipmentType.toUpperCase(),
-              inspectionName:
-                nextConfirmedSnapshot.inspection_name || record?.titulo || "Checklist de equipamento",
-              contextType: "equipamento",
-              equipmentType,
-              equipmentRecordId: equipmentId,
-              sourceLabel: record
-                ? `${record.titulo} | ${record.localizacao}`
-                : null,
-            }).catch((executionError) => {
-              if (
-                !isMissingFunctionError(
-                  executionError,
-                  "register_checklist_execution",
-                )
-              ) {
-                console.error(
-                  "Error registering equipment checklist execution:",
-                  executionError,
-                );
-              }
-            });
-        }
 
         if (!mountedRef.current) {
           if (companyId) {

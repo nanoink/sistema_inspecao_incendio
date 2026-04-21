@@ -4,6 +4,11 @@ import type {
   Tables,
   TablesInsert,
 } from "@/integrations/supabase/types";
+import {
+  resolveActiveReportCycleId,
+  resolveEditableReportCycleId,
+} from "@/lib/report-cycles";
+import { isMissingColumnError } from "@/lib/supabase-errors";
 
 type AppSupabaseClient = SupabaseClient<Database>;
 
@@ -17,7 +22,7 @@ type ChecklistNonConformityPayload =
   TablesInsert<"empresa_checklist_nao_conformidades">;
 
 const LIGHTWEIGHT_NON_CONFORMITY_COLUMNS =
-  "id, context_key, empresa_id, checklist_item_id, equipment_type, equipment_record_id, descricao, created_at, updated_at";
+  "id, context_key, empresa_id, relatorio_ciclo_id, checklist_item_id, equipment_type, equipment_record_id, descricao, created_at, updated_at";
 
 interface BaseScope {
   companyId: string;
@@ -62,18 +67,20 @@ const isEquipmentScope = (
 
 export const buildChecklistNonConformityContextKey = ({
   companyId,
+  reportCycleId,
   checklistItemId,
   equipmentType,
   equipmentRecordId,
 }: {
   companyId: string;
+  reportCycleId?: string | null;
   checklistItemId: string;
   equipmentType?: NonConformityEquipmentType | null;
   equipmentRecordId?: string | null;
 }) =>
   equipmentType && equipmentRecordId
-    ? `${companyId}:${equipmentType}:${equipmentRecordId}:${checklistItemId}`
-    : `${companyId}:principal:${checklistItemId}`;
+    ? `${companyId}:${reportCycleId || "sem-ciclo"}:${equipmentType}:${equipmentRecordId}:${checklistItemId}`
+    : `${companyId}:${reportCycleId || "sem-ciclo"}:principal:${checklistItemId}`;
 
 export const mapChecklistNonConformitiesByItemId = (
   records: ChecklistNonConformityRecord[],
@@ -88,6 +95,11 @@ export const loadChecklistNonConformities = async (
   },
 ) => {
   const includeImageData = options?.includeImageData ?? true;
+  const activeReportCycleId = await resolveActiveReportCycleId(
+    supabase,
+    scope.companyId,
+  );
+
   let query = supabase
     .from("empresa_checklist_nao_conformidades")
     .select(
@@ -95,6 +107,10 @@ export const loadChecklistNonConformities = async (
     )
     .eq("empresa_id", scope.companyId)
     .order("updated_at", { ascending: false });
+
+  if (activeReportCycleId) {
+    query = query.eq("relatorio_ciclo_id", activeReportCycleId);
+  }
 
   if (scope.checklistItemId) {
     query = query.eq("checklist_item_id", scope.checklistItemId);
@@ -109,6 +125,49 @@ export const loadChecklistNonConformities = async (
   }
 
   const { data, error } = await query;
+
+  if (error && isMissingColumnError(error, ["relatorio_ciclo_id"])) {
+    let fallbackQuery = supabase
+      .from("empresa_checklist_nao_conformidades")
+      .select(
+        includeImageData ? "*" : LIGHTWEIGHT_NON_CONFORMITY_COLUMNS.replace(
+          "relatorio_ciclo_id, ",
+          "",
+        ),
+      )
+      .eq("empresa_id", scope.companyId)
+      .order("updated_at", { ascending: false });
+
+    if (scope.checklistItemId) {
+      fallbackQuery = fallbackQuery.eq("checklist_item_id", scope.checklistItemId);
+    }
+
+    if (isEquipmentScope(scope)) {
+      fallbackQuery = fallbackQuery
+        .eq("equipment_type", scope.equipmentType)
+        .eq("equipment_record_id", scope.equipmentRecordId);
+    } else {
+      fallbackQuery = fallbackQuery
+        .is("equipment_type", null)
+        .is("equipment_record_id", null);
+    }
+
+    const fallbackResult = await fallbackQuery;
+
+    if (fallbackResult.error) {
+      throw fallbackResult.error;
+    }
+
+    return ((fallbackResult.data || []) as ChecklistNonConformityRecord[]).map(
+      (record) =>
+        includeImageData
+          ? record
+          : ({
+              ...record,
+              imagem_data_url: null,
+            } satisfies ChecklistNonConformityRecord),
+    );
+  }
 
   if (error) {
     throw error;
@@ -134,12 +193,74 @@ export const loadEquipmentChecklistNonConformitiesByType = async (
     equipmentType: NonConformityEquipmentType;
   },
 ) => {
-  const { data, error } = await supabase
+  const activeReportCycleId = await resolveActiveReportCycleId(supabase, companyId);
+
+  let query = supabase
     .from("empresa_checklist_nao_conformidades")
     .select("*")
     .eq("empresa_id", companyId)
     .eq("equipment_type", equipmentType)
     .order("updated_at", { ascending: false });
+
+  if (activeReportCycleId) {
+    query = query.eq("relatorio_ciclo_id", activeReportCycleId);
+  }
+
+  const { data, error } = await query;
+
+  if (error && isMissingColumnError(error, ["relatorio_ciclo_id"])) {
+    const fallbackResult = await supabase
+      .from("empresa_checklist_nao_conformidades")
+      .select("*")
+      .eq("empresa_id", companyId)
+      .eq("equipment_type", equipmentType)
+      .order("updated_at", { ascending: false });
+
+    if (fallbackResult.error) {
+      throw fallbackResult.error;
+    }
+
+    return fallbackResult.data || [];
+  }
+
+  if (error) {
+    throw error;
+  }
+
+  return data || [];
+};
+
+export const loadAllChecklistNonConformitiesForActiveCycle = async (
+  supabase: AppSupabaseClient,
+  companyId: string,
+) => {
+  const activeReportCycleId = await resolveActiveReportCycleId(supabase, companyId);
+
+  let query = supabase
+    .from("empresa_checklist_nao_conformidades")
+    .select("*")
+    .eq("empresa_id", companyId)
+    .order("updated_at", { ascending: false });
+
+  if (activeReportCycleId) {
+    query = query.eq("relatorio_ciclo_id", activeReportCycleId);
+  }
+
+  const { data, error } = await query;
+
+  if (error && isMissingColumnError(error, ["relatorio_ciclo_id"])) {
+    const fallbackResult = await supabase
+      .from("empresa_checklist_nao_conformidades")
+      .select("*")
+      .eq("empresa_id", companyId)
+      .order("updated_at", { ascending: false });
+
+    if (fallbackResult.error) {
+      throw fallbackResult.error;
+    }
+
+    return fallbackResult.data || [];
+  }
 
   if (error) {
     throw error;
@@ -215,9 +336,15 @@ export const saveChecklistNonConformity = async (
     equipmentRecordId?: string | null;
   },
 ) => {
+  const editableReportCycleId = await resolveEditableReportCycleId(
+    supabase,
+    companyId,
+  );
   const payload: ChecklistNonConformityPayload = {
+    relatorio_ciclo_id: editableReportCycleId ?? undefined,
     context_key: buildChecklistNonConformityContextKey({
       companyId,
+      reportCycleId: editableReportCycleId,
       checklistItemId,
       equipmentType,
       equipmentRecordId,
@@ -234,9 +361,45 @@ export const saveChecklistNonConformity = async (
     .from("empresa_checklist_nao_conformidades")
     .upsert(payload, { onConflict: "context_key" })
     .select(
-      "id, context_key, empresa_id, checklist_item_id, equipment_type, equipment_record_id, descricao, created_at, updated_at",
+      "id, context_key, empresa_id, relatorio_ciclo_id, checklist_item_id, equipment_type, equipment_record_id, descricao, created_at, updated_at",
     )
     .maybeSingle();
+
+  if (error && isMissingColumnError(error, ["relatorio_ciclo_id"])) {
+    const legacyPayload = {
+      context_key: buildChecklistNonConformityContextKey({
+        companyId,
+        checklistItemId,
+        equipmentType,
+        equipmentRecordId,
+      }),
+      empresa_id: companyId,
+      checklist_item_id: checklistItemId,
+      equipment_type: equipmentType ?? null,
+      equipment_record_id: equipmentRecordId ?? null,
+      descricao: description.trim(),
+      imagem_data_url: imageDataUrl?.trim() || null,
+    } satisfies ChecklistNonConformityPayload;
+
+    const legacyResult = await supabase
+      .from("empresa_checklist_nao_conformidades")
+      .upsert(legacyPayload, { onConflict: "context_key" })
+      .select(
+        "id, context_key, empresa_id, checklist_item_id, equipment_type, equipment_record_id, descricao, created_at, updated_at",
+      )
+      .maybeSingle();
+
+    if (legacyResult.error) {
+      throw legacyResult.error;
+    }
+
+    return legacyResult.data
+      ? ({
+          ...legacyResult.data,
+          imagem_data_url: legacyPayload.imagem_data_url,
+        } satisfies ChecklistNonConformityRecord)
+      : null;
+  }
 
   if (error) {
     throw error;

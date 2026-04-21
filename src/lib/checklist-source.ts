@@ -6,12 +6,17 @@ import {
   type ChecklistModelShape,
   type ChecklistResponseShape,
 } from "@/lib/checklist";
+import {
+  resolveActiveReportCycleId,
+  resolveEditableReportCycleId,
+} from "@/lib/report-cycles";
 import { isMissingColumnError } from "@/lib/supabase-errors";
 
 type AppSupabaseClient = SupabaseClient<Database>;
 
 interface ChecklistResponseRow {
   checklist_item_id: string;
+  relatorio_ciclo_id?: string | null;
   status: string;
   observacoes: string | null;
   preenchido_por_nome?: string | null;
@@ -57,17 +62,26 @@ export const loadChecklistResponses = async (
     return new Map<string, ChecklistResponseShape>();
   }
 
-  const responsesResult = await supabase
+  const activeReportCycleId = await resolveActiveReportCycleId(supabase, companyId);
+
+  let responsesQuery = supabase
     .from("empresa_checklist_respostas")
     .select(
-      "checklist_item_id, status, observacoes, preenchido_por_nome, preenchido_por_user_id, preenchido_em, updated_at",
+      "checklist_item_id, relatorio_ciclo_id, status, observacoes, preenchido_por_nome, preenchido_por_user_id, preenchido_em, updated_at",
     )
     .eq("empresa_id", companyId)
     .order("updated_at", { ascending: false });
 
+  if (activeReportCycleId) {
+    responsesQuery = responsesQuery.eq("relatorio_ciclo_id", activeReportCycleId);
+  }
+
+  const responsesResult = await responsesQuery;
+
   if (
     responsesResult.error &&
     isMissingColumnError(responsesResult.error, [
+      "relatorio_ciclo_id",
       "preenchido_por_nome",
       "preenchido_por_user_id",
       "preenchido_em",
@@ -200,6 +214,74 @@ export const saveChecklistResponses = async ({
   responses: Map<string, ChecklistResponseShape>;
   evaluableIds: Set<string>;
 }) => {
+  const editableReportCycleId = await resolveEditableReportCycleId(
+    supabase,
+    companyId,
+  );
+  const payload = Array.from(responses.values())
+    .filter((response) => evaluableIds.has(response.checklist_item_id))
+    .map((response) => ({
+      empresa_id: companyId,
+      relatorio_ciclo_id: editableReportCycleId ?? undefined,
+      checklist_item_id: response.checklist_item_id,
+      status: response.status,
+      observacoes: response.observacoes,
+      preenchido_por_nome: response.preenchido_por_nome ?? null,
+      preenchido_por_user_id: response.preenchido_por_user_id ?? null,
+      preenchido_em: response.preenchido_em ?? null,
+    }));
+
+  if (editableReportCycleId) {
+    const existingRowsResult = await supabase
+      .from("empresa_checklist_respostas")
+      .select("checklist_item_id")
+      .eq("empresa_id", companyId)
+      .eq("relatorio_ciclo_id", editableReportCycleId)
+      .in("checklist_item_id", Array.from(evaluableIds));
+
+    if (
+      existingRowsResult.error &&
+      !isMissingColumnError(existingRowsResult.error, ["relatorio_ciclo_id"])
+    ) {
+      throw existingRowsResult.error;
+    }
+
+    if (!existingRowsResult.error) {
+      const payloadItemIds = new Set(payload.map((item) => item.checklist_item_id));
+      const staleItemIds = (existingRowsResult.data || [])
+        .map((row) => row.checklist_item_id)
+        .filter((itemId) => !payloadItemIds.has(itemId));
+
+      if (staleItemIds.length > 0) {
+        const { error: staleDeleteError } = await supabase
+          .from("empresa_checklist_respostas")
+          .delete()
+          .eq("empresa_id", companyId)
+          .eq("relatorio_ciclo_id", editableReportCycleId)
+          .in("checklist_item_id", staleItemIds);
+
+        if (staleDeleteError) {
+          throw staleDeleteError;
+        }
+      }
+
+      if (payload.length > 0) {
+        const { error: upsertError } = await supabase
+          .from("empresa_checklist_respostas")
+          .upsert(payload, {
+            onConflict:
+              "empresa_id,relatorio_ciclo_id,checklist_item_id",
+          });
+
+        if (upsertError) {
+          throw upsertError;
+        }
+      }
+
+      return;
+    }
+  }
+
   const { error: deleteError } = await supabase
     .from("empresa_checklist_respostas")
     .delete()
@@ -209,18 +291,6 @@ export const saveChecklistResponses = async ({
     throw deleteError;
   }
 
-  const payload = Array.from(responses.values())
-    .filter((response) => evaluableIds.has(response.checklist_item_id))
-    .map((response) => ({
-      empresa_id: companyId,
-      checklist_item_id: response.checklist_item_id,
-      status: response.status,
-      observacoes: response.observacoes,
-      preenchido_por_nome: response.preenchido_por_nome ?? null,
-      preenchido_por_user_id: response.preenchido_por_user_id ?? null,
-      preenchido_em: response.preenchido_em ?? null,
-    }));
-
   if (payload.length > 0) {
     const { error: insertError } = await supabase
       .from("empresa_checklist_respostas")
@@ -229,6 +299,7 @@ export const saveChecklistResponses = async ({
     if (
       insertError &&
       isMissingColumnError(insertError, [
+        "relatorio_ciclo_id",
         "preenchido_por_nome",
         "preenchido_por_user_id",
         "preenchido_em",
@@ -240,6 +311,7 @@ export const saveChecklistResponses = async ({
           checklist_item_id,
           status,
           observacoes,
+          relatorio_ciclo_id: _relatorio_ciclo_id,
         }) => ({
           empresa_id,
           checklist_item_id,

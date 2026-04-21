@@ -133,6 +133,10 @@ import {
   saveChecklistNonConformity,
   type ChecklistNonConformityRecord,
 } from "@/lib/checklist-non-conformities";
+import {
+  loadActiveCompanyReport,
+  upsertCompanyReportForCycle,
+} from "@/lib/report-cycles";
 
 interface Company {
   id: string;
@@ -1084,11 +1088,7 @@ const CompanyChecklists = () => {
           `)
           .eq("empresa_id", id),
         loadChecklistEquipmentData(supabase, id),
-        supabase
-          .from("empresa_relatorios")
-          .select("checklist_snapshot")
-          .eq("empresa_id", id)
-          .maybeSingle(),
+        loadActiveCompanyReport(supabase, id, "checklist_snapshot"),
         loadChecklistNonConformities(supabase, { companyId: id }),
         loadEquipmentChecklistNonConformitiesByType(supabase, {
           companyId: id,
@@ -1108,16 +1108,10 @@ const CompanyChecklists = () => {
         throw companyRequirements.error;
       }
 
-      if (reportSnapshotResult.error) {
-        if (!isMissingRelationError(reportSnapshotResult.error, "empresa_relatorios")) {
-          throw reportSnapshotResult.error;
-        }
-      }
-
       const persistedChecklistSnapshot = isChecklistSnapshot(
-        reportSnapshotResult.data?.checklist_snapshot,
+        reportSnapshotResult.report?.checklist_snapshot,
       )
-        ? reportSnapshotResult.data.checklist_snapshot
+        ? reportSnapshotResult.report.checklist_snapshot
         : null;
       const responseAuditMap = buildChecklistSnapshotAuditMap(
         persistedChecklistSnapshot,
@@ -2149,7 +2143,7 @@ const CompanyChecklists = () => {
           luminaireSnapshot: equipmentSnapshots.luminaria,
           extinguisherSnapshot: equipmentSnapshots.extintor,
           hydrantSnapshot: equipmentSnapshots.hidrante,
-          mode: "overwrite",
+          mode: "preserve",
         });
 
         if (!synced) {
@@ -2197,17 +2191,25 @@ const CompanyChecklists = () => {
         );
       };
 
-      const { error: reportError } = await supabase
-        .from("empresa_relatorios")
-        .upsert(
+      let reportError: unknown = null;
+
+      try {
+        await upsertCompanyReportForCycle(
+          supabase,
+          id,
           {
-            empresa_id: id,
             titulo: "Relatorio de Inspecao",
             status: "rascunho",
             checklist_snapshot: checklistSnapshot,
           },
-          { onConflict: "empresa_id" },
+          {
+            editableCycle: true,
+            select: "id",
+          },
         );
+      } catch (error) {
+        reportError = error;
+      }
 
       if (reportError) {
         if (isMissingRelationError(reportError, "empresa_relatorios")) {

@@ -24,10 +24,10 @@ import {
 import {
   buildChecklistSnapshot,
   formatChecklistItemAuditSummary,
-  isChecklistSnapshot,
   type ChecklistSnapshot,
   type ChecklistSnapshotItem,
 } from "@/lib/checklist";
+import { loadAllChecklistNonConformitiesForActiveCycle } from "@/lib/checklist-non-conformities";
 import { loadChecklistData } from "@/lib/checklist-source";
 import {
   buildExtinguisherSummary,
@@ -39,6 +39,13 @@ import {
   normalizeEquipmentChecklistSnapshot,
   type EquipmentChecklistSnapshot,
 } from "@/lib/checklist-equipment";
+import {
+  clearActiveReportCycleCache,
+  loadActiveCompanyReport,
+  resolveActiveReportCycleId,
+  startNewCompanyReportCycle,
+  upsertCompanyReportForCycle,
+} from "@/lib/report-cycles";
 import {
   isMissingColumnError,
   isMissingFunctionError,
@@ -183,6 +190,14 @@ interface EquipmentCatalogEntry {
   label: string;
   subtitle: string;
   snapshot: EquipmentChecklistSnapshot;
+}
+
+interface InferredReportSignerSeed {
+  userId: string | null;
+  nome: string;
+  executedChecklists: ChecklistExecutionSummary[];
+  firstActivityAt: string | null;
+  lastActivityAt: string | null;
 }
 
 interface ReportNonConformityEntry {
@@ -557,6 +572,494 @@ const getEquipmentTypeLabel = (equipmentType: "extintor" | "hidrante" | "luminar
     : equipmentType === "hidrante"
       ? "Hidrante"
       : "Luminaria";
+
+const normalizeOptionalText = (value?: string | null) => {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+};
+
+const pickEarlierTimestamp = (
+  current?: string | null,
+  candidate?: string | null,
+) => {
+  if (!candidate) {
+    return current ?? null;
+  }
+
+  if (!current) {
+    return candidate;
+  }
+
+  return new Date(candidate).getTime() < new Date(current).getTime()
+    ? candidate
+    : current;
+};
+
+const pickLaterTimestamp = (
+  current?: string | null,
+  candidate?: string | null,
+) => {
+  if (!candidate) {
+    return current ?? null;
+  }
+
+  if (!current) {
+    return candidate;
+  }
+
+  return new Date(candidate).getTime() > new Date(current).getTime()
+    ? candidate
+    : current;
+};
+
+const buildSignerIdentityKey = (userId?: string | null, nome?: string | null) => {
+  const normalizedUserId = normalizeOptionalText(userId);
+  if (normalizedUserId) {
+    return `user:${normalizedUserId}`;
+  }
+
+  const normalizedName = normalizeOptionalText(nome);
+  if (normalizedName) {
+    return `name:${normalizedName.toLowerCase()}`;
+  }
+
+  return null;
+};
+
+const buildExecutionDedupKey = (execution: ChecklistExecutionSummary) =>
+  [
+    execution.inspection_code,
+    execution.context_type,
+    execution.equipment_type || "",
+    execution.equipment_record_id || "",
+    execution.source_label || "",
+  ].join(":");
+
+const dedupeChecklistExecutions = (
+  executions: ChecklistExecutionSummary[],
+) => {
+  const deduped = new Map<string, ChecklistExecutionSummary>();
+
+  executions.forEach((execution) => {
+    const key = buildExecutionDedupKey(execution);
+    const current = deduped.get(key);
+
+    if (!current) {
+      deduped.set(key, { ...execution });
+      return;
+    }
+
+    deduped.set(key, {
+      ...current,
+      first_activity_at: pickEarlierTimestamp(
+        current.first_activity_at,
+        execution.first_activity_at,
+      ),
+      last_activity_at: pickLaterTimestamp(
+        current.last_activity_at,
+        execution.last_activity_at,
+      ),
+      total_saves: Math.max(current.total_saves || 0, execution.total_saves || 0),
+    });
+  });
+
+  return Array.from(deduped.values()).sort((left, right) =>
+    `${left.inspection_code}:${left.context_type}:${left.source_label || ""}`.localeCompare(
+      `${right.inspection_code}:${right.context_type}:${right.source_label || ""}`,
+      "pt-BR",
+      { numeric: true, sensitivity: "base" },
+    ),
+  );
+};
+
+const buildFallbackManagerSignature = (
+  company: Pick<Company, "responsavel" | "email">,
+): CompanyReportSignatureRow => ({
+  user_id: "gestor-fallback",
+  nome: company.responsavel || "Gestor responsavel",
+  email: company.email || "-",
+  cpf: null,
+  cargo: null,
+  papel: "gestor",
+  is_gestor: true,
+  assinatura_nome: company.responsavel || "Gestor responsavel",
+  executed_checklists: [],
+  first_activity_at: null,
+  last_activity_at: null,
+  total_checklists: 0,
+});
+
+const buildEquipmentExecutionSourceLabel = (
+  equipmentType: "extintor" | "hidrante" | "luminaria",
+  number?: string | null,
+  location?: string | null,
+) =>
+  [
+    [getEquipmentTypeLabel(equipmentType), normalizeOptionalText(number)]
+      .filter(Boolean)
+      .join(" "),
+    normalizeOptionalText(location),
+  ]
+    .filter(Boolean)
+    .join(" | ");
+
+const appendInferredSignerExecution = (
+  seeds: Map<string, InferredReportSignerSeed>,
+  {
+    userId,
+    nome,
+    execution,
+  }: {
+    userId?: string | null;
+    nome?: string | null;
+    execution: ChecklistExecutionSummary;
+  },
+) => {
+  const identityKey = buildSignerIdentityKey(userId, nome);
+  const normalizedName = normalizeOptionalText(nome);
+
+  if (!identityKey || !normalizedName) {
+    return;
+  }
+
+  const current =
+    seeds.get(identityKey) || {
+      userId: normalizeOptionalText(userId),
+      nome: normalizedName,
+      executedChecklists: [],
+      firstActivityAt: null,
+      lastActivityAt: null,
+    };
+
+  current.executedChecklists = dedupeChecklistExecutions([
+    ...current.executedChecklists,
+    execution,
+  ]);
+  current.firstActivityAt = pickEarlierTimestamp(
+    current.firstActivityAt,
+    execution.first_activity_at,
+  );
+  current.lastActivityAt = pickLaterTimestamp(
+    current.lastActivityAt,
+    execution.last_activity_at,
+  );
+
+  seeds.set(identityKey, current);
+};
+
+const buildInferredPrincipalSignerSeeds = (snapshot: ChecklistSnapshot) => {
+  const seeds = new Map<string, InferredReportSignerSeed>();
+
+  snapshot.inspections.forEach((inspection) => {
+    const executionsBySigner = new Map<
+      string,
+      {
+        userId: string | null;
+        nome: string;
+        firstActivityAt: string | null;
+        lastActivityAt: string | null;
+        totalSaves: number;
+      }
+    >();
+
+    inspection.itens.forEach((item) => {
+      if (item.status === "P") {
+        return;
+      }
+
+      const identityKey = buildSignerIdentityKey(
+        item.preenchido_por_user_id,
+        item.preenchido_por_nome,
+      );
+      const normalizedName = normalizeOptionalText(item.preenchido_por_nome);
+
+      if (!identityKey || !normalizedName) {
+        return;
+      }
+
+      const current =
+        executionsBySigner.get(identityKey) || {
+          userId: normalizeOptionalText(item.preenchido_por_user_id),
+          nome: normalizedName,
+          firstActivityAt: null,
+          lastActivityAt: null,
+          totalSaves: 0,
+        };
+
+      current.firstActivityAt = pickEarlierTimestamp(
+        current.firstActivityAt,
+        item.preenchido_em,
+      );
+      current.lastActivityAt = pickLaterTimestamp(
+        current.lastActivityAt,
+        item.preenchido_em,
+      );
+      current.totalSaves += 1;
+
+      executionsBySigner.set(identityKey, current);
+    });
+
+    executionsBySigner.forEach((entry) => {
+      appendInferredSignerExecution(seeds, {
+        userId: entry.userId,
+        nome: entry.nome,
+        execution: {
+          inspection_code: inspection.codigo,
+          inspection_name: inspection.nome,
+          context_type: "principal",
+          equipment_type: null,
+          equipment_record_id: null,
+          source_label: "Checklist principal",
+          first_activity_at: entry.firstActivityAt,
+          last_activity_at: entry.lastActivityAt,
+          total_saves: entry.totalSaves,
+        },
+      });
+    });
+  });
+
+  return seeds;
+};
+
+const buildInferredEquipmentSignerSeeds = <
+  T extends {
+    id: string;
+    numero: string;
+    localizacao: string | null;
+    checklist_snapshot: Json | null;
+  },
+>(
+  equipmentType: "extintor" | "hidrante" | "luminaria",
+  records: T[],
+) => {
+  const seeds = new Map<string, InferredReportSignerSeed>();
+
+  records.forEach((record) => {
+    const snapshot = normalizeEquipmentChecklistSnapshot(record.checklist_snapshot);
+    if (!snapshot.inspection_code || snapshot.items.length === 0) {
+      return;
+    }
+
+    const executionsBySigner = new Map<
+      string,
+      {
+        userId: string | null;
+        nome: string;
+        firstActivityAt: string | null;
+        lastActivityAt: string | null;
+        totalSaves: number;
+      }
+    >();
+
+    snapshot.items.forEach((item) => {
+      if (item.status === "P") {
+        return;
+      }
+
+      const identityKey = buildSignerIdentityKey(
+        item.preenchido_por_user_id,
+        item.preenchido_por_nome,
+      );
+      const normalizedName = normalizeOptionalText(item.preenchido_por_nome);
+
+      if (!identityKey || !normalizedName) {
+        return;
+      }
+
+      const current =
+        executionsBySigner.get(identityKey) || {
+          userId: normalizeOptionalText(item.preenchido_por_user_id),
+          nome: normalizedName,
+          firstActivityAt: null,
+          lastActivityAt: null,
+          totalSaves: 0,
+        };
+
+      current.firstActivityAt = pickEarlierTimestamp(
+        current.firstActivityAt,
+        item.preenchido_em,
+      );
+      current.lastActivityAt = pickLaterTimestamp(
+        current.lastActivityAt,
+        item.preenchido_em,
+      );
+      current.totalSaves += 1;
+
+      executionsBySigner.set(identityKey, current);
+    });
+
+    executionsBySigner.forEach((entry) => {
+      appendInferredSignerExecution(seeds, {
+        userId: entry.userId,
+        nome: entry.nome,
+        execution: {
+          inspection_code: snapshot.inspection_code,
+          inspection_name: snapshot.inspection_name,
+          context_type: "equipamento",
+          equipment_type: equipmentType,
+          equipment_record_id: record.id,
+          source_label: buildEquipmentExecutionSourceLabel(
+            equipmentType,
+            record.numero,
+            record.localizacao,
+          ),
+          first_activity_at: entry.firstActivityAt,
+          last_activity_at: entry.lastActivityAt,
+          total_saves: entry.totalSaves,
+        },
+      });
+    });
+  });
+
+  return seeds;
+};
+
+const mergeCompanyReportSignatureRows = ({
+  company,
+  companyMembers,
+  signers,
+  snapshot,
+  extinguishers,
+  hydrants,
+  luminaires,
+}: {
+  company: Pick<Company, "responsavel" | "email">;
+  companyMembers: CompanyMemberSummary[];
+  signers: CompanyReportSignatureRow[];
+  snapshot: ChecklistSnapshot;
+  extinguishers: ExtinguisherRow[];
+  hydrants: HydrantRow[];
+  luminaires: LuminaireRow[];
+}) => {
+  const memberByUserId = new Map(
+    companyMembers.map((member) => [member.user_id, member] as const),
+  );
+  const merged = new Map<string, CompanyReportSignatureRow>();
+
+  const ensureSigner = (userId?: string | null, nome?: string | null) => {
+    const identityKey = buildSignerIdentityKey(userId, nome);
+
+    if (!identityKey) {
+      return null;
+    }
+
+    const existing = merged.get(identityKey);
+    if (existing) {
+      return existing;
+    }
+
+    const normalizedUserId = normalizeOptionalText(userId);
+    const member = normalizedUserId ? memberByUserId.get(normalizedUserId) : null;
+    const fallbackName =
+      normalizeOptionalText(nome) ||
+      normalizeOptionalText(member?.nome) ||
+      "Executor nao identificado";
+    const papel = member?.papel || "membro";
+    const isGestor = papel === "gestor";
+    const nextSigner: CompanyReportSignatureRow = {
+      user_id: normalizedUserId || `audit:${fallbackName.toLowerCase()}`,
+      nome: normalizeOptionalText(member?.nome) || fallbackName,
+      email: normalizeOptionalText(member?.email) || "-",
+      cpf: normalizeOptionalText(member?.cpf),
+      cargo: normalizeOptionalText(member?.cargo),
+      papel,
+      is_gestor: isGestor,
+      assinatura_nome: isGestor
+        ? normalizeOptionalText(company.responsavel) ||
+          normalizeOptionalText(member?.nome) ||
+          fallbackName
+        : fallbackName,
+      executed_checklists: [],
+      first_activity_at: null,
+      last_activity_at: null,
+      total_checklists: 0,
+    };
+
+    merged.set(identityKey, nextSigner);
+    return nextSigner;
+  };
+
+  signers.forEach((signer) => {
+    const current = ensureSigner(signer.user_id, signer.nome);
+
+    if (!current) {
+      return;
+    }
+
+    current.nome = signer.nome;
+    current.email = signer.email;
+    current.cpf = signer.cpf;
+    current.cargo = signer.cargo;
+    current.papel = signer.papel;
+    current.is_gestor = signer.is_gestor;
+    current.assinatura_nome = signer.assinatura_nome;
+    current.executed_checklists = dedupeChecklistExecutions([
+      ...current.executed_checklists,
+      ...signer.executed_checklists,
+    ]);
+    current.first_activity_at = pickEarlierTimestamp(
+      current.first_activity_at,
+      signer.first_activity_at,
+    );
+    current.last_activity_at = pickLaterTimestamp(
+      current.last_activity_at,
+      signer.last_activity_at,
+    );
+    current.total_checklists = current.executed_checklists.length;
+  });
+
+  const inferredSeeds = [
+    buildInferredPrincipalSignerSeeds(snapshot),
+    buildInferredEquipmentSignerSeeds("extintor", extinguishers),
+    buildInferredEquipmentSignerSeeds("hidrante", hydrants),
+    buildInferredEquipmentSignerSeeds("luminaria", luminaires),
+  ];
+
+  inferredSeeds.forEach((seedMap) => {
+    seedMap.forEach((seed) => {
+      const current = ensureSigner(seed.userId, seed.nome);
+
+      if (!current) {
+        return;
+      }
+
+      current.executed_checklists = dedupeChecklistExecutions([
+        ...current.executed_checklists,
+        ...seed.executedChecklists,
+      ]);
+      current.first_activity_at = pickEarlierTimestamp(
+        current.first_activity_at,
+        seed.firstActivityAt,
+      );
+      current.last_activity_at = pickLaterTimestamp(
+        current.last_activity_at,
+        seed.lastActivityAt,
+      );
+      current.total_checklists = current.executed_checklists.length;
+    });
+  });
+
+  const rows = Array.from(merged.values())
+    .filter((signer) => signer.is_gestor || signer.executed_checklists.length > 0)
+    .sort((left, right) => {
+      if (left.is_gestor !== right.is_gestor) {
+        return left.is_gestor ? -1 : 1;
+      }
+
+      const leftTimestamp = left.last_activity_at || left.first_activity_at || "";
+      const rightTimestamp = right.last_activity_at || right.first_activity_at || "";
+
+      if (leftTimestamp !== rightTimestamp) {
+        return rightTimestamp.localeCompare(leftTimestamp);
+      }
+
+      return left.assinatura_nome.localeCompare(right.assinatura_nome, "pt-BR", {
+        sensitivity: "base",
+      });
+    });
+
+  return rows.length > 0 ? rows : [buildFallbackManagerSignature(company)];
+};
 
 const buildPrincipalItemLookup = (snapshot: ChecklistSnapshot) => {
   const lookup = new Map<string, ItemContext>();
@@ -2135,20 +2638,24 @@ const ReportToolbar = ({
   onPrint,
   onSaveDraft,
   onFinalize,
+  onStartNewCycle,
   saving,
   snapshotIsCurrent,
   statusLabel,
   finalizeLabel,
+  showStartNewCycle,
 }: {
   navigateBack: () => void;
   onSync: () => void;
   onPrint: () => void;
   onSaveDraft: () => void;
   onFinalize: () => void;
+  onStartNewCycle?: () => void;
   saving: boolean;
   snapshotIsCurrent: boolean;
   statusLabel: string;
   finalizeLabel: string;
+  showStartNewCycle?: boolean;
 }) => (
   <div className="report-controls flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
     <div className="flex flex-wrap items-center gap-2">
@@ -2181,6 +2688,12 @@ const ReportToolbar = ({
           </>
         )}
       </Button>
+      {showStartNewCycle ? (
+        <Button variant="outline" onClick={onStartNewCycle} disabled={saving}>
+          <RefreshCcw className="mr-2 h-4 w-4" />
+          Encerrar ciclo e iniciar novo
+        </Button>
+      ) : null}
       <Button onClick={onFinalize} disabled={saving}>
         {saving ? (
           <>
@@ -2217,6 +2730,7 @@ const CompanyReport = () => {
   const [hydrants, setHydrants] = useState<HydrantRow[]>([]);
   const [luminaires, setLuminaires] = useState<LuminaireRow[]>([]);
   const [reportSignatures, setReportSignatures] = useState<CompanyReportSignatureRow[]>([]);
+  const [activeReportCycleId, setActiveReportCycleId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingArt, setUploadingArt] = useState(false);
@@ -2235,6 +2749,7 @@ const CompanyReport = () => {
 
       try {
         setLoading(true);
+        clearActiveReportCycleCache(id);
 
         const [
           companyResult,
@@ -2247,17 +2762,14 @@ const CompanyReport = () => {
           luminairesResult,
           reportSignaturesResult,
           companyMembersResult,
+          activeCycleResult,
         ] = await Promise.all([
           supabase
             .from("empresa")
             .select("id, razao_social, nome_fantasia, cnpj, responsavel, telefone, email, rua, numero, bairro, cidade, estado, cep, divisao, grupo, ocupacao_uso, area_m2, area_maior_pavimento_m2, area_depositos_m2, numero_ocupantes, altura_denominacao, altura_descricao, altura_real_m, grau_risco, possui_responsavel_tecnico, possui_atrio")
             .eq("id", id)
             .maybeSingle(),
-          supabase
-            .from("empresa_relatorios")
-            .select("*")
-            .eq("empresa_id", id)
-            .maybeSingle(),
+          loadActiveCompanyReport(supabase, id),
           supabase
             .from("empresa_exigencias")
             .select(`
@@ -2275,11 +2787,7 @@ const CompanyReport = () => {
             `)
             .eq("empresa_id", id),
           loadChecklistData(supabase, id),
-          supabase
-            .from("empresa_checklist_nao_conformidades")
-            .select("*")
-            .eq("empresa_id", id)
-            .order("updated_at", { ascending: false }),
+          loadAllChecklistNonConformitiesForActiveCycle(supabase, id),
           supabase
             .from("empresa_extintores")
             .select(
@@ -2313,6 +2821,7 @@ const CompanyReport = () => {
 
             throw error;
           }),
+          resolveActiveReportCycleId(supabase, id),
         ]);
 
         let companyData = companyResult.data;
@@ -2340,14 +2849,8 @@ const CompanyReport = () => {
         if (companyError) {
           throw companyError;
         }
-        if (reportResult.error && !isMissingRelationError(reportResult.error, "empresa_relatorios")) {
-          throw reportResult.error;
-        }
         if (requirementsResult.error) {
           throw requirementsResult.error;
-        }
-        if (nonConformitiesResult.error) {
-          throw nonConformitiesResult.error;
         }
         if (extinguishersResult.error) {
           throw extinguishersResult.error;
@@ -2362,13 +2865,15 @@ const CompanyReport = () => {
           throw new Error("Empresa nao encontrada");
         }
 
-        const reportData = reportResult.error ? null : reportResult.data;
+        const reportData = reportResult.report;
+        const nonConformitiesData = nonConformitiesResult as NonConformityRow[];
         const additionalData =
           reportData?.dados_adicionais &&
           typeof reportData.dados_adicionais === "object" &&
           !Array.isArray(reportData.dados_adicionais)
             ? (reportData.dados_adicionais as Record<string, Json>)
             : null;
+        const persistedReportCycleId = getJsonString(additionalData, "report_cycle_id");
         const persistedSignatureValue =
           reportData?.status === "finalizado" &&
           reportData.dados_adicionais &&
@@ -2385,9 +2890,9 @@ const CompanyReport = () => {
           checklistData.groupsByModel,
           checklistData.responses,
         );
-        const persistedSnapshot = isChecklistSnapshot(reportData?.checklist_snapshot)
-          ? reportData.checklist_snapshot
-          : null;
+        const persistedReportMatchesActiveCycle =
+          Boolean(activeCycleResult) &&
+          activeCycleResult === persistedReportCycleId;
         const mappedRequirements =
           (requirementsResult.data as ReportRequirementRow[] | null)?.flatMap((item) => {
             const requirement = Array.isArray(item.exigencias_seguranca)
@@ -2415,13 +2920,14 @@ const CompanyReport = () => {
         setCompany(companyData);
         setReport(reportData);
         setReportRequirements(mappedRequirements);
+        setActiveReportCycleId(activeCycleResult);
         setLiveSnapshot(computedSnapshot);
-        setSnapshot(persistedSnapshot || computedSnapshot);
+        setSnapshot(computedSnapshot);
         setReportStatus(reportData?.status === "finalizado" ? "finalizado" : "rascunho");
-        setReportStorageAvailable(!reportResult.error);
+        setReportStorageAvailable(true);
         setForm(buildDefaultForm(companyData, reportData));
         setCompanyMembers(companyMembersResult || []);
-        setNonConformityRecords(nonConformitiesResult.data || []);
+        setNonConformityRecords(nonConformitiesData || []);
         setExtinguishers(extinguishersResult.data || []);
         setHydrants(hydrantsResult.data || []);
         setLuminaires(luminairesResult.data || []);
@@ -2430,9 +2936,11 @@ const CompanyReport = () => {
         setArtUploadedAt(getJsonString(additionalData, "art_uploaded_at"));
         setArtUploadedBy(getJsonString(additionalData, "art_uploaded_by"));
         setReportSignatures(
-          persistedSignatures.length > 0
-            ? persistedSignatures
-            : reportSignaturesResult || [],
+          reportSignaturesResult && reportSignaturesResult.length > 0
+            ? reportSignaturesResult
+            : persistedReportMatchesActiveCycle
+              ? persistedSignatures
+              : [],
         );
       } catch (error) {
         console.error("Error loading report page:", error);
@@ -2523,6 +3031,9 @@ const CompanyReport = () => {
     companyMembers.find((member) => member.user_id === user?.id) || null;
   const technicalResponsibleMember =
     companyMembers.find((member) => member.is_responsavel_tecnico) || null;
+  const canManageReportCycles = Boolean(
+    isSystemAdmin || currentUserMember?.papel === "gestor",
+  );
   const isCurrentUserTechnicalResponsible = Boolean(
     currentUserMember?.is_responsavel_tecnico,
   );
@@ -2601,28 +3112,20 @@ const CompanyReport = () => {
           ? (report.dados_adicionais as Record<string, Json>)
           : {};
 
-      const { data, error } = await supabase
-        .from("empresa_relatorios")
-        .upsert(
-          {
-            empresa_id: id,
-            dados_adicionais: {
-              ...previousAdditionalData,
-              art_file_bucket: ART_STORAGE_BUCKET,
-              art_file_path: filePath,
-              art_file_name: file.name,
-              art_uploaded_at: uploadedAt,
-              art_uploaded_by: uploadedBy,
-            },
+      const { report: data } = await upsertCompanyReportForCycle(
+        supabase,
+        id,
+        {
+          dados_adicionais: {
+            ...previousAdditionalData,
+            art_file_bucket: ART_STORAGE_BUCKET,
+            art_file_path: filePath,
+            art_file_name: file.name,
+            art_uploaded_at: uploadedAt,
+            art_uploaded_by: uploadedBy,
           },
-          { onConflict: "empresa_id" },
-        )
-        .select("*")
-        .single();
-
-      if (error) {
-        throw error;
-      }
+        },
+      );
 
       setReport(data);
       setArtFilePath(filePath);
@@ -2686,6 +3189,33 @@ const CompanyReport = () => {
     window.print();
   };
 
+  const handleStartNewCycle = async () => {
+    if (!id) {
+      return;
+    }
+
+    try {
+      setSaving(true);
+      await startNewCompanyReportCycle(
+        supabase,
+        id,
+        `Ciclo iniciado em ${new Date().toLocaleDateString("pt-BR")}`,
+      );
+      clearActiveReportCycleCache(id);
+      window.location.reload();
+    } catch (error) {
+      console.error("Error starting a new report cycle:", error);
+      toast({
+        title: "Erro ao iniciar novo ciclo",
+        description:
+          "Nao foi possivel encerrar o ciclo atual e abrir um novo ciclo de relatorio.",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSave = async (nextStatus: ReportStatus = "rascunho") => {
     if (!id || !company || !snapshot) {
       return;
@@ -2744,23 +3274,33 @@ const CompanyReport = () => {
         });
         return;
       }
-
-      if (missingExecutionTraceabilityCount > 0) {
-        toast({
-          title: "Rastreabilidade incompleta",
-          description:
-            "Nao e possivel emitir o relatorio tecnico enquanto existirem checklists sem autoria registrada.",
-          variant: "destructive",
-        });
-        return;
-      }
     }
 
     try {
       setSaving(true);
 
-      let latestReportSignatures = reportSignatures;
+      clearActiveReportCycleCache(id);
+      const [resolvedActiveCycleId, latestChecklistDataResult] = await Promise.all([
+        resolveActiveReportCycleId(supabase, id).catch((error) => {
+          console.error("Error resolving active report cycle before save:", error);
+          return activeReportCycleId;
+        }),
+        loadChecklistData(supabase, id).catch((error) => {
+          console.error("Error refreshing checklist data before report save:", error);
+          return null;
+        }),
+      ]);
 
+      const latestSnapshot =
+        latestChecklistDataResult
+          ? buildChecklistSnapshot(
+              latestChecklistDataResult.models,
+              latestChecklistDataResult.groupsByModel,
+              latestChecklistDataResult.responses,
+            )
+          : snapshot;
+
+      let latestReportSignatures = reportSignatures;
       try {
         latestReportSignatures = await loadCompanyReportSignatures(supabase, id);
       } catch (signatureError) {
@@ -2777,25 +3317,42 @@ const CompanyReport = () => {
         }
       }
 
-      const persistedSignatures =
-        latestReportSignatures.length > 0
-          ? latestReportSignatures
-          : [
-              {
-                user_id: "gestor-fallback",
-                nome: company.responsavel || "Gestor responsavel",
-                email: company.email || "-",
-                cpf: null,
-                cargo: null,
-                papel: "gestor",
-                is_gestor: true,
-                assinatura_nome: company.responsavel || "Gestor responsavel",
-                executed_checklists: [],
-                first_activity_at: null,
-                last_activity_at: null,
-                total_checklists: 0,
-              } satisfies CompanyReportSignatureRow,
-            ];
+      const mergedReportSignatures = mergeCompanyReportSignatureRows({
+        company,
+        companyMembers,
+        signers: latestReportSignatures,
+        snapshot: latestSnapshot,
+        extinguishers,
+        hydrants,
+        luminaires,
+      });
+      const latestChecklistPrintSections = buildChecklistPrintSections({
+        snapshot: latestSnapshot,
+        signers: mergedReportSignatures,
+      });
+      const latestMissingExecutionTraceabilityCount =
+        latestChecklistPrintSections.filter((section) => section.signers.length === 0)
+          .length;
+
+      setActiveReportCycleId(resolvedActiveCycleId ?? null);
+      setLiveSnapshot(latestSnapshot);
+      setSnapshot(latestSnapshot);
+      setReportSignatures(latestReportSignatures);
+
+      if (
+        nextStatus === "finalizado" &&
+        form.reportMode === "tecnico" &&
+        latestMissingExecutionTraceabilityCount > 0
+      ) {
+        toast({
+          title: "Rastreabilidade incompleta",
+          description:
+            "Nao e possivel emitir o relatorio tecnico enquanto existirem checklists sem autoria registrada no ciclo ativo.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       const previousAdditionalData =
         report?.dados_adicionais &&
         typeof report.dados_adicionais === "object" &&
@@ -2803,8 +3360,10 @@ const CompanyReport = () => {
           ? (report.dados_adicionais as Record<string, Json>)
           : {};
 
-      const payload: Database["public"]["Tables"]["empresa_relatorios"]["Insert"] = {
-        empresa_id: id,
+      const payload: Omit<
+        Database["public"]["Tables"]["empresa_relatorios"]["Insert"],
+        "empresa_id" | "relatorio_ciclo_id"
+      > = {
         titulo: normalizeNullable(form.titulo) || getDefaultReportTitle(form.reportMode),
         numero_relatorio: normalizeNullable(form.numeroRelatorio),
         data_inspecao: form.dataInspecao || null,
@@ -2821,12 +3380,13 @@ const CompanyReport = () => {
         recomendacoes: normalizeNullable(form.recomendacoes),
         conclusao: normalizeNullable(form.conclusao),
         status: nextStatus,
-        checklist_snapshot: snapshot,
+        checklist_snapshot: latestSnapshot,
         dados_adicionais: {
           ...previousAdditionalData,
           empresa_responsavel: company.responsavel,
           empresa_telefone: company.telefone,
           empresa_email: company.email,
+          report_cycle_id: resolvedActiveCycleId,
           report_model:
             form.reportMode === "tecnico"
               ? "fire-rtci-oficial"
@@ -2849,24 +3409,20 @@ const CompanyReport = () => {
           art_uploaded_at: artUploadedAt,
           art_uploaded_by: artUploadedBy,
           non_conformities_count: nonConformityRecords.length,
-          report_signatures: persistedSignatures,
+          report_signatures: mergedReportSignatures,
           report_signatures_generated_at: new Date().toISOString(),
         },
       };
 
-      const { data, error } = await supabase
-        .from("empresa_relatorios")
-        .upsert(payload, { onConflict: "empresa_id" })
-        .select("*")
-        .single();
-
-      if (error) {
-        throw error;
-      }
+      const { report: data } = await upsertCompanyReportForCycle(
+        supabase,
+        id,
+        payload,
+      );
 
       setReport(data);
       setReportStatus(nextStatus);
-      setReportSignatures(persistedSignatures);
+      setReportSignatures(latestReportSignatures);
       toast({
         title: "Relatorio salvo",
         description:
@@ -3082,25 +3638,18 @@ const CompanyReport = () => {
     isTechnicalReport && id
       ? `${window.location.origin}/relatorios/${id}`
       : null;
-  const signatureRows =
-    reportSignatures.length > 0
-      ? reportSignatures
-      : [
-          {
-            user_id: "gestor-fallback",
-            nome: company.responsavel || "Gestor responsavel",
-            email: company.email || "-",
-            cpf: null,
-            cargo: null,
-            papel: "gestor",
-            is_gestor: true,
-            assinatura_nome: company.responsavel || "Gestor responsavel",
-            executed_checklists: [],
-            first_activity_at: null,
-            last_activity_at: null,
-            total_checklists: 0,
-          } satisfies CompanyReportSignatureRow,
-        ];
+  const signatureRows = mergeCompanyReportSignatureRows({
+    company,
+    companyMembers,
+    signers: reportSignatures,
+    snapshot,
+    extinguishers,
+    hydrants,
+    luminaires,
+  });
+  const authoredSignerCount = signatureRows.filter(
+    (signer) => signer.executed_checklists.length > 0,
+  ).length;
   const inspectorProgressEntries = buildInspectorProgressEntries(signatureRows);
   const inspectorProgressChunks = chunkArray(inspectorProgressEntries, 6);
   const totalInspectorChecklists = signatureRows.reduce(
@@ -3681,7 +4230,7 @@ const CompanyReport = () => {
                       Rastreabilidade
                     </p>
                     <p className="mt-2 text-[24px] font-bold text-zinc-900">
-                      {Math.max(signatureRows.length - missingExecutionTraceabilityCount, 0)}
+                      {authoredSignerCount}
                     </p>
                     <p className="mt-1 text-[11px] text-zinc-600">
                       Executor(es) com autoria identificada
@@ -4502,9 +5051,11 @@ const CompanyReport = () => {
           onPrint={handlePrint}
           onSaveDraft={() => void handleSave("rascunho")}
           onFinalize={() => void handleSave("finalizado")}
+          onStartNewCycle={() => void handleStartNewCycle()}
           saving={saving}
           snapshotIsCurrent={snapshotIsCurrent}
           statusLabel={statusMeta.label}
+          showStartNewCycle={canManageReportCycles && reportStatus === "finalizado"}
           finalizeLabel={
             isTechnicalReport
               ? "Emitir relatorio tecnico"
