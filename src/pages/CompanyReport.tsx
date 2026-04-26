@@ -2216,11 +2216,11 @@ const PageFrame = ({
   legalNotice: string;
 }) => (
   <article
-    className="report-page relative mx-auto bg-white text-black shadow-[0_20px_50px_rgba(15,23,42,0.18)] print:shadow-none print:mx-0 print:my-0"
-    style={{ width: "210mm", height: "297mm" }}
+    className="report-page relative mx-auto overflow-hidden bg-white text-black shadow-[0_20px_50px_rgba(15,23,42,0.18)] print:shadow-none print:mx-0 print:my-0"
+    style={{ width: "210mm", minHeight: "297mm", height: "297mm" }}
   >
-    <div className="box-border flex h-full flex-col px-[18mm] pb-[18mm] pt-[14mm]">
-      <header className="mb-6 border-b border-zinc-300 pb-4 text-center">
+    <div className="box-border grid h-full grid-rows-[auto_minmax(0,1fr)_auto] gap-4 px-[15mm] pb-[12mm] pt-[12mm]">
+      <header className="border-b border-zinc-300 pb-3 text-center">
         <div className="flex-1 text-center">
           <h1 className="text-[17px] font-semibold uppercase leading-tight tracking-[0.02em] text-zinc-800">
             {title}
@@ -2228,13 +2228,13 @@ const PageFrame = ({
           <p className="mt-2 text-[9.5px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
             {subtitle}
           </p>
-          <p className="mt-2 text-[10px] leading-5 text-zinc-600">{legalNotice}</p>
+          <p className="mt-2 text-[9.5px] leading-4 text-zinc-600">{legalNotice}</p>
         </div>
       </header>
 
-      <div className="flex-1">{children}</div>
+      <div className="min-h-0">{children}</div>
 
-      <footer className="mt-6 text-right text-[11px] font-semibold text-zinc-700">
+      <footer className="pt-1 text-right text-[10px] font-semibold leading-none text-zinc-700">
         Pagina {pageNumber} de {totalPages}
       </footer>
     </div>
@@ -2268,7 +2268,9 @@ const DataCell = ({
     <div className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
       {label}
     </div>
-    <div className="mt-1 text-[13px] font-semibold uppercase text-zinc-900">{value}</div>
+    <div className="mt-1 break-words text-[13px] font-semibold uppercase text-zinc-900">
+      {value}
+    </div>
   </div>
 );
 
@@ -2410,15 +2412,15 @@ const ChecklistDigitalSignatureStamp = ({
   context: "summary" | "checklist";
 }) => (
   <div className="overflow-hidden rounded-sm border border-zinc-300 bg-white">
-    <div className="grid grid-cols-[0.95fr_1.35fr]">
+    <div className="grid min-w-0 grid-cols-[minmax(0,0.92fr)_44px_minmax(0,1.18fr)]">
       <div className="flex min-h-[108px] items-center border-r border-zinc-300 bg-zinc-50 px-4 py-4">
-        <p className="text-[24px] font-semibold leading-[1.08] tracking-[-0.02em] text-zinc-900 break-words">
+        <p className="break-words text-[20px] font-semibold leading-[1.04] tracking-[-0.02em] text-zinc-900">
           {signer.assinatura_nome}
         </p>
       </div>
 
-      <div className="relative px-4 py-4">
-        <div className="pointer-events-none absolute inset-y-3 left-4 w-16 text-red-200/70">
+      <div className="relative flex items-center justify-center border-r border-zinc-300 bg-white px-1 py-4">
+        <div className="pointer-events-none w-10 text-red-200/70">
           <svg viewBox="0 0 80 120" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-full w-full">
             <path
               d="M20 104C35 82 28 54 41 31C47 21 60 20 61 31C62 43 43 54 33 60C24 65 16 73 18 84C19 94 28 101 42 104"
@@ -2430,10 +2432,12 @@ const ChecklistDigitalSignatureStamp = ({
           </svg>
         </div>
 
-        <div className="relative space-y-1 pl-14 text-[11px] leading-5 text-zinc-800">
-          <p className="font-semibold text-zinc-900">
-            {getDigitalSignatureHeading(signer, context)}: {signer.assinatura_nome}
-          </p>
+      </div>
+
+      <div className="min-w-0 px-4 py-4">
+        <div className="space-y-1 text-[10.5px] leading-[1.5] text-zinc-800">
+          <p className="font-semibold text-zinc-900">{getDigitalSignatureHeading(signer, context)}:</p>
+          <p className="font-semibold text-zinc-900 break-words">{signer.assinatura_nome}</p>
           <p>CPF: {formatCpf(signer.cpf)}</p>
           <p>Cargo: {signer.cargo || "Nao informado"}</p>
           <p>
@@ -2474,7 +2478,7 @@ const TechnicalResponsibleArtSignatureSheet = ({
   return (
     <div className="space-y-5 border border-zinc-300 bg-white px-6 py-5 text-zinc-900">
       <div className="border-b border-zinc-300 pb-3">
-        <div className="grid grid-cols-[1.25fr_0.95fr] items-end gap-6">
+        <div className="grid grid-cols-[1.15fr_0.95fr] items-end gap-5">
           <div className="space-y-1">
             <p className="text-[15px] font-semibold text-zinc-800">7. Entidade de Classe</p>
             <p className="text-[13px] uppercase tracking-[0.03em] text-zinc-900">
@@ -2496,9 +2500,9 @@ const TechnicalResponsibleArtSignatureSheet = ({
             </div>
 
             <div className="relative pt-7 text-right text-[11px] leading-4 text-zinc-700">
-              <p className="font-semibold uppercase text-zinc-900">{signerName}</p>
-              <p>{signerCargo}</p>
-              <p>CREA: {signerCrea}</p>
+              <p className="break-words font-semibold uppercase text-zinc-900">{signerName}</p>
+              <p className="break-words">{signerCargo}</p>
+              <p className="break-words">CREA: {signerCrea}</p>
             </div>
           </div>
         </div>
@@ -2515,7 +2519,7 @@ const TechnicalResponsibleArtSignatureSheet = ({
 
             <div className="space-y-2">
               <div className="border-b border-zinc-400 pb-2">
-                <p className="font-serif text-[28px] italic leading-none tracking-[0.03em] text-blue-800/80">
+                <p className="font-serif text-[26px] italic leading-none tracking-[0.03em] text-blue-800/80">
                   {localLabel}, {signatureDateParts.day} de {signatureDateParts.month} de{" "}
                   {signatureDateParts.year}
                 </p>
@@ -2529,10 +2533,10 @@ const TechnicalResponsibleArtSignatureSheet = ({
           </div>
 
           <div className="space-y-2">
-            <div className="border-b border-zinc-400 pb-1 text-center text-[11.5px] font-semibold uppercase tracking-[0.02em] text-zinc-900">
+            <div className="break-words border-b border-zinc-400 pb-1 text-center text-[11.5px] font-semibold uppercase tracking-[0.02em] text-zinc-900">
               {signerName} - CPF: {formatCpf(signerCpf)}
             </div>
-            <div className="border-b border-zinc-400 pb-1 text-center text-[11.5px] font-semibold uppercase tracking-[0.02em] text-zinc-900">
+            <div className="break-words border-b border-zinc-400 pb-1 text-center text-[11.5px] font-semibold uppercase tracking-[0.02em] text-zinc-900">
               {company.razao_social} - CNPJ: {formatCnpj(company.cnpj)}
             </div>
           </div>
@@ -2591,42 +2595,51 @@ const TechnicalResponsibleArtSignatureSheet = ({
 };
 
 const RiskMatrix = () => (
-  <table className="w-full table-fixed border-collapse text-center text-[11px] font-semibold text-zinc-900">
+  <table className="w-full table-fixed border-collapse text-center text-[10px] font-semibold text-zinc-900">
+    <colgroup>
+      <col style={{ width: "26px" }} />
+      <col style={{ width: "46%" }} />
+      <col style={{ width: "18%" }} />
+      <col style={{ width: "18%" }} />
+      <col style={{ width: "18%" }} />
+    </colgroup>
     <tbody>
       <tr>
-        <td className="w-[50px] border border-zinc-400 p-2 text-[10px]" rowSpan={3}>
-          <div className="-rotate-90 whitespace-nowrap">Grau de Inconformidade</div>
+        <td className="border border-zinc-400 p-1 text-[9px]" rowSpan={3}>
+          <div className="mx-auto [writing-mode:vertical-rl] rotate-180 tracking-[0.04em]">
+            Grau de Inconformidade
+          </div>
         </td>
-        <td className="border border-zinc-400 p-3 text-left align-top leading-5">
+        <td className="border border-zinc-400 p-2.5 text-left align-top leading-5">
           Inconformidades <strong>GRAVE</strong> que apresentam risco iminente a seguranca dos ocupantes.
         </td>
-        <td className="border border-zinc-400 bg-yellow-300 p-3">Correcao prioritaria</td>
-        <td className="border border-zinc-400 bg-red-500 p-3 text-white">Correcao imediata</td>
-        <td className="border border-zinc-400 bg-red-500 p-3 text-white">Correcao imediata</td>
+        <td className="border border-zinc-400 bg-yellow-300 p-2.5 leading-4">Correcao prioritaria</td>
+        <td className="border border-zinc-400 bg-red-500 p-2.5 leading-4 text-white">Correcao imediata</td>
+        <td className="border border-zinc-400 bg-red-500 p-2.5 leading-4 text-white">Correcao imediata</td>
       </tr>
       <tr>
-        <td className="border border-zinc-400 p-3 text-left align-top leading-5">
+        <td className="border border-zinc-400 p-2.5 text-left align-top leading-5">
           Inconformidades <strong>MODERADA</strong> que podem comprometer a seguranca em medio prazo.
         </td>
-        <td className="border border-zinc-400 bg-emerald-500 p-3 text-white">Correcao programada</td>
-        <td className="border border-zinc-400 bg-yellow-300 p-3">Correcao prioritaria</td>
-        <td className="border border-zinc-400 bg-red-500 p-3 text-white">Correcao imediata</td>
+        <td className="border border-zinc-400 bg-emerald-500 p-2.5 leading-4 text-white">Correcao programada</td>
+        <td className="border border-zinc-400 bg-yellow-300 p-2.5 leading-4">Correcao prioritaria</td>
+        <td className="border border-zinc-400 bg-red-500 p-2.5 leading-4 text-white">Correcao imediata</td>
       </tr>
       <tr>
-        <td className="border border-zinc-400 p-3 text-left align-top leading-5">
+        <td className="border border-zinc-400 p-2.5 text-left align-top leading-5">
           Inconformidades <strong>LEVE</strong> que nao impactam diretamente na seguranca.
         </td>
-        <td className="border border-zinc-400 bg-emerald-500 p-3 text-white">Correcao programada</td>
-        <td className="border border-zinc-400 bg-emerald-500 p-3 text-white">Correcao programada</td>
-        <td className="border border-zinc-400 bg-yellow-300 p-3">Correcao prioritaria</td>
+        <td className="border border-zinc-400 bg-emerald-500 p-2.5 leading-4 text-white">Correcao programada</td>
+        <td className="border border-zinc-400 bg-emerald-500 p-2.5 leading-4 text-white">Correcao programada</td>
+        <td className="border border-zinc-400 bg-yellow-300 p-2.5 leading-4">Correcao prioritaria</td>
       </tr>
       <tr>
-        <td className="border border-zinc-400 p-2 text-[10px]" colSpan={2}>
+        <td className="border border-zinc-400 p-2 text-[9.5px]" colSpan={2}>
           Nivel de Probabilidade
         </td>
-        <td className="border border-zinc-400 p-2">Baixa</td>
-        <td className="border border-zinc-400 p-2">Media</td>
-        <td className="border border-zinc-400 p-2">Alta</td>
+        <td className="border border-zinc-400 p-2 text-[9.5px]">Baixa</td>
+        <td className="border border-zinc-400 p-2 text-[9.5px]">Media</td>
+        <td className="border border-zinc-400 p-2 text-[9.5px]">Alta</td>
       </tr>
     </tbody>
   </table>
@@ -3787,16 +3800,16 @@ const CompanyReport = () => {
     const visibleExecutionLines = signerExecutionLines.slice(0, 4);
 
     return (
-      <div key={signer.user_id} className="overflow-hidden border border-zinc-300">
+      <div key={signer.user_id} className="min-w-0 overflow-hidden border border-zinc-300">
         <div className="flex items-start justify-between gap-3 border-b border-zinc-300 bg-zinc-50 px-4 py-3">
-          <div>
-            <p className="text-[12px] font-semibold uppercase text-zinc-900">
+          <div className="min-w-0">
+            <p className="break-words text-[12px] font-semibold uppercase text-zinc-900">
               {signer.assinatura_nome}
             </p>
-            <p className="mt-1 text-[10.5px] text-zinc-600">
+            <p className="mt-1 break-words text-[10.5px] text-zinc-600">
               {getSignatureRoleLabel(signer)} | {signer.email || "-"}
             </p>
-            <p className="mt-1 text-[10px] text-zinc-500">
+            <p className="mt-1 break-words text-[10px] text-zinc-500">
               CPF {formatCpf(signer.cpf)} | Cargo {signer.cargo || "-"}
             </p>
           </div>
@@ -3808,7 +3821,7 @@ const CompanyReport = () => {
 
         <div className="space-y-3 px-4 py-4">
           <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-sm border border-zinc-300 px-3 py-2">
+            <div className="min-w-0 rounded-sm border border-zinc-300 px-3 py-2">
               <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
                 Checklists
               </p>
@@ -3816,22 +3829,22 @@ const CompanyReport = () => {
                 {signer.total_checklists}
               </p>
             </div>
-            <div className="rounded-sm border border-zinc-300 px-3 py-2">
+            <div className="min-w-0 rounded-sm border border-zinc-300 px-3 py-2">
               <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
                 Ultima atividade
               </p>
-              <p className="mt-1 text-[10.5px] font-semibold text-zinc-800">
+              <p className="mt-1 break-words text-[10.5px] font-semibold text-zinc-800">
                 {formatDateTime(signer.last_activity_at)}
               </p>
             </div>
           </div>
 
-          <div className="rounded-sm border border-zinc-300 bg-white px-3 py-3">
+          <div className="min-w-0 rounded-sm border border-zinc-300 bg-white px-3 py-3">
             <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
               Checklists executados por este colaborador
             </p>
             {visibleExecutionLines.length > 0 ? (
-              <ul className="mt-2 space-y-1.5 text-[10.5px] leading-5 text-zinc-800">
+              <ul className="mt-2 space-y-1.5 break-words text-[10.5px] leading-5 text-zinc-800">
                 {visibleExecutionLines.map((line) => (
                   <li key={`${signer.user_id}-${line.key}`}>{line.label}</li>
                 ))}
@@ -4093,27 +4106,27 @@ const CompanyReport = () => {
               </tbody>
             </table>
           </div>
-          <div className="grid grid-cols-[1fr_200px] gap-4">
-            <div className="space-y-2 border border-zinc-300 p-4 text-[12px] leading-6 text-zinc-800">
+          <div className="grid grid-cols-[minmax(0,1fr)_176px] gap-3">
+            <div className="min-w-0 space-y-2 border border-zinc-300 p-4 text-[12px] leading-6 text-zinc-800">
               <p className="font-semibold uppercase text-zinc-900">Observacoes das Medidas</p>
               {resultObservationLines.map((line) => (
                 <p key={line}>- {line}</p>
               ))}
             </div>
-            <div className="space-y-3">
-              <div className="rounded-sm border border-zinc-300 bg-white px-4 py-4">
+            <div className="min-w-0 space-y-3">
+              <div className="rounded-sm border border-zinc-300 bg-white px-3 py-3">
                 <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
                   Itens gerais checados
                 </p>
                 <p className="mt-2 text-[24px] font-bold text-zinc-900">{checkedGeneralItems}</p>
               </div>
-              <div className="rounded-sm border border-zinc-300 bg-white px-4 py-4">
+              <div className="rounded-sm border border-zinc-300 bg-white px-3 py-3">
                 <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
                   Registros anexados
                 </p>
                 <p className="mt-2 text-[24px] font-bold text-zinc-900">{reportEntries.length}</p>
               </div>
-              <div className="rounded-sm border border-zinc-300 bg-white px-4 py-4">
+              <div className="rounded-sm border border-zinc-300 bg-white px-3 py-3">
                 <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
                   Exigencias atendidas
                 </p>
@@ -4121,7 +4134,7 @@ const CompanyReport = () => {
                   {requirementsAttendedCount}
                 </p>
               </div>
-              <div className="rounded-sm border border-zinc-300 bg-white px-4 py-4">
+              <div className="rounded-sm border border-zinc-300 bg-white px-3 py-3">
                 <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
                   Checklists gerais
                 </p>
@@ -4139,7 +4152,7 @@ const CompanyReport = () => {
     <div className="space-y-6">
       <section className="space-y-4">
         <SectionHeading index="4" title="Resultado da Avaliacao - Matriz de Criticidade" />
-        <div className="grid grid-cols-[minmax(0,1fr)_220px] items-start gap-4">
+        <div className="grid grid-cols-[minmax(0,1fr)_186px] items-start gap-3">
           <div className="min-w-0 overflow-hidden rounded-sm border border-zinc-300 bg-zinc-50 px-4 py-4">
             <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
               Matriz de criticidade
@@ -4149,19 +4162,19 @@ const CompanyReport = () => {
             </div>
           </div>
           <div className="min-w-0 space-y-3">
-            <div className="rounded-sm border border-red-200 bg-red-50 px-4 py-4">
+            <div className="rounded-sm border border-red-200 bg-red-50 px-3 py-3">
               <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-red-700">
                 Risco alto
               </p>
               <p className="mt-2 text-[24px] font-bold text-red-800">{riskSummary.high}</p>
             </div>
-            <div className="rounded-sm border border-amber-200 bg-amber-50 px-4 py-4">
+            <div className="rounded-sm border border-amber-200 bg-amber-50 px-3 py-3">
               <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-amber-700">
                 Risco medio
               </p>
               <p className="mt-2 text-[24px] font-bold text-amber-800">{riskSummary.medium}</p>
             </div>
-            <div className="rounded-sm border border-zinc-200 bg-zinc-50 px-4 py-4">
+            <div className="rounded-sm border border-zinc-200 bg-zinc-50 px-3 py-3">
               <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-600">
                 Risco baixo
               </p>
@@ -4847,7 +4860,7 @@ const CompanyReport = () => {
               : "Assinaturas do Relatorio - Continuacao"
           }
         />
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-3">
           {chunk.map((signer) => renderSignatureCard(signer))}
         </div>
       </div>,
@@ -5007,6 +5020,8 @@ const CompanyReport = () => {
         @media print {
           body {
             background: #ffffff;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
           }
 
           .report-controls,
@@ -5030,6 +5045,7 @@ const CompanyReport = () => {
 
           .report-page {
             box-sizing: border-box;
+            overflow: hidden;
             break-after: page;
             page-break-after: always;
             break-inside: avoid;
