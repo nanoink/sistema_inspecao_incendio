@@ -110,6 +110,7 @@ const createCompanyUserViaEdgeFunction = async (
     crea,
     password,
     role,
+    isTechnicalResponsible,
   }: {
     companyId: string;
     nome: string;
@@ -119,6 +120,7 @@ const createCompanyUserViaEdgeFunction = async (
     crea?: string;
     password: string;
     role?: CompanyMemberRole;
+    isTechnicalResponsible?: boolean;
   },
 ) => {
   const normalizedName = nome.trim();
@@ -138,6 +140,7 @@ const createCompanyUserViaEdgeFunction = async (
       crea: normalizedCrea,
       password,
       role: targetRole,
+      isTechnicalResponsible: isTechnicalResponsible === true,
     },
   });
 
@@ -151,6 +154,8 @@ const createCompanyUserViaEdgeFunction = async (
     responseData && typeof responseData.user_id === "string"
       ? responseData.user_id
       : "";
+  const edgeFunctionMarkedAsTechnicalResponsible =
+    responseData?.is_responsavel_tecnico === true;
 
   if (!userId) {
     throw new Error("Nao foi possivel identificar o usuario criado.");
@@ -164,7 +169,7 @@ const createCompanyUserViaEdgeFunction = async (
     cargo: normalizedCargo || null,
     crea: normalizedCrea || null,
     papel: targetRole,
-    is_responsavel_tecnico: false,
+    is_responsavel_tecnico: edgeFunctionMarkedAsTechnicalResponsible,
     pode_executar_checklists: true,
     temporary_password: true,
   } as CreatedCompanyUserSummary;
@@ -318,6 +323,7 @@ const createCompanyUserViaClientSignup = async (
     crea,
     password,
     role,
+    isTechnicalResponsible,
   }: {
     companyId: string;
     nome: string;
@@ -327,6 +333,7 @@ const createCompanyUserViaClientSignup = async (
     crea?: string;
     password: string;
     role?: CompanyMemberRole;
+    isTechnicalResponsible?: boolean;
   },
 ) => {
   const signupClient = createEphemeralSignupClient();
@@ -416,7 +423,7 @@ const createCompanyUserViaClientSignup = async (
             cargo: normalizedCargo || null,
             crea: normalizedCrea || null,
             papel: targetRole,
-            is_responsavel_tecnico: false,
+            is_responsavel_tecnico: isTechnicalResponsible === true,
             pode_executar_checklists: true,
             temporary_password: true,
           } as CreatedCompanyUserSummary;
@@ -447,13 +454,28 @@ const createCompanyUserViaClientSignup = async (
           cargo: normalizedCargo || null,
           crea: normalizedCrea || null,
           papel: targetRole,
-          is_responsavel_tecnico: false,
+          is_responsavel_tecnico: isTechnicalResponsible === true,
           pode_executar_checklists: true,
           temporary_password: true,
         } as CreatedCompanyUserSummary;
       }
 
       throw membershipError;
+    }
+
+    if (isTechnicalResponsible) {
+      const { error: technicalResponsibleError } = await supabase.rpc(
+        "set_empresa_usuario_responsavel_tecnico",
+        {
+          p_empresa_id: companyId,
+          p_user_id: targetUserId,
+          p_is_responsavel_tecnico: true,
+        },
+      );
+
+      if (technicalResponsibleError) {
+        throw technicalResponsibleError;
+      }
     }
 
     return {
@@ -464,7 +486,7 @@ const createCompanyUserViaClientSignup = async (
       cargo: normalizedCargo || null,
       crea: normalizedCrea || null,
       papel: targetRole,
-      is_responsavel_tecnico: false,
+      is_responsavel_tecnico: isTechnicalResponsible === true,
       pode_executar_checklists: true,
       temporary_password: true,
     } as CreatedCompanyUserSummary;
@@ -484,6 +506,7 @@ export const createCompanyUser = async (
     crea,
     password,
     role,
+    isTechnicalResponsible,
   }: {
     companyId: string;
     nome: string;
@@ -493,6 +516,7 @@ export const createCompanyUser = async (
     crea?: string;
     password: string;
     role?: CompanyMemberRole;
+    isTechnicalResponsible?: boolean;
   },
 ) => {
   try {
@@ -505,6 +529,7 @@ export const createCompanyUser = async (
       crea,
       password,
       role,
+      isTechnicalResponsible,
     });
   } catch (edgeFunctionError) {
     console.warn(
@@ -522,6 +547,7 @@ export const createCompanyUser = async (
     crea,
     password,
     role,
+    isTechnicalResponsible,
   });
 };
 

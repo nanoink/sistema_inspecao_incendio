@@ -41,25 +41,46 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+const RECALQUE_HYDRANT_TYPE = "Hidrante de Recalque";
+
 const hydrantFormSchema = z
   .object({
     numero: z.string().trim().min(1, "Informe o numero do hidrante."),
     localizacao: z.string().trim().min(1, "Informe a localizacao."),
     tipo_hidrante: z.string().min(1, "Selecione o tipo do hidrante."),
-    mangueira1_tipo: z.string().min(1, "Selecione o tipo da mangueira 1."),
-    mangueira1_vencimento_teste_hidrostatico: z
-      .string()
-      .regex(/^\d{4}-\d{2}$/, "Informe o vencimento da mangueira 1."),
+    mangueira1_tipo: z.string().optional(),
+    mangueira1_vencimento_teste_hidrostatico: z.string().optional(),
     mangueira2_tipo: z.string().optional(),
     mangueira2_vencimento_teste_hidrostatico: z.string().optional(),
     esguicho: z.enum(["true", "false"]),
     chave_mangueira: z.enum(["true", "false"]),
   })
   .superRefine((values, ctx) => {
+    if (values.tipo_hidrante !== RECALQUE_HYDRANT_TYPE) {
+      if (!values.mangueira1_tipo) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Selecione o tipo da mangueira 1.",
+          path: ["mangueira1_tipo"],
+        });
+      }
+
+      if (
+        !values.mangueira1_vencimento_teste_hidrostatico ||
+        !/^\d{4}-\d{2}$/.test(values.mangueira1_vencimento_teste_hidrostatico)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Informe o vencimento da mangueira 1.",
+          path: ["mangueira1_vencimento_teste_hidrostatico"],
+        });
+      }
+    }
+
     const hasType = Boolean(values.mangueira2_tipo);
     const hasDate = Boolean(values.mangueira2_vencimento_teste_hidrostatico);
 
-    if (hasType !== hasDate) {
+    if (values.tipo_hidrante !== RECALQUE_HYDRANT_TYPE && hasType !== hasDate) {
       if (!hasType) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -113,6 +134,45 @@ export const HydrantDialog = ({
       chave_mangueira: "true",
     },
   });
+  const selectedHydrantType = form.watch("tipo_hidrante");
+  const isRecalqueHydrant = selectedHydrantType === RECALQUE_HYDRANT_TYPE;
+
+  useEffect(() => {
+    if (!isRecalqueHydrant) {
+      return;
+    }
+
+    form.setValue("mangueira1_tipo", "", {
+      shouldDirty: true,
+      shouldTouch: false,
+      shouldValidate: false,
+    });
+    form.setValue("mangueira1_vencimento_teste_hidrostatico", "", {
+      shouldDirty: true,
+      shouldTouch: false,
+      shouldValidate: false,
+    });
+    form.setValue("mangueira2_tipo", "", {
+      shouldDirty: true,
+      shouldTouch: false,
+      shouldValidate: false,
+    });
+    form.setValue("mangueira2_vencimento_teste_hidrostatico", "", {
+      shouldDirty: true,
+      shouldTouch: false,
+      shouldValidate: false,
+    });
+    form.setValue("esguicho", "false", {
+      shouldDirty: true,
+      shouldTouch: false,
+      shouldValidate: false,
+    });
+    form.setValue("chave_mangueira", "false", {
+      shouldDirty: true,
+      shouldTouch: false,
+      shouldValidate: false,
+    });
+  }, [form, isRecalqueHydrant]);
 
   useEffect(() => {
     if (!open) {
@@ -188,18 +248,28 @@ export const HydrantDialog = ({
           numero: values.numero.trim(),
           localizacao: values.localizacao.trim(),
           tipo_hidrante: values.tipo_hidrante,
-          mangueira1_tipo: values.mangueira1_tipo,
+          mangueira1_tipo: isRecalqueHydrant
+            ? null
+            : values.mangueira1_tipo?.trim() || null,
           mangueira1_vencimento_teste_hidrostatico:
-            monthInputToDateValue(
-              values.mangueira1_vencimento_teste_hidrostatico,
-            ) || "",
-          mangueira2_tipo: values.mangueira2_tipo?.trim() || null,
+            isRecalqueHydrant
+              ? null
+              : monthInputToDateValue(
+                  values.mangueira1_vencimento_teste_hidrostatico || "",
+                ),
+          mangueira2_tipo: isRecalqueHydrant
+            ? null
+            : values.mangueira2_tipo?.trim() || null,
           mangueira2_vencimento_teste_hidrostatico:
-            monthInputToDateValue(
-              values.mangueira2_vencimento_teste_hidrostatico || "",
-            ),
-          esguicho: values.esguicho === "true",
-          chave_mangueira: values.chave_mangueira === "true",
+            isRecalqueHydrant
+              ? null
+              : monthInputToDateValue(
+                  values.mangueira2_vencimento_teste_hidrostatico || "",
+                ),
+          esguicho: isRecalqueHydrant ? false : values.esguicho === "true",
+          chave_mangueira: isRecalqueHydrant
+            ? false
+            : values.chave_mangueira === "true",
           status: record?.status || null,
         },
         {
@@ -310,157 +380,166 @@ export const HydrantDialog = ({
               )}
             />
 
-            <div className="rounded-lg border p-4 space-y-4">
-              <h3 className="text-sm font-semibold">Mangueira 1</h3>
-              <div className="grid gap-4 md:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="mangueira1_tipo"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Tipo</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value ?? ""}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione a mangueira 1" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {HOSE_TYPE_OPTIONS.map((item) => (
-                            <SelectItem key={item.value} value={item.value}>
-                              {item.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="mangueira1_vencimento_teste_hidrostatico"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Venc. Teste Hidrost.</FormLabel>
-                      <FormControl>
-                        <Input type="month" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+            {isRecalqueHydrant ? (
+              <div className="rounded-lg border border-dashed p-4 text-sm leading-6 text-muted-foreground">
+                Para hidrante de recalque, o cadastro fica focado na identificacao do ponto e o
+                checklist tecnico detalhado sera tratado na inspecao especifica do sistema.
               </div>
-            </div>
+            ) : (
+              <>
+                <div className="rounded-lg border p-4 space-y-4">
+                  <h3 className="text-sm font-semibold">Mangueira 1</h3>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <FormField
+                      control={form.control}
+                      name="mangueira1_tipo"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Tipo</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value ?? ""}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Selecione a mangueira 1" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {HOSE_TYPE_OPTIONS.map((item) => (
+                                <SelectItem key={item.value} value={item.value}>
+                                  {item.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-            <div className="rounded-lg border p-4 space-y-4">
-              <h3 className="text-sm font-semibold">Mangueira 2</h3>
-              <div className="grid gap-4 md:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="mangueira2_tipo"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Tipo</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value ?? ""}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione a mangueira 2" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {HOSE_TYPE_OPTIONS.map((item) => (
-                            <SelectItem key={item.value} value={item.value}>
-                              {item.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                    <FormField
+                      control={form.control}
+                      name="mangueira1_vencimento_teste_hidrostatico"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Venc. Teste Hidrost.</FormLabel>
+                          <FormControl>
+                            <Input type="month" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
 
-                <FormField
-                  control={form.control}
-                  name="mangueira2_vencimento_teste_hidrostatico"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Venc. Teste Hidrost.</FormLabel>
-                      <FormControl>
-                        <Input type="month" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </div>
+                <div className="rounded-lg border p-4 space-y-4">
+                  <h3 className="text-sm font-semibold">Mangueira 2</h3>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <FormField
+                      control={form.control}
+                      name="mangueira2_tipo"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Tipo</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value ?? ""}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Selecione a mangueira 2" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {HOSE_TYPE_OPTIONS.map((item) => (
+                                <SelectItem key={item.value} value={item.value}>
+                                  {item.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="esguicho"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Esguicho</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value ?? ""}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {YES_NO_OPTIONS.map((item) => (
-                          <SelectItem key={item.value} value={item.value}>
-                            {item.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                    <FormField
+                      control={form.control}
+                      name="mangueira2_vencimento_teste_hidrostatico"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Venc. Teste Hidrost.</FormLabel>
+                          <FormControl>
+                            <Input type="month" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
 
-              <FormField
-                control={form.control}
-                name="chave_mangueira"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Chave de Mangueira</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value ?? ""}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {YES_NO_OPTIONS.map((item) => (
-                          <SelectItem key={item.value} value={item.value}>
-                            {item.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <FormField
+                    control={form.control}
+                    name="esguicho"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Esguicho</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value ?? ""}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {YES_NO_OPTIONS.map((item) => (
+                              <SelectItem key={item.value} value={item.value}>
+                                {item.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="chave_mangueira"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Chave de Mangueira</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value ?? ""}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {YES_NO_OPTIONS.map((item) => (
+                              <SelectItem key={item.value} value={item.value}>
+                                {item.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </>
+            )}
 
             <div className="flex justify-end gap-3 pt-2">
               <Button

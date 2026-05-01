@@ -45,8 +45,8 @@ import {
 } from "@/lib/checklist-equipment";
 import { broadcastEquipmentChecklistUpdate } from "@/lib/equipment-checklist-sync";
 import {
-  loadChecklistNonConformities,
-  saveChecklistNonConformity,
+  loadEquipmentQrNonConformities,
+  saveEquipmentQrNonConformity,
   type ChecklistNonConformityRecord,
 } from "@/lib/checklist-non-conformities";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -439,7 +439,16 @@ const EquipmentChecklistPage = () => {
 
       try {
         setLoading(true);
-        const data = await loadEquipmentQrPage(supabase, token, equipmentType);
+        const [data, qrNonConformities] = await Promise.all([
+          loadEquipmentQrPage(supabase, token, equipmentType),
+          loadEquipmentQrNonConformities(supabase, { token }).catch((error) => {
+            console.error(
+              "Error preloading equipment QR non conformities:",
+              error,
+            );
+            return [] as ChecklistNonConformityRecord[];
+          }),
+        ]);
 
         if (!data || data.equipment_type !== equipmentType) {
           setNotFound(true);
@@ -472,7 +481,11 @@ const EquipmentChecklistPage = () => {
         );
         setRecord(data);
         setCanExecuteChecklist(executionAllowed);
-        setNonConformities(new Map());
+        setNonConformities(
+          new Map(
+            qrNonConformities.map((item) => [item.checklist_item_id, item]),
+          ),
+        );
         setChecklistSnapshot(baseSnapshot);
         activeSnapshotRef.current = baseSnapshot;
         confirmedSnapshotRef.current = baseSnapshot;
@@ -576,18 +589,13 @@ const EquipmentChecklistPage = () => {
 
     try {
       setLoadingSelectedNonConformity(true);
-      const [fullRecord] = await loadChecklistNonConformities(
-        supabase,
-        {
-          companyId: record.empresa_id,
-          checklistItemId: item.checklist_item_id,
-          equipmentType,
-          equipmentRecordId: record.equipment_id,
-        },
-        {
-          includeImageData: true,
-        },
-      );
+      const qrNonConformities = await loadEquipmentQrNonConformities(supabase, {
+        token,
+      });
+      const fullRecord =
+        qrNonConformities.find(
+          (entry) => entry.checklist_item_id === item.checklist_item_id,
+        ) || null;
 
       if (!fullRecord) {
         return;
@@ -627,13 +635,11 @@ const EquipmentChecklistPage = () => {
 
     try {
       setSavingNonConformity(true);
-      const savedRecord = await saveChecklistNonConformity(supabase, {
-        companyId: record.empresa_id,
+      const savedRecord = await saveEquipmentQrNonConformity(supabase, {
+        token,
         checklistItemId: selectedNonConformityItem.checklist_item_id,
         description,
         imageDataUrl,
-        equipmentType,
-        equipmentRecordId: record.equipment_id,
       });
 
       if (savedRecord) {

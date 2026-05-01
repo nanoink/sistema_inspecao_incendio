@@ -164,9 +164,10 @@ export const CompanyMembersManager = ({
         crea: crea.trim(),
         password: password.trim(),
         role: creationRole,
+        isTechnicalResponsible,
       });
 
-      if (isTechnicalResponsible) {
+      if (isTechnicalResponsible && !createdUser.is_responsavel_tecnico) {
         await setCompanyMemberAsTechnicalResponsible(supabase, {
           companyId,
           userId: createdUser.user_id,

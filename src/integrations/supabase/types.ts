@@ -358,8 +358,8 @@ export type Database = {
           esguicho: boolean
           id: string
           localizacao: string
-          mangueira1_tipo: string
-          mangueira1_vencimento_teste_hidrostatico: string
+          mangueira1_tipo: string | null
+          mangueira1_vencimento_teste_hidrostatico: string | null
           mangueira2_tipo: string | null
           mangueira2_vencimento_teste_hidrostatico: string | null
           numero: string
@@ -378,8 +378,8 @@ export type Database = {
           esguicho?: boolean
           id?: string
           localizacao: string
-          mangueira1_tipo: string
-          mangueira1_vencimento_teste_hidrostatico: string
+          mangueira1_tipo?: string | null
+          mangueira1_vencimento_teste_hidrostatico?: string | null
           mangueira2_tipo?: string | null
           mangueira2_vencimento_teste_hidrostatico?: string | null
           numero: string
@@ -398,8 +398,8 @@ export type Database = {
           esguicho?: boolean
           id?: string
           localizacao?: string
-          mangueira1_tipo?: string
-          mangueira1_vencimento_teste_hidrostatico?: string
+          mangueira1_tipo?: string | null
+          mangueira1_vencimento_teste_hidrostatico?: string | null
           mangueira2_tipo?: string | null
           mangueira2_vencimento_teste_hidrostatico?: string | null
           numero?: string

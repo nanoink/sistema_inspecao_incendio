@@ -86,6 +86,7 @@ Deno.serve(async (request) => {
     crea?: string;
     password?: string;
     role?: "gestor" | "membro";
+    isTechnicalResponsible?: boolean;
   };
 
   try {
@@ -102,6 +103,7 @@ Deno.serve(async (request) => {
   const crea = (body.crea || "").trim();
   const password = (body.password || "").trim();
   const role = body.role === "gestor" ? "gestor" : "membro";
+  const isTechnicalResponsible = body.isTechnicalResponsible === true;
 
   if (!companyId) {
     return jsonResponse(400, { error: "Empresa nao informada." });
@@ -118,6 +120,12 @@ Deno.serve(async (request) => {
   if (password.length < 6) {
     return jsonResponse(400, {
       error: "A senha provisoria precisa ter no minimo 6 caracteres.",
+    });
+  }
+
+  if (isTechnicalResponsible && !crea) {
+    return jsonResponse(400, {
+      error: "O numero do CREA e obrigatorio para o responsavel tecnico.",
     });
   }
 
@@ -225,6 +233,20 @@ Deno.serve(async (request) => {
     }
   }
 
+  if (isTechnicalResponsible) {
+    const { error: clearTechnicalResponsibleError } = await adminClient
+      .from("empresa_usuarios")
+      .update({ is_responsavel_tecnico: false })
+      .eq("empresa_id", companyId);
+
+    if (clearTechnicalResponsibleError) {
+      return jsonResponse(500, {
+        error:
+          "O usuario foi criado, mas nao foi possivel preparar a troca do responsavel tecnico da empresa.",
+      });
+    }
+  }
+
   const { error: membershipUpsertError } = await adminClient
     .from("empresa_usuarios")
     .upsert(
@@ -232,6 +254,8 @@ Deno.serve(async (request) => {
         empresa_id: companyId,
         user_id: createdUser.id,
         papel: role,
+        is_responsavel_tecnico: isTechnicalResponsible,
+        pode_executar_checklists: true,
       },
       { onConflict: "empresa_id,user_id" },
     );
@@ -250,6 +274,7 @@ Deno.serve(async (request) => {
     cargo: cargo || null,
     crea: crea || null,
     papel: role,
+    is_responsavel_tecnico: isTechnicalResponsible,
     temporary_password: true,
   });
 });

@@ -35,6 +35,7 @@ import {
   buildLuminaireSummary,
   formatMonthYear,
   isDateExpired,
+  isHydrantRecalque,
   isHydroYearExpired,
   normalizeEquipmentChecklistSnapshot,
   type EquipmentChecklistSnapshot,
@@ -914,6 +915,72 @@ const buildInferredEquipmentSignerSeeds = <
   return seeds;
 };
 
+const buildEquipmentChecklistItemAuditSummaryLookup = <
+  T extends {
+    checklist_snapshot: Json | null;
+  },
+>(
+  records: T[],
+) => {
+  const rawLookup = new Map<
+    string,
+    {
+      names: Set<string>;
+      lastActivityAt: string | null;
+    }
+  >();
+
+  records.forEach((record) => {
+    const snapshot = normalizeEquipmentChecklistSnapshot(record.checklist_snapshot);
+
+    snapshot.items.forEach((item) => {
+      if (item.status === "P") {
+        return;
+      }
+
+      const normalizedName = normalizeOptionalText(item.preenchido_por_nome);
+      if (!normalizedName && !item.preenchido_em) {
+        return;
+      }
+
+      const currentEntry =
+        rawLookup.get(item.checklist_item_id) || {
+          names: new Set<string>(),
+          lastActivityAt: null,
+        };
+
+      if (normalizedName) {
+        currentEntry.names.add(normalizedName);
+      }
+
+      currentEntry.lastActivityAt = pickLaterTimestamp(
+        currentEntry.lastActivityAt,
+        item.preenchido_em,
+      );
+
+      rawLookup.set(item.checklist_item_id, currentEntry);
+    });
+  });
+
+  return new Map(
+    Array.from(rawLookup.entries()).map(([checklistItemId, entry]) => {
+      const signerNames = Array.from(entry.names);
+      const signerLabel =
+        signerNames.length > 2
+          ? `${signerNames.slice(0, 2).join(", ")} +${signerNames.length - 2}`
+          : signerNames.join(", ");
+      const lastActivityLabel = formatDateTime(entry.lastActivityAt);
+
+      const summary =
+        signerLabel && lastActivityLabel !== "-"
+          ? `${signerLabel} | ${lastActivityLabel}`
+          : signerLabel || lastActivityLabel;
+
+      return [checklistItemId, summary];
+    }),
+  );
+};
+
 const mergeCompanyReportSignatureRows = ({
   company,
   companyMembers,
@@ -1179,7 +1246,10 @@ const buildEquipmentRegistryIssueEntries = ({
   });
 
   hydrants.forEach((record) => {
-    if (isDateExpired(record.mangueira1_vencimento_teste_hidrostatico)) {
+    if (
+      !isHydrantRecalque(record) &&
+      isDateExpired(record.mangueira1_vencimento_teste_hidrostatico)
+    ) {
       entries.push({
         id: `registro-hidrante-m1-${record.id}`,
         equipmentType: "hidrante",
@@ -1192,7 +1262,10 @@ const buildEquipmentRegistryIssueEntries = ({
       });
     }
 
-    if (isDateExpired(record.mangueira2_vencimento_teste_hidrostatico)) {
+    if (
+      !isHydrantRecalque(record) &&
+      isDateExpired(record.mangueira2_vencimento_teste_hidrostatico)
+    ) {
       entries.push({
         id: `registro-hidrante-m2-${record.id}`,
         equipmentType: "hidrante",
@@ -1205,7 +1278,7 @@ const buildEquipmentRegistryIssueEntries = ({
       });
     }
 
-    if (!record.esguicho) {
+    if (!isHydrantRecalque(record) && !record.esguicho) {
       entries.push({
         id: `registro-hidrante-esguicho-${record.id}`,
         equipmentType: "hidrante",
@@ -1218,7 +1291,7 @@ const buildEquipmentRegistryIssueEntries = ({
       });
     }
 
-    if (!record.chave_mangueira) {
+    if (!isHydrantRecalque(record) && !record.chave_mangueira) {
       entries.push({
         id: `registro-hidrante-chave-${record.id}`,
         equipmentType: "hidrante",
@@ -1298,7 +1371,10 @@ const getExtinguisherRegistryIssueLabels = (record: ExtinguisherRow) => {
 const getHydrantRegistryIssueLabels = (record: HydrantRow) => {
   const issues: string[] = [];
 
-  if (isDateExpired(record.mangueira1_vencimento_teste_hidrostatico)) {
+  if (
+    !isHydrantRecalque(record) &&
+    isDateExpired(record.mangueira1_vencimento_teste_hidrostatico)
+  ) {
     issues.push(
       `Mangueira 1 vencida (${formatMonthYear(
         record.mangueira1_vencimento_teste_hidrostatico,
@@ -1306,7 +1382,10 @@ const getHydrantRegistryIssueLabels = (record: HydrantRow) => {
     );
   }
 
-  if (isDateExpired(record.mangueira2_vencimento_teste_hidrostatico)) {
+  if (
+    !isHydrantRecalque(record) &&
+    isDateExpired(record.mangueira2_vencimento_teste_hidrostatico)
+  ) {
     issues.push(
       `Mangueira 2 vencida (${formatMonthYear(
         record.mangueira2_vencimento_teste_hidrostatico,
@@ -1314,11 +1393,11 @@ const getHydrantRegistryIssueLabels = (record: HydrantRow) => {
     );
   }
 
-  if (!record.esguicho) {
+  if (!isHydrantRecalque(record) && !record.esguicho) {
     issues.push("Esguicho ausente");
   }
 
-  if (!record.chave_mangueira) {
+  if (!isHydrantRecalque(record) && !record.chave_mangueira) {
     issues.push("Chave de mangueira ausente");
   }
 
@@ -2219,7 +2298,7 @@ const PageFrame = ({
     className="report-page relative mx-auto overflow-hidden bg-white text-black shadow-[0_20px_50px_rgba(15,23,42,0.18)] print:shadow-none print:mx-0 print:my-0"
     style={{ width: "210mm", minHeight: "297mm", height: "297mm" }}
   >
-    <div className="box-border grid h-full grid-rows-[auto_minmax(0,1fr)_auto] gap-4 px-[15mm] pb-[12mm] pt-[12mm]">
+    <div className="box-border grid h-full grid-rows-[auto_minmax(0,1fr)_22px] gap-4 px-[15mm] pb-[14mm] pt-[11mm]">
       <header className="border-b border-zinc-300 pb-3 text-center">
         <div className="flex-1 text-center">
           <h1 className="text-[17px] font-semibold uppercase leading-tight tracking-[0.02em] text-zinc-800">
@@ -2234,7 +2313,7 @@ const PageFrame = ({
 
       <div className="min-h-0">{children}</div>
 
-      <footer className="pt-1 text-right text-[10px] font-semibold leading-none text-zinc-700">
+      <footer className="border-t border-zinc-200 pt-2 text-right text-[9px] font-semibold leading-none text-zinc-700">
         Pagina {pageNumber} de {totalPages}
       </footer>
     </div>
@@ -2412,15 +2491,15 @@ const ChecklistDigitalSignatureStamp = ({
   context: "summary" | "checklist";
 }) => (
   <div className="overflow-hidden rounded-sm border border-zinc-300 bg-white">
-    <div className="grid min-w-0 grid-cols-[minmax(0,0.92fr)_44px_minmax(0,1.18fr)]">
-      <div className="flex min-h-[108px] items-center border-r border-zinc-300 bg-zinc-50 px-4 py-4">
-        <p className="break-words text-[20px] font-semibold leading-[1.04] tracking-[-0.02em] text-zinc-900">
+    <div className="grid min-w-0 grid-cols-[minmax(0,0.84fr)_38px_minmax(0,1.26fr)]">
+      <div className="flex min-h-[118px] items-center border-r border-zinc-300 bg-zinc-50 px-4 py-4">
+        <p className="break-words text-[18px] font-semibold leading-[1.06] tracking-[-0.02em] text-zinc-900">
           {signer.assinatura_nome}
         </p>
       </div>
 
       <div className="relative flex items-center justify-center border-r border-zinc-300 bg-white px-1 py-4">
-        <div className="pointer-events-none w-10 text-red-200/70">
+        <div className="pointer-events-none w-8 text-red-200/70">
           <svg viewBox="0 0 80 120" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-full w-full">
             <path
               d="M20 104C35 82 28 54 41 31C47 21 60 20 61 31C62 43 43 54 33 60C24 65 16 73 18 84C19 94 28 101 42 104"
@@ -2435,7 +2514,7 @@ const ChecklistDigitalSignatureStamp = ({
       </div>
 
       <div className="min-w-0 px-4 py-4">
-        <div className="space-y-1 text-[10.5px] leading-[1.5] text-zinc-800">
+        <div className="space-y-1 text-[9.8px] leading-[1.55] text-zinc-800">
           <p className="font-semibold text-zinc-900">{getDigitalSignatureHeading(signer, context)}:</p>
           <p className="font-semibold text-zinc-900 break-words">{signer.assinatura_nome}</p>
           <p>CPF: {formatCpf(signer.cpf)}</p>
@@ -2595,13 +2674,13 @@ const TechnicalResponsibleArtSignatureSheet = ({
 };
 
 const RiskMatrix = () => (
-  <table className="w-full table-fixed border-collapse text-center text-[10px] font-semibold text-zinc-900">
+  <table className="w-full table-fixed border-collapse text-center text-[9.5px] font-semibold text-zinc-900">
     <colgroup>
       <col style={{ width: "26px" }} />
-      <col style={{ width: "46%" }} />
-      <col style={{ width: "18%" }} />
-      <col style={{ width: "18%" }} />
-      <col style={{ width: "18%" }} />
+      <col style={{ width: "52%" }} />
+      <col style={{ width: "16%" }} />
+      <col style={{ width: "16%" }} />
+      <col style={{ width: "16%" }} />
     </colgroup>
     <tbody>
       <tr>
@@ -3044,6 +3123,16 @@ const CompanyReport = () => {
     companyMembers.find((member) => member.user_id === user?.id) || null;
   const technicalResponsibleMember =
     companyMembers.find((member) => member.is_responsavel_tecnico) || null;
+  const resolvedInspectorName =
+    normalizeOptionalText(form.inspetorNome) ||
+    normalizeOptionalText(technicalResponsibleMember?.nome) ||
+    normalizeOptionalText(currentUserMember?.nome) ||
+    "";
+  const resolvedInspectorCargo =
+    normalizeOptionalText(form.inspetorCargo) ||
+    normalizeOptionalText(technicalResponsibleMember?.cargo) ||
+    normalizeOptionalText(currentUserMember?.cargo) ||
+    "";
   const canManageReportCycles = Boolean(
     isSystemAdmin || currentUserMember?.papel === "gestor",
   );
@@ -3051,6 +3140,36 @@ const CompanyReport = () => {
     currentUserMember?.is_responsavel_tecnico,
   );
   const canUploadArt = Boolean(isSystemAdmin || isCurrentUserTechnicalResponsible);
+
+  useEffect(() => {
+    if (!technicalResponsibleMember) {
+      return;
+    }
+
+    setForm((current) => {
+      const nextInspectorName =
+        current.inspetorNome.trim() || technicalResponsibleMember.nome || "";
+      const nextInspectorCargo =
+        current.inspetorCargo.trim() || technicalResponsibleMember.cargo || "";
+
+      if (
+        nextInspectorName === current.inspetorNome &&
+        nextInspectorCargo === current.inspetorCargo
+      ) {
+        return current;
+      }
+
+      return {
+        ...current,
+        inspetorNome: nextInspectorName,
+        inspetorCargo: nextInspectorCargo,
+      };
+    });
+  }, [
+    technicalResponsibleMember?.cargo,
+    technicalResponsibleMember?.nome,
+    technicalResponsibleMember?.user_id,
+  ]);
 
   const handleArtUpload = async (file: File | null) => {
     if (!id || !file) {
@@ -3246,7 +3365,7 @@ const CompanyReport = () => {
 
     if (
       nextStatus === "finalizado" &&
-      (!form.inspetorNome.trim() || !form.inspetorCargo.trim())
+      (!resolvedInspectorName || !resolvedInspectorCargo)
     ) {
       toast({
         title: "Responsavel tecnico obrigatorio",
@@ -3383,8 +3502,8 @@ const CompanyReport = () => {
         data_emissao: form.dataEmissao || null,
         hora_inicio: form.horaInicio || null,
         hora_fim: form.horaFim || null,
-        inspetor_nome: normalizeNullable(form.inspetorNome),
-        inspetor_cargo: normalizeNullable(form.inspetorCargo),
+        inspetor_nome: normalizeNullable(resolvedInspectorName),
+        inspetor_cargo: normalizeNullable(resolvedInspectorCargo),
         representante_nome: normalizeNullable(form.representanteNome),
         representante_cargo: normalizeNullable(form.representanteCargo),
         objetivo: normalizeNullable(form.objetivo),
@@ -3638,7 +3757,7 @@ const CompanyReport = () => {
     equipmentCatalog,
   });
   const missingTechnicalResponsible =
-    !form.inspetorNome.trim() || !form.inspetorCargo.trim();
+    !resolvedInspectorName || !resolvedInspectorCargo;
   const isTechnicalReport = form.reportMode === "tecnico";
   const reportTitle = form.titulo.trim() || getDefaultReportTitle(form.reportMode);
   const reportSubtitle = isTechnicalReport
@@ -3678,14 +3797,14 @@ const CompanyReport = () => {
   const technicalSignatureName =
     technicalResponsibleSigner?.assinatura_nome ||
     technicalResponsibleMember?.nome ||
-    form.inspetorNome ||
+    resolvedInspectorName ||
     "Responsavel tecnico nao identificado";
   const technicalSignatureCpf =
     technicalResponsibleSigner?.cpf || technicalResponsibleMember?.cpf || null;
   const technicalSignatureCargo =
     technicalResponsibleSigner?.cargo ||
     technicalResponsibleMember?.cargo ||
-    form.inspetorCargo ||
+    resolvedInspectorCargo ||
     "Nao informado";
   const technicalSignatureCrea =
     technicalResponsibleMember?.crea?.trim() || "Nao informado";
@@ -3698,6 +3817,11 @@ const CompanyReport = () => {
     snapshot,
     signers: signatureRows,
   });
+  const equipmentChecklistItemAuditSummaryLookup = new Map([
+    ...buildEquipmentChecklistItemAuditSummaryLookup(extinguishers),
+    ...buildEquipmentChecklistItemAuditSummaryLookup(hydrants),
+    ...buildEquipmentChecklistItemAuditSummaryLookup(luminaires),
+  ]);
   const extinguisherControlChunks = chunkArray(sortedExtinguishers, 11);
   const hydrantControlChunks = chunkArray(sortedHydrants, 9);
   const luminaireControlChunks = chunkArray(sortedLuminaires, 12);
@@ -4515,16 +4639,21 @@ const CompanyReport = () => {
             <tbody>
               {chunk.map((record) => {
                 const issues = getHydrantRegistryIssueLabels(record);
+                const isRecalque = isHydrantRecalque(record);
                 const hose1Label = record.mangueira1_tipo
                   ? `${record.mangueira1_tipo} | ${formatMonthYear(
                       record.mangueira1_vencimento_teste_hidrostatico,
                     )}`
-                  : "-";
+                  : isRecalque
+                    ? "Nao se aplica"
+                    : "-";
                 const hose2Label = record.mangueira2_tipo
                   ? `${record.mangueira2_tipo} | ${formatMonthYear(
                       record.mangueira2_vencimento_teste_hidrostatico,
                     )}`
-                  : "-";
+                  : isRecalque
+                    ? "Nao se aplica"
+                    : "-";
 
                 return (
                   <tr
@@ -4537,9 +4666,15 @@ const CompanyReport = () => {
                     <td className="border border-zinc-300 px-2 py-2">{hose1Label}</td>
                     <td className="border border-zinc-300 px-2 py-2">{hose2Label}</td>
                     <td className="border border-zinc-300 px-2 py-2">
-                      Esguicho: {record.esguicho ? "Sim" : "Nao"}
-                      <br />
-                      Chave: {record.chave_mangueira ? "Sim" : "Nao"}
+                      {isRecalque ? (
+                        "Nao se aplica ao hidrante de recalque"
+                      ) : (
+                        <>
+                          Esguicho: {record.esguicho ? "Sim" : "Nao"}
+                          <br />
+                          Chave: {record.chave_mangueira ? "Sim" : "Nao"}
+                        </>
+                      )}
                     </td>
                     <td className="border border-zinc-300 px-2 py-2">
                       {issues.length > 0 ? (
@@ -4776,8 +4911,14 @@ const CompanyReport = () => {
           </div>
           <div className="border border-zinc-300">
             <div className="grid grid-cols-1">
-              <DataCell label="Responsavel tecnico" value={form.inspetorNome || "-"} />
-              <DataCell label="Cargo / Funcao" value={form.inspetorCargo || "-"} />
+              <DataCell
+                label="Responsavel tecnico"
+                value={resolvedInspectorName || "-"}
+              />
+              <DataCell
+                label="Cargo / Funcao"
+                value={resolvedInspectorCargo || "-"}
+              />
               <DataCell
                 label="Tipo de documento"
                 value={isTechnicalReport ? "Relatorio tecnico oficial" : "Relatorio operacional"}
@@ -4908,6 +5049,10 @@ const CompanyReport = () => {
               <tbody>
                 {itemChunk.map((item) => {
                   const statusMeta = getChecklistStatusMeta(item.status);
+                  const auditSummary =
+                    equipmentChecklistItemAuditSummaryLookup.get(
+                      item.checklist_item_id,
+                    ) || formatChecklistItemAuditSummary(item);
 
                   return (
                     <tr key={`${section.key}-${item.checklist_item_id}`} className="align-top">
@@ -4925,7 +5070,7 @@ const CompanyReport = () => {
                         />
                       </td>
                       <td className="border border-zinc-300 px-2 py-2 text-[10px] leading-4 text-zinc-700">
-                        {formatChecklistItemAuditSummary(item)}
+                        {auditSummary}
                       </td>
                     </tr>
                   );

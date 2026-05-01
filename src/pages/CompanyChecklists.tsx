@@ -296,7 +296,7 @@ const buildMirroredEquipmentResponses = (
     return new Map(
       snapshot.items.map((item) => [
         buildEquipmentMirrorKey(item.secao, item.item_exibicao),
-        item.status,
+        item,
       ]),
     );
   });
@@ -311,33 +311,57 @@ const buildMirroredEquipmentResponses = (
     const statuses = equipmentItemMaps
       .map((itemsMap) => itemsMap.get(templateKey))
       .filter(
-        (status): status is ChecklistStatus =>
-          status === "C" || status === "NC" || status === "NA",
+        (item): item is EquipmentChecklistSnapshot["items"][number] =>
+          Boolean(item),
       );
+    const latestAuditItem = statuses.reduce<
+      EquipmentChecklistSnapshot["items"][number] | null
+    >((currentLatest, currentItem) => {
+      if (!currentLatest) {
+        return currentItem;
+      }
 
-    if (statuses.some((status) => status === "NC")) {
+      const currentTimestamp = currentItem.preenchido_em
+        ? new Date(currentItem.preenchido_em).getTime()
+        : Number.NEGATIVE_INFINITY;
+      const latestTimestamp = currentLatest.preenchido_em
+        ? new Date(currentLatest.preenchido_em).getTime()
+        : Number.NEGATIVE_INFINITY;
+
+      return currentTimestamp >= latestTimestamp ? currentItem : currentLatest;
+    }, null);
+    const auditFields = {
+      preenchido_por_nome: latestAuditItem?.preenchido_por_nome || null,
+      preenchido_por_user_id: latestAuditItem?.preenchido_por_user_id || null,
+      preenchido_em: latestAuditItem?.preenchido_em || null,
+    };
+
+    if (statuses.some((item) => item.status === "NC")) {
       next.set(templateItem.checklist_item_id, {
         checklist_item_id: templateItem.checklist_item_id,
         status: "NC",
         observacoes: nonConformingMessage,
+        ...auditFields,
       });
       return;
     }
 
-    if (statuses.length > 0 && statuses.every((status) => status === "NA")) {
+    if (statuses.length > 0 && statuses.every((item) => item.status === "NA")) {
       next.set(templateItem.checklist_item_id, {
         checklist_item_id: templateItem.checklist_item_id,
         status: "NA",
         observacoes: null,
+        ...auditFields,
       });
       return;
     }
 
-    if (statuses.some((status) => status === "C")) {
+    if (statuses.some((item) => item.status === "C")) {
       next.set(templateItem.checklist_item_id, {
         checklist_item_id: templateItem.checklist_item_id,
         status: "C",
         observacoes: null,
+        ...auditFields,
       });
     }
   });
@@ -1252,6 +1276,41 @@ const CompanyChecklists = () => {
     try {
       setCreatingTechnicalResponsible(true);
 
+      const currentChecklistSnapshot = buildChecklistSnapshot(
+        models,
+        groupsByModel,
+        responses,
+      );
+      const currentEquipmentSnapshots = buildEquipmentChecklistSnapshots(
+        currentChecklistSnapshot,
+      );
+
+      try {
+        await saveChecklistResponses(supabase, id, responses);
+        await syncEquipmentChecklistSnapshots(supabase, {
+          companyId: id,
+          luminaireSnapshot: currentEquipmentSnapshots.luminaria,
+          extinguisherSnapshot: currentEquipmentSnapshots.extintor,
+          hydrantSnapshot: currentEquipmentSnapshots.hidrante,
+          mode: "preserve",
+        });
+        await upsertCompanyReportForCycle(supabase, id, {
+          checklist_snapshot: currentChecklistSnapshot,
+        });
+      } catch (draftPersistenceError) {
+        console.error(
+          "Error preserving checklist draft before creating technical responsible:",
+          draftPersistenceError,
+        );
+        toast({
+          title: "Protecao do checklist nao concluida",
+          description:
+            "Antes de cadastrar o responsavel tecnico, o sistema tentou salvar o checklist atual e nao conseguiu. Nenhum dado foi alterado para evitar perda de informacoes.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       const createdUser = await createCompanyUser(supabase, {
         companyId: id,
         nome: normalizedName,
@@ -1261,13 +1320,16 @@ const CompanyChecklists = () => {
         crea: normalizedCrea,
         password: normalizedPassword,
         role: "membro",
-      });
-
-      await setCompanyMemberAsTechnicalResponsible(supabase, {
-        companyId: id,
-        userId: createdUser.user_id,
         isTechnicalResponsible: true,
       });
+
+      if (!createdUser.is_responsavel_tecnico) {
+        await setCompanyMemberAsTechnicalResponsible(supabase, {
+          companyId: id,
+          userId: createdUser.user_id,
+          isTechnicalResponsible: true,
+        });
+      }
 
       const refreshedMembers = await loadCompanyMembers(supabase, id);
       setCompanyMembers(refreshedMembers);
@@ -1310,6 +1372,9 @@ const CompanyChecklists = () => {
     technicalResponsibleCargo,
     technicalResponsibleCrea,
     technicalResponsiblePassword,
+    groupsByModel,
+    models,
+    responses,
     toast,
     user?.id,
   ]);

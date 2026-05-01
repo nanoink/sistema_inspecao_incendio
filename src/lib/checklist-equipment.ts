@@ -207,6 +207,7 @@ export const EXTINGUISHER_TYPE_OPTIONS = [
 export const HYDRANT_TYPE_OPTIONS = [
   { value: "Hidrante de Parede", label: "Hidrante de Parede" },
   { value: "Hidrante Industrial", label: "Hidrante Industrial" },
+  { value: "Hidrante de Recalque", label: "Hidrante de Recalque" },
 ] as const;
 
 export const HOSE_TYPE_OPTIONS = [
@@ -543,13 +544,23 @@ export const buildHydrantSummary = (
   total: hydrants.length,
   expiredHoses: hydrants.filter(
     (item) =>
-      isDateExpired(item.mangueira1_vencimento_teste_hidrostatico, referenceDate) ||
-      isDateExpired(item.mangueira2_vencimento_teste_hidrostatico, referenceDate),
+      !isHydrantRecalque(item) &&
+      (isDateExpired(item.mangueira1_vencimento_teste_hidrostatico, referenceDate) ||
+        isDateExpired(item.mangueira2_vencimento_teste_hidrostatico, referenceDate)),
   ).length,
   missingComponents: hydrants.filter(
-    (item) => !item.esguicho || !item.chave_mangueira,
+    (item) => !isHydrantRecalque(item) && (!item.esguicho || !item.chave_mangueira),
   ).length,
 });
+
+export const isHydrantRecalque = (
+  item: Pick<HydrantRecord, "tipo_hidrante"> | { tipo_hidrante?: string | null },
+) =>
+  (item.tipo_hidrante || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .includes("recalque");
 
 export const buildLuminaireSummary = (
   luminaires: LuminaireRecord[],
