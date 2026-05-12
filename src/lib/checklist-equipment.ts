@@ -485,6 +485,31 @@ const sanitizeEquipmentRecordChecklistSnapshot = <
   };
 };
 
+export const sanitizeEquipmentRecordsChecklistSnapshots = async <
+  T extends {
+    id: string;
+    checklist_snapshot: Json | null;
+  },
+>(
+  supabase: AppSupabaseClient,
+  companyId: string,
+  equipmentType: EquipmentType,
+  records: T[],
+) => {
+  const startedExecutionKeys = await loadStartedEquipmentExecutionKeys(
+    supabase,
+    companyId,
+  );
+
+  return records.map((record) =>
+    sanitizeEquipmentRecordChecklistSnapshot(
+      record,
+      equipmentType,
+      startedExecutionKeys,
+    ),
+  );
+};
+
 const loadEquipmentExecutionExists = async (
   supabase: AppSupabaseClient,
   {

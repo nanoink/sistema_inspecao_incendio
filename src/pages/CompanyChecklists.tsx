@@ -118,6 +118,7 @@ import {
   isHydroYearExpired,
   loadChecklistEquipmentData,
   normalizeEquipmentChecklistSnapshot,
+  sanitizeEquipmentRecordsChecklistSnapshots,
   sortByEquipmentNumber,
   type EquipmentChecklistSnapshot,
   type EquipmentType,
@@ -454,8 +455,11 @@ const buildEquipmentProgressTotals = ({
   return records.reduce(
     (accumulator, record) => {
       const snapshot = normalizeEquipmentChecklistSnapshot(record.checklist_snapshot);
-      const total = snapshot.total || templateTotal;
-      const completed = total > 0 ? total - snapshot.pendentes : 0;
+      const total = Math.max(snapshot.total, templateTotal);
+      const completed = Math.min(
+        snapshot.conforme + snapshot.nao_conforme + snapshot.nao_aplicavel,
+        total,
+      );
 
       accumulator.completed += completed;
       accumulator.total += total;
@@ -529,8 +533,11 @@ const buildEquipmentProgressEntries = ({
 }) =>
   sortByEquipmentNumber(records).map((record) => {
     const snapshot = normalizeEquipmentChecklistSnapshot(record.checklist_snapshot);
-    const total = snapshot.total || templateTotal;
-    const completed = total > 0 ? total - snapshot.pendentes : 0;
+    const total = Math.max(snapshot.total, templateTotal);
+    const completed = Math.min(
+      snapshot.conforme + snapshot.nao_conforme + snapshot.nao_aplicavel,
+      total,
+    );
 
     return {
       id: record.id,
@@ -1582,7 +1589,14 @@ const CompanyChecklists = () => {
         throw error;
       }
 
-      setExtinguishers(sortByEquipmentNumber(data || []));
+      const sanitizedRecords = await sanitizeEquipmentRecordsChecklistSnapshots(
+        supabase,
+        id,
+        "extintor",
+        data || [],
+      );
+
+      setExtinguishers(sortByEquipmentNumber(sanitizedRecords));
       setExtinguisherNonConformities(nonConformityRecords);
     } catch (error) {
       console.error("Error refreshing extinguishers:", error);
@@ -1611,7 +1625,14 @@ const CompanyChecklists = () => {
         throw error;
       }
 
-      setLuminaires(sortByEquipmentNumber(data || []));
+      const sanitizedRecords = await sanitizeEquipmentRecordsChecklistSnapshots(
+        supabase,
+        id,
+        "luminaria",
+        data || [],
+      );
+
+      setLuminaires(sortByEquipmentNumber(sanitizedRecords));
       setLuminaireNonConformities(nonConformityRecords);
     } catch (error) {
       console.error("Error refreshing luminaires:", error);
@@ -1640,7 +1661,14 @@ const CompanyChecklists = () => {
         throw error;
       }
 
-      setHydrants(sortByEquipmentNumber(data || []));
+      const sanitizedRecords = await sanitizeEquipmentRecordsChecklistSnapshots(
+        supabase,
+        id,
+        "hidrante",
+        data || [],
+      );
+
+      setHydrants(sortByEquipmentNumber(sanitizedRecords));
       setHydrantNonConformities(nonConformityRecords);
     } catch (error) {
       console.error("Error refreshing hydrants:", error);
