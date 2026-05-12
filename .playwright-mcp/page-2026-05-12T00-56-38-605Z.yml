@@ -1,0 +1,35 @@
+- generic:
+  - generic:
+    - list
+    - region "Notifications alt+T"
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - img
+            - generic:
+              - paragraph: Checklist via QR Code
+              - heading [level=1]: Acesso restrito a usuarios autenticados
+              - paragraph: Faça login para visualizar o checklist do equipamento, registrar nao conformidades e sincronizar as informacoes com o checklist principal da empresa.
+  - dialog "Entre para acessar o checklist" [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e5]:
+        - img [ref=e7]
+        - generic [ref=e10]:
+          - paragraph [ref=e11]: Acesso restrito
+          - heading "Login obrigatorio" [level=2] [ref=e12]
+      - generic [ref=e13]:
+        - generic [ref=e14]:
+          - heading "Entre para acessar o checklist" [level=2] [ref=e15]
+          - paragraph [ref=e16]: O checklist do equipamento e o registro de nao conformidades ficam disponiveis somente para usuarios autenticados.
+        - generic [ref=e17]:
+          - generic [ref=e18]:
+            - text: Email
+            - textbox "Email" [active] [ref=e19]:
+              - /placeholder: seu@email.com
+          - generic [ref=e20]:
+            - text: Senha
+            - textbox "Senha" [ref=e21]:
+              - /placeholder: ••••••••
+          - button "Entrar para continuar" [ref=e22] [cursor=pointer]

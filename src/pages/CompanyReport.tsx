@@ -5331,22 +5331,6 @@ const CompanyReport = () => {
                 <Input id="dataInspecao" type="date" value={form.dataInspecao} onChange={(event) => handleInputChange("dataInspecao", event.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="horaInicio">Hora inicio</Label>
-                <Input id="horaInicio" type="time" value={form.horaInicio} onChange={(event) => handleInputChange("horaInicio", event.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="horaFim">Hora fim</Label>
-                <Input id="horaFim" type="time" value={form.horaFim} onChange={(event) => handleInputChange("horaFim", event.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="inspetorNome">Nome do inspetor</Label>
-                <Input id="inspetorNome" value={form.inspetorNome} onChange={(event) => handleInputChange("inspetorNome", event.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="inspetorCargo">Cargo do inspetor</Label>
-                <Input id="inspetorCargo" value={form.inspetorCargo} onChange={(event) => handleInputChange("inspetorCargo", event.target.value)} />
-              </div>
-              <div className="space-y-2">
                 <Label htmlFor="representanteNome">Representante presente</Label>
                 <Input id="representanteNome" value={form.representanteNome} onChange={(event) => handleInputChange("representanteNome", event.target.value)} />
               </div>

@@ -407,6 +407,24 @@ const buildChecklistProgressSummary = (
   };
 };
 
+const getInspectionItemRows = (
+  rowsByInspection: Map<string, ChecklistTableRow[]>,
+  inspectionId: string,
+) =>
+  (rowsByInspection.get(inspectionId) || []).filter(
+    (row): row is Extract<ChecklistTableRow, { type: "item" }> =>
+      row.type === "item",
+  );
+
+const countCompletedChecklistRows = (
+  itemRows: Array<Extract<ChecklistTableRow, { type: "item" }>>,
+  responses: Map<string, ChecklistResponseShape>,
+) =>
+  itemRows.filter((row) => {
+    const status = responses.get(row.itemId)?.status;
+    return status === "C" || status === "NC" || status === "NA";
+  }).length;
+
 const buildPrincipalChecklistProgressSummary = ({
   inspectionId,
   rowsByInspection,
@@ -416,19 +434,13 @@ const buildPrincipalChecklistProgressSummary = ({
   rowsByInspection: Map<string, ChecklistTableRow[]>;
   responses: Map<string, ChecklistResponseShape>;
 }) => {
-  const rows = rowsByInspection.get(inspectionId) || [];
-  const itemRows = rows.filter(
-    (row): row is Extract<ChecklistTableRow, { type: "item" }> => row.type === "item",
-  );
-  const completed = itemRows.filter((row) => {
-    const status = responses.get(row.itemId)?.status;
-    return status === "C" || status === "NC" || status === "NA";
-  }).length;
+  const itemRows = getInspectionItemRows(rowsByInspection, inspectionId);
+  const completed = countCompletedChecklistRows(itemRows, responses);
 
   return buildChecklistProgressSummary(completed, itemRows.length);
 };
 
-const buildEquipmentAverageProgressSummary = ({
+const buildEquipmentProgressTotals = ({
   records,
   templateTotal,
 }: {
@@ -436,10 +448,10 @@ const buildEquipmentAverageProgressSummary = ({
   templateTotal: number;
 }) => {
   if (records.length === 0) {
-    return buildChecklistProgressSummary(0, templateTotal);
+    return { completed: 0, total: templateTotal };
   }
 
-  const progressTotals = records.reduce(
+  return records.reduce(
     (accumulator, record) => {
       const snapshot = normalizeEquipmentChecklistSnapshot(record.checklist_snapshot);
       const total = snapshot.total || templateTotal;
@@ -452,10 +464,57 @@ const buildEquipmentAverageProgressSummary = ({
     },
     { completed: 0, total: 0 },
   );
+};
+
+const buildEquipmentAverageProgressSummary = ({
+  records,
+  templateTotal,
+}: {
+  records: Array<{ checklist_snapshot: unknown }>;
+  templateTotal: number;
+}) => {
+  const progressTotals = buildEquipmentProgressTotals({
+    records,
+    templateTotal,
+  });
 
   return buildChecklistProgressSummary(
     progressTotals.completed,
     progressTotals.total,
+  );
+};
+
+const buildEquipmentChecklistProgressSummary = ({
+  inspectionId,
+  rowsByInspection,
+  responses,
+  equipmentItemIds,
+  records,
+  templateTotal,
+}: {
+  inspectionId: string;
+  rowsByInspection: Map<string, ChecklistTableRow[]>;
+  responses: Map<string, ChecklistResponseShape>;
+  equipmentItemIds: Set<string>;
+  records: Array<{ checklist_snapshot: unknown }>;
+  templateTotal: number;
+}) => {
+  const equipmentProgress = buildEquipmentProgressTotals({
+    records,
+    templateTotal,
+  });
+  const principalOnlyRows = getInspectionItemRows(
+    rowsByInspection,
+    inspectionId,
+  ).filter((row) => !equipmentItemIds.has(row.itemId));
+  const principalOnlyCompleted = countCompletedChecklistRows(
+    principalOnlyRows,
+    responses,
+  );
+
+  return buildChecklistProgressSummary(
+    equipmentProgress.completed + principalOnlyCompleted,
+    equipmentProgress.total + principalOnlyRows.length,
   );
 };
 
@@ -904,7 +963,11 @@ const CompanyChecklists = () => {
       if (model.codigo === "A.23") {
         next.set(
           model.id,
-          buildEquipmentAverageProgressSummary({
+          buildEquipmentChecklistProgressSummary({
+            inspectionId: model.id,
+            rowsByInspection,
+            responses: mergedResponses,
+            equipmentItemIds: extinguisherInspectionItemIds,
             records: extinguishers,
             templateTotal: equipmentChecklistTemplates.extintor.total,
           }),
@@ -939,6 +1002,7 @@ const CompanyChecklists = () => {
     equipmentChecklistTemplates.hidrante.total,
     equipmentChecklistTemplates.luminaria.total,
     extinguishers,
+    extinguisherInspectionItemIds,
     hydrants,
     luminaires,
     mergedResponses,
