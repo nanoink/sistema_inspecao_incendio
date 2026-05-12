@@ -1,12 +1,16 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
+  ExternalLink,
   FileCheck,
+  Paperclip,
   Loader2,
   Printer,
   RefreshCcw,
   Save,
+  Trash2,
+  Upload,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database, Json } from "@/integrations/supabase/types";
@@ -259,6 +263,20 @@ interface ReportRequirementMeasureEntry {
   statusTone: ReportBadgeTone;
 }
 
+interface ReportAttachmentMetadata {
+  id: string;
+  title: string;
+  fileBucket: string;
+  filePath: string;
+  fileName: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  uploadedAt: string | null;
+  uploadedBy: string | null;
+}
+
+type ReportAttachmentPreviewKind = "pdf" | "image" | "link";
+
 interface GeneralChecklistReportLine {
   code: string;
   name: string;
@@ -327,6 +345,27 @@ const OPERATIONAL_REPORT_TITLE = "Relatorio de Inspecao Preventiva";
 const TECHNICAL_REPORT_TITLE = "Relatorio Tecnico de Inspecao Contra Incendio";
 const ART_STORAGE_BUCKET = "empresa-art";
 const MAX_ART_FILE_SIZE_BYTES = 15 * 1024 * 1024;
+const REPORT_ATTACHMENT_STORAGE_BUCKET = "empresa-relatorio-anexos";
+const MAX_REPORT_ATTACHMENT_FILE_SIZE_BYTES = 20 * 1024 * 1024;
+const REPORT_ATTACHMENT_ACCEPT =
+  "application/pdf,image/png,image/jpeg,image/webp,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.png,.jpg,.jpeg,.webp,.doc,.docx";
+const REPORT_ATTACHMENT_ALLOWED_MIME_TYPES = new Set([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
+const REPORT_ATTACHMENT_ALLOWED_EXTENSIONS = new Set([
+  "pdf",
+  "png",
+  "jpg",
+  "jpeg",
+  "webp",
+  "doc",
+  "docx",
+]);
 const OPERATIONAL_LEGAL_NOTICE =
   "Documento de uso interno, sem validade tecnica legal. Este relatorio nao substitui inspecao tecnica realizada por profissional habilitado.";
 const TECHNICAL_LEGAL_NOTICE =
@@ -373,6 +412,133 @@ const getJsonString = (
 ) => {
   const value = source?.[key];
   return typeof value === "string" ? value : null;
+};
+
+const getJsonNumber = (
+  source: Record<string, Json> | null,
+  key: string,
+) => {
+  const value = source?.[key];
+  return typeof value === "number" ? value : null;
+};
+
+const normalizeStorageObjectFileName = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "_");
+
+const getFileExtension = (fileName: string) => {
+  const normalized = fileName.trim().toLowerCase();
+  const dotIndex = normalized.lastIndexOf(".");
+
+  if (dotIndex < 0 || dotIndex === normalized.length - 1) {
+    return "";
+  }
+
+  return normalized.slice(dotIndex + 1);
+};
+
+const parseReportAttachments = (
+  source: Record<string, Json> | null,
+): ReportAttachmentMetadata[] => {
+  const rawValue = source?.report_attachments;
+
+  if (!Array.isArray(rawValue)) {
+    return [];
+  }
+
+  return rawValue.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return [];
+    }
+
+    const record = entry as Record<string, Json>;
+    const title = getJsonString(record, "title")?.trim() || "";
+    const filePath = getJsonString(record, "file_path") || "";
+    const fileName = getJsonString(record, "file_name") || "";
+
+    if (!title || !filePath || !fileName) {
+      return [];
+    }
+
+    return [
+      {
+        id: getJsonString(record, "id") || crypto.randomUUID(),
+        title,
+        fileBucket:
+          getJsonString(record, "file_bucket") || REPORT_ATTACHMENT_STORAGE_BUCKET,
+        filePath,
+        fileName,
+        mimeType: getJsonString(record, "mime_type"),
+        sizeBytes: getJsonNumber(record, "size_bytes"),
+        uploadedAt: getJsonString(record, "uploaded_at"),
+        uploadedBy: getJsonString(record, "uploaded_by"),
+      },
+    ];
+  });
+};
+
+const serializeReportAttachments = (attachments: ReportAttachmentMetadata[]) =>
+  attachments.map((attachment) => ({
+    id: attachment.id,
+    title: attachment.title,
+    file_bucket: attachment.fileBucket,
+    file_path: attachment.filePath,
+    file_name: attachment.fileName,
+    mime_type: attachment.mimeType,
+    size_bytes: attachment.sizeBytes,
+    uploaded_at: attachment.uploadedAt,
+    uploaded_by: attachment.uploadedBy,
+  })) as Json;
+
+const isAllowedReportAttachmentFile = (file: File) => {
+  const normalizedMimeType = file.type.trim().toLowerCase();
+  const extension = getFileExtension(file.name);
+
+  return (
+    REPORT_ATTACHMENT_ALLOWED_MIME_TYPES.has(normalizedMimeType) ||
+    REPORT_ATTACHMENT_ALLOWED_EXTENSIONS.has(extension)
+  );
+};
+
+const getReportAttachmentPreviewKind = (
+  attachment: ReportAttachmentMetadata,
+): ReportAttachmentPreviewKind => {
+  const normalizedMimeType = attachment.mimeType?.trim().toLowerCase() || "";
+  const extension = getFileExtension(attachment.fileName);
+
+  if (
+    normalizedMimeType === "application/pdf" ||
+    extension === "pdf"
+  ) {
+    return "pdf";
+  }
+
+  if (
+    normalizedMimeType.startsWith("image/") ||
+    ["png", "jpg", "jpeg", "webp"].includes(extension)
+  ) {
+    return "image";
+  }
+
+  return "link";
+};
+
+const formatFileSize = (value?: number | null) => {
+  if (!value || value <= 0) {
+    return "-";
+  }
+
+  if (value >= 1024 * 1024) {
+    return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  if (value >= 1024) {
+    return `${Math.round(value / 1024)} KB`;
+  }
+
+  return `${value} B`;
 };
 
 const getReportStatusBadge = (status: ReportStatus) =>
@@ -2826,12 +2992,21 @@ const CompanyReport = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingArt, setUploadingArt] = useState(false);
+  const [uploadingReportAttachment, setUploadingReportAttachment] = useState(false);
+  const [removingReportAttachmentId, setRemovingReportAttachmentId] = useState<string | null>(null);
   const [artFilePath, setArtFilePath] = useState<string | null>(null);
   const [artFileName, setArtFileName] = useState<string | null>(null);
   const [artUploadedAt, setArtUploadedAt] = useState<string | null>(null);
   const [artUploadedBy, setArtUploadedBy] = useState<string | null>(null);
   const [artSignedUrl, setArtSignedUrl] = useState<string | null>(null);
   const [validationQrCodeDataUrl, setValidationQrCodeDataUrl] = useState<string | null>(null);
+  const [reportAttachmentTitle, setReportAttachmentTitle] = useState("");
+  const [reportAttachmentFile, setReportAttachmentFile] = useState<File | null>(null);
+  const [reportAttachments, setReportAttachments] = useState<ReportAttachmentMetadata[]>([]);
+  const [reportAttachmentSignedUrls, setReportAttachmentSignedUrls] = useState<
+    Record<string, string | null>
+  >({});
+  const reportAttachmentInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -3027,6 +3202,7 @@ const CompanyReport = () => {
         setArtFileName(getJsonString(additionalData, "art_file_name"));
         setArtUploadedAt(getJsonString(additionalData, "art_uploaded_at"));
         setArtUploadedBy(getJsonString(additionalData, "art_uploaded_by"));
+        setReportAttachments(parseReportAttachments(additionalData));
         setReportSignatures(
           reportSignaturesResult && reportSignaturesResult.length > 0
             ? reportSignaturesResult
@@ -3119,6 +3295,47 @@ const CompanyReport = () => {
     void refreshArtSignedUrl();
   }, [artFilePath, report?.updated_at]);
 
+  useEffect(() => {
+    let isCancelled = false;
+
+    const refreshReportAttachmentSignedUrls = async () => {
+      if (reportAttachments.length === 0) {
+        setReportAttachmentSignedUrls({});
+        return;
+      }
+
+      const signedUrlEntries = await Promise.all(
+        reportAttachments.map(async (attachment) => {
+          const { data, error } = await supabase.storage
+            .from(attachment.fileBucket)
+            .createSignedUrl(attachment.filePath, 60 * 60);
+
+          if (error) {
+            console.error(
+              `Error creating signed URL for report attachment ${attachment.id}:`,
+              error,
+            );
+            return [attachment.id, null] as const;
+          }
+
+          return [attachment.id, data?.signedUrl || null] as const;
+        }),
+      );
+
+      if (isCancelled) {
+        return;
+      }
+
+      setReportAttachmentSignedUrls(Object.fromEntries(signedUrlEntries));
+    };
+
+    void refreshReportAttachmentSignedUrls();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [reportAttachments, report?.updated_at]);
+
   const currentUserMember =
     companyMembers.find((member) => member.user_id === user?.id) || null;
   const technicalResponsibleMember =
@@ -3140,6 +3357,232 @@ const CompanyReport = () => {
     currentUserMember?.is_responsavel_tecnico,
   );
   const canUploadArt = Boolean(isSystemAdmin || isCurrentUserTechnicalResponsible);
+  const canManageReportAttachments = Boolean(isSystemAdmin || currentUserMember);
+
+  const handleReportAttachmentUpload = async () => {
+    if (!id) {
+      return;
+    }
+
+    if (!reportStorageAvailable) {
+      toast({
+        title: "Relatorio sem persistencia",
+        description:
+          "Salve a estrutura do relatorio no Supabase antes de anexar documentos.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!canManageReportAttachments) {
+      toast({
+        title: "Permissao insuficiente",
+        description:
+          "Somente usuarios vinculados a empresa podem anexar documentos a este relatorio.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const normalizedTitle = reportAttachmentTitle.trim();
+    const file = reportAttachmentFile;
+
+    if (!normalizedTitle) {
+      toast({
+        title: "Titulo obrigatorio",
+        description: "Informe o titulo do anexo antes de enviar o arquivo.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!file) {
+      toast({
+        title: "Arquivo obrigatorio",
+        description: "Selecione o arquivo que sera vinculado ao relatorio.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!isAllowedReportAttachmentFile(file)) {
+      toast({
+        title: "Arquivo invalido",
+        description:
+          "Envie PDF, imagem, DOC ou DOCX para anexar ao relatorio.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (file.size > MAX_REPORT_ATTACHMENT_FILE_SIZE_BYTES) {
+      toast({
+        title: "Arquivo muito grande",
+        description: "Cada anexo deve ter no maximo 20 MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    let uploadedFilePath: string | null = null;
+
+    try {
+      setUploadingReportAttachment(true);
+
+      const resolvedCycleId =
+        (await resolveActiveReportCycleId(supabase, id).catch((error) => {
+          console.error(
+            "Error resolving active report cycle before attachment upload:",
+            error,
+          );
+          return activeReportCycleId;
+        })) ||
+        activeReportCycleId ||
+        "sem-ciclo";
+      const safeName = normalizeStorageObjectFileName(file.name);
+      uploadedFilePath = `${id}/report-attachments/${resolvedCycleId}/${Date.now()}-${safeName}`;
+      const uploadedAt = new Date().toISOString();
+      const uploadedBy = user?.id || null;
+
+      const { error: uploadError } = await supabase.storage
+        .from(REPORT_ATTACHMENT_STORAGE_BUCKET)
+        .upload(uploadedFilePath, file, {
+          contentType: file.type || undefined,
+          upsert: true,
+        });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const nextAttachment: ReportAttachmentMetadata = {
+        id: crypto.randomUUID(),
+        title: normalizedTitle,
+        fileBucket: REPORT_ATTACHMENT_STORAGE_BUCKET,
+        filePath: uploadedFilePath,
+        fileName: file.name,
+        mimeType: file.type || null,
+        sizeBytes: file.size || null,
+        uploadedAt,
+        uploadedBy,
+      };
+      const nextAttachments = [...reportAttachments, nextAttachment];
+      const previousAdditionalData = getJsonRecord(report?.dados_adicionais) || {};
+
+      const { activeReportCycleId: resolvedReportCycleId, report: data } =
+        await upsertCompanyReportForCycle(supabase, id, {
+          dados_adicionais: {
+            ...previousAdditionalData,
+            report_attachments: serializeReportAttachments(nextAttachments),
+          },
+        });
+
+      setReport(data);
+      setActiveReportCycleId(resolvedReportCycleId);
+      setReportAttachments(nextAttachments);
+      setReportAttachmentTitle("");
+      setReportAttachmentFile(null);
+      if (reportAttachmentInputRef.current) {
+        reportAttachmentInputRef.current.value = "";
+      }
+
+      toast({
+        title: "Anexo enviado",
+        description:
+          "O documento foi vinculado ao relatorio e sera exibido antes da ART.",
+      });
+    } catch (error) {
+      if (uploadedFilePath) {
+        await supabase.storage
+          .from(REPORT_ATTACHMENT_STORAGE_BUCKET)
+          .remove([uploadedFilePath])
+          .catch(() => undefined);
+      }
+
+      console.error("Error uploading report attachment:", error);
+      toast({
+        title: "Erro ao enviar anexo",
+        description:
+          "Nao foi possivel anexar o documento. Verifique as permissoes do bucket empresa-relatorio-anexos.",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingReportAttachment(false);
+    }
+  };
+
+  const handleRemoveReportAttachment = async (attachmentId: string) => {
+    if (!id) {
+      return;
+    }
+
+    if (!canManageReportAttachments) {
+      toast({
+        title: "Permissao insuficiente",
+        description:
+          "Somente usuarios vinculados a empresa podem remover anexos deste relatorio.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const targetAttachment = reportAttachments.find(
+      (attachment) => attachment.id === attachmentId,
+    );
+
+    if (!targetAttachment) {
+      return;
+    }
+
+    try {
+      setRemovingReportAttachmentId(attachmentId);
+
+      const nextAttachments = reportAttachments.filter(
+        (attachment) => attachment.id !== attachmentId,
+      );
+      const previousAdditionalData = getJsonRecord(report?.dados_adicionais) || {};
+      const { activeReportCycleId: resolvedReportCycleId, report: data } =
+        await upsertCompanyReportForCycle(supabase, id, {
+          dados_adicionais: {
+            ...previousAdditionalData,
+            report_attachments: serializeReportAttachments(nextAttachments),
+          },
+        });
+
+      setReport(data);
+      setActiveReportCycleId(resolvedReportCycleId);
+      setReportAttachments(nextAttachments);
+      setReportAttachmentSignedUrls((current) => {
+        const next = { ...current };
+        delete next[attachmentId];
+        return next;
+      });
+
+      await supabase.storage
+        .from(targetAttachment.fileBucket)
+        .remove([targetAttachment.filePath])
+        .catch((error) => {
+          console.error(
+            `Error deleting report attachment file ${targetAttachment.id}:`,
+            error,
+          );
+        });
+
+      toast({
+        title: "Anexo removido",
+        description: "O documento deixou de integrar este relatorio.",
+      });
+    } catch (error) {
+      console.error("Error removing report attachment:", error);
+      toast({
+        title: "Erro ao remover anexo",
+        description: "Nao foi possivel remover o documento do relatorio.",
+        variant: "destructive",
+      });
+    } finally {
+      setRemovingReportAttachmentId(null);
+    }
+  };
 
   useEffect(() => {
     if (!technicalResponsibleMember) {
@@ -3165,11 +3608,7 @@ const CompanyReport = () => {
         inspetorCargo: nextInspectorCargo,
       };
     });
-  }, [
-    technicalResponsibleMember?.cargo,
-    technicalResponsibleMember?.nome,
-    technicalResponsibleMember?.user_id,
-  ]);
+  }, [technicalResponsibleMember]);
 
   const handleArtUpload = async (file: File | null) => {
     if (!id || !file) {
@@ -3250,6 +3689,7 @@ const CompanyReport = () => {
         {
           dados_adicionais: {
             ...previousAdditionalData,
+            report_attachments: serializeReportAttachments(reportAttachments),
             art_file_bucket: ART_STORAGE_BUCKET,
             art_file_path: filePath,
             art_file_name: file.name,
@@ -3535,6 +3975,7 @@ const CompanyReport = () => {
               : null,
           report_validated_by:
             form.reportMode === "tecnico" ? normalizeNullable(email) : null,
+          report_attachments: serializeReportAttachments(reportAttachments),
           art_file_bucket: artFilePath ? ART_STORAGE_BUCKET : null,
           art_file_path: artFilePath,
           art_file_name: artFileName,
@@ -3813,6 +4254,15 @@ const CompanyReport = () => {
   const shouldRenderArtPages = Boolean(
     isTechnicalReport && company.possui_responsavel_tecnico,
   );
+  const reportAttachmentEntries = reportAttachments.map((attachment) => ({
+    ...attachment,
+    previewKind: getReportAttachmentPreviewKind(attachment),
+    signedUrl: reportAttachmentSignedUrls[attachment.id] || null,
+  }));
+  const reportAttachmentSectionIndex = shouldRenderArtPages ? "12" : "11";
+  const artSignatureSectionIndex = "11";
+  const artDocumentSectionIndex =
+    reportAttachmentEntries.length > 0 ? "13" : "12";
   const checklistPrintSections = buildChecklistPrintSections({
     snapshot,
     signers: signatureRows,
@@ -3878,6 +4328,12 @@ const CompanyReport = () => {
   if (reportEntries.length > 0) {
     resultObservationLines.push(
       `${reportEntries.length} registro(s) detalhado(s) com imagem e comentario foram incorporados aos anexos e ao plano de correcao, com classificacao de risco.`,
+    );
+  }
+
+  if (reportAttachmentEntries.length > 0) {
+    resultObservationLines.push(
+      `${reportAttachmentEntries.length} anexo(s) complementar(es) foi(foram) vinculado(s) ao relatorio para compor a documentacao final da emissao.`,
     );
   }
 
@@ -5104,10 +5560,122 @@ const CompanyReport = () => {
     });
   });
 
+  reportAttachmentEntries.forEach((attachment, attachmentIndex) => {
+    pages.push(
+      <div className="space-y-5">
+        <SectionHeading
+          index={reportAttachmentSectionIndex}
+          title={
+            attachmentIndex === 0
+              ? "Anexos Complementares do Relatorio"
+              : "Anexos Complementares do Relatorio - Continuacao"
+          }
+        />
+
+        <div className="overflow-hidden rounded-sm border border-zinc-300 bg-white">
+          <div className="flex items-start justify-between gap-4 border-b border-zinc-300 bg-zinc-50 px-4 py-3">
+            <div className="min-w-0">
+              <p className="break-words text-[13px] font-semibold uppercase text-zinc-900">
+                {attachment.title}
+              </p>
+              <p className="mt-1 break-words text-[10.5px] text-zinc-600">
+                {attachment.fileName}
+              </p>
+            </div>
+            <RequirementStatusBadge
+              label={
+                attachment.previewKind === "pdf"
+                  ? "PDF"
+                  : attachment.previewKind === "image"
+                    ? "Imagem"
+                    : "Documento"
+              }
+              tone="neutral"
+            />
+          </div>
+
+          <div className="px-4 py-4">
+            {attachment.previewKind === "image" && attachment.signedUrl ? (
+              <div className="flex min-h-[680px] items-center justify-center border border-zinc-200 bg-zinc-50 p-4">
+                <img
+                  src={attachment.signedUrl}
+                  alt={attachment.title}
+                  className="max-h-[650px] max-w-full object-contain"
+                />
+              </div>
+            ) : attachment.previewKind === "pdf" && attachment.signedUrl ? (
+              <object
+                data={attachment.signedUrl}
+                type="application/pdf"
+                className="h-[720px] w-full"
+              >
+                <div className="space-y-3 py-16 text-center text-[12.5px] text-zinc-700">
+                  <p>Nao foi possivel renderizar este PDF no navegador atual.</p>
+                  <a
+                    href={attachment.signedUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-semibold text-blue-700 underline"
+                  >
+                    Abrir anexo em nova aba
+                  </a>
+                </div>
+              </object>
+            ) : (
+              <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 border border-dashed border-zinc-300 bg-zinc-50 px-6 text-center text-[12px] text-zinc-600">
+                <p className="font-semibold uppercase text-zinc-800">
+                  Visualizacao incorporada indisponivel
+                </p>
+                <p>
+                  O arquivo permanece vinculado ao relatorio e pode ser aberto
+                  externamente para consulta integral.
+                </p>
+                {attachment.signedUrl ? (
+                  <a
+                    href={attachment.signedUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-semibold text-blue-700 underline"
+                  >
+                    Abrir documento anexado
+                  </a>
+                ) : null}
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-[1.3fr_0.9fr_0.8fr] gap-px border-t border-zinc-300 bg-zinc-300 text-[10.5px] text-zinc-700">
+            <div className="bg-white px-3 py-2">
+              <p className="font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                Titulo do anexo
+              </p>
+              <p className="mt-1 break-words text-zinc-900">{attachment.title}</p>
+            </div>
+            <div className="bg-white px-3 py-2">
+              <p className="font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                Enviado em
+              </p>
+              <p className="mt-1 text-zinc-900">{formatDateTime(attachment.uploadedAt)}</p>
+            </div>
+            <div className="bg-white px-3 py-2">
+              <p className="font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                Tamanho
+              </p>
+              <p className="mt-1 text-zinc-900">{formatFileSize(attachment.sizeBytes)}</p>
+            </div>
+          </div>
+        </div>
+      </div>,
+    );
+  });
+
   if (shouldRenderArtPages) {
     pages.push(
       <div className="space-y-6">
-        <SectionHeading index="11" title="Assinatura do Responsavel Tecnico" />
+        <SectionHeading
+          index={artSignatureSectionIndex}
+          title="Assinatura do Responsavel Tecnico"
+        />
         <TechnicalResponsibleArtSignatureSheet
           company={company}
           signerName={technicalSignatureName}
@@ -5123,7 +5691,10 @@ const CompanyReport = () => {
 
     pages.push(
       <div className="space-y-4">
-        <SectionHeading index="12" title="ART - Anotacao de Responsabilidade Tecnica" />
+        <SectionHeading
+          index={artDocumentSectionIndex}
+          title="ART - Anotacao de Responsabilidade Tecnica"
+        />
 
         <div className="rounded-sm border border-zinc-300 bg-white px-4 py-4">
           {artSignedUrl ? (
@@ -5337,6 +5908,131 @@ const CompanyReport = () => {
               <div className="space-y-2">
                 <Label htmlFor="representanteCargo">Cargo do representante</Label>
                 <Input id="representanteCargo" value={form.representanteCargo} onChange={(event) => handleInputChange("representanteCargo", event.target.value)} />
+              </div>
+              <div className="space-y-4 md:col-span-2 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-4">
+                <div className="flex items-center gap-2">
+                  <Paperclip className="h-4 w-4 text-zinc-600" />
+                  <div>
+                    <Label htmlFor="reportAttachmentTitle">Anexos do relatorio</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Os anexos complementares serao inseridos ao final do relatorio, sempre antes da ART.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
+                  <div className="space-y-2">
+                    <Label htmlFor="reportAttachmentTitle">Titulo do anexo</Label>
+                    <Input
+                      id="reportAttachmentTitle"
+                      value={reportAttachmentTitle}
+                      onChange={(event) => setReportAttachmentTitle(event.target.value)}
+                      placeholder="Ex.: Alvara, planta aprovada, laudo complementar"
+                      disabled={!canManageReportAttachments || uploadingReportAttachment}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="reportAttachmentFile">Arquivo do anexo</Label>
+                    <Input
+                      id="reportAttachmentFile"
+                      ref={reportAttachmentInputRef}
+                      type="file"
+                      accept={REPORT_ATTACHMENT_ACCEPT}
+                      disabled={!canManageReportAttachments || uploadingReportAttachment}
+                      onChange={(event) => {
+                        setReportAttachmentFile(event.target.files?.[0] || null);
+                      }}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      PDF, imagem, DOC ou DOCX. Maximo de 20 MB por arquivo.
+                    </p>
+                  </div>
+
+                  <Button
+                    type="button"
+                    onClick={() => void handleReportAttachmentUpload()}
+                    disabled={
+                      !canManageReportAttachments ||
+                      uploadingReportAttachment ||
+                      !reportAttachmentTitle.trim() ||
+                      !reportAttachmentFile
+                    }
+                    className="w-full md:w-auto"
+                  >
+                    {uploadingReportAttachment ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="mr-2 h-4 w-4" />
+                    )}
+                    Adicionar anexo
+                  </Button>
+                </div>
+
+                <div className="space-y-3">
+                  {reportAttachments.length > 0 ? (
+                    reportAttachments.map((attachment) => {
+                      const signedUrl = reportAttachmentSignedUrls[attachment.id];
+                      const isRemoving =
+                        removingReportAttachmentId === attachment.id;
+
+                      return (
+                        <div
+                          key={attachment.id}
+                          className="flex flex-col gap-3 rounded-md border border-zinc-200 bg-white px-3 py-3 md:flex-row md:items-center md:justify-between"
+                        >
+                          <div className="min-w-0">
+                            <p className="break-words text-sm font-semibold text-zinc-900">
+                              {attachment.title}
+                            </p>
+                            <p className="mt-1 break-words text-xs text-zinc-600">
+                              {attachment.fileName}
+                            </p>
+                            <p className="mt-1 text-xs text-zinc-500">
+                              {formatDateTime(attachment.uploadedAt)} |{" "}
+                              {formatFileSize(attachment.sizeBytes)}
+                            </p>
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            {signedUrl ? (
+                              <a
+                                href={signedUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex h-9 items-center justify-center rounded-md border border-zinc-300 px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+                              >
+                                <ExternalLink className="mr-2 h-4 w-4" />
+                                Visualizar
+                              </a>
+                            ) : null}
+                            {canManageReportAttachments ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() =>
+                                  void handleRemoveReportAttachment(attachment.id)
+                                }
+                                disabled={isRemoving}
+                              >
+                                {isRemoving ? (
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                )}
+                                Remover
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-md border border-dashed border-zinc-300 bg-white px-4 py-6 text-center text-sm text-zinc-500">
+                      Nenhum anexo complementar foi vinculado a este relatorio.
+                    </div>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
