@@ -31,7 +31,7 @@ type Company = Database["public"]["Tables"]["empresa"]["Row"];
 
 export const CompanyTable = () => {
   const navigate = useNavigate();
-  const { isSystemAdmin } = useAuth();
+  const { user, isSystemAdmin, loading: authLoading } = useAuth();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [reportCompanyIds, setReportCompanyIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -39,22 +39,77 @@ export const CompanyTable = () => {
   const { toast } = useToast();
 
   const fetchCompanies = useCallback(async () => {
+    if (authLoading) {
+      return;
+    }
+
+    const currentUserId = user?.id ?? null;
+
+    if (!isSystemAdmin && !currentUserId) {
+      setCompanies([]);
+      setReportCompanyIds(new Set());
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
-      const companiesResult = await supabase
-        .from("empresa")
-        .select("*")
-        .order("created_at", { ascending: false });
+      let visibleCompanyIds: string[] | null = null;
+
+      if (!isSystemAdmin) {
+        const membershipsResult = await supabase
+          .from("empresa_usuarios")
+          .select("empresa_id")
+          .eq("user_id", currentUserId);
+
+        if (membershipsResult.error) {
+          throw membershipsResult.error;
+        }
+
+        visibleCompanyIds = Array.from(
+          new Set(
+            (membershipsResult.data || [])
+              .map((membership) => membership.empresa_id)
+              .filter((empresaId): empresaId is string => Boolean(empresaId)),
+          ),
+        );
+
+        if (visibleCompanyIds.length === 0) {
+          setCompanies([]);
+          setReportCompanyIds(new Set());
+          return;
+        }
+      }
+
+      const companiesQuery = supabase.from("empresa").select("*");
+      const companiesResult = await (
+        !isSystemAdmin && visibleCompanyIds
+          ? companiesQuery.in("id", visibleCompanyIds)
+          : companiesQuery
+      ).order("created_at", { ascending: false });
 
       if (companiesResult.error) {
         throw companiesResult.error;
       }
 
-      setCompanies(companiesResult.data || []);
+      const loadedCompanies = companiesResult.data || [];
+      setCompanies(loadedCompanies);
 
-      const reportsResult = await supabase
+      const loadedCompanyIds = loadedCompanies.map((company) => company.id);
+
+      if (loadedCompanyIds.length === 0) {
+        setReportCompanyIds(new Set());
+        return;
+      }
+
+      const reportsQuery = supabase
         .from("empresa_relatorios")
         .select("empresa_id");
+      const reportsResult = await (
+        isSystemAdmin
+          ? reportsQuery
+          : reportsQuery.in("empresa_id", loadedCompanyIds)
+      );
 
       if (reportsResult.error) {
         if (isMissingRelationError(reportsResult.error, "empresa_relatorios")) {
@@ -75,7 +130,7 @@ export const CompanyTable = () => {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [authLoading, isSystemAdmin, toast, user?.id]);
 
   const handleDelete = async (id: string) => {
     try {
@@ -104,7 +159,7 @@ export const CompanyTable = () => {
     fetchCompanies();
   }, [fetchCompanies]);
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -117,7 +172,9 @@ export const CompanyTable = () => {
       <Card>
         <CardContent className="py-12">
           <p className="text-center text-muted-foreground">
-            Nenhuma empresa cadastrada ainda.
+            {isSystemAdmin
+              ? "Nenhuma empresa cadastrada ainda."
+              : "Nenhuma empresa vinculada ao seu usuario."}
           </p>
         </CardContent>
       </Card>

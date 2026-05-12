@@ -370,6 +370,157 @@ const buildEquipmentChecklistSnapshotFromInspection = (
   });
 };
 
+const resetEquipmentChecklistSnapshotResponses = (
+  snapshot: EquipmentChecklistSnapshot,
+) =>
+  buildEquipmentChecklistSnapshotFromItems({
+    inspectionCode: snapshot.inspection_code,
+    inspectionName: snapshot.inspection_name,
+    generatedAt: snapshot.generated_at || new Date().toISOString(),
+    items: snapshot.items.map((item) => ({
+      ...item,
+      status: "P",
+      observacoes: null,
+      preenchido_por_nome: null,
+      preenchido_por_user_id: null,
+      preenchido_em: null,
+    })),
+  });
+
+const hasAnsweredEquipmentChecklistSnapshot = (
+  snapshot: EquipmentChecklistSnapshot,
+) =>
+  snapshot.items.some(
+    (item) =>
+      item.status !== "P" ||
+      !!item.observacoes ||
+      !!item.preenchido_por_nome ||
+      !!item.preenchido_por_user_id ||
+      !!item.preenchido_em,
+  );
+
+const buildEquipmentExecutionKey = (
+  equipmentType: EquipmentType,
+  equipmentRecordId: string,
+) => `${equipmentType}:${equipmentRecordId}`;
+
+const sanitizeUnstartedEquipmentSnapshot = (
+  snapshot?: Json | null,
+): Json | null => {
+  const normalizedSnapshot = normalizeEquipmentChecklistSnapshot(snapshot);
+
+  if (!hasAnsweredEquipmentChecklistSnapshot(normalizedSnapshot)) {
+    return snapshot ?? null;
+  }
+
+  return resetEquipmentChecklistSnapshotResponses(
+    normalizedSnapshot,
+  ) as unknown as Json;
+};
+
+const loadStartedEquipmentExecutionKeys = async (
+  supabase: AppSupabaseClient,
+  companyId: string,
+) => {
+  const { data, error } = await supabase
+    .from("empresa_checklist_execucoes")
+    .select("equipment_type, equipment_record_id")
+    .eq("empresa_id", companyId)
+    .eq("context_type", "equipamento");
+
+  if (error) {
+    if (
+      isMissingRelationError(error, "empresa_checklist_execucoes") ||
+      isMissingEquipmentQrSchemaError(error)
+    ) {
+      return new Set<string>();
+    }
+
+    throw error;
+  }
+
+  return new Set(
+    (data || [])
+      .filter(
+        (
+          record,
+        ): record is {
+          equipment_type: EquipmentType;
+          equipment_record_id: string;
+        } =>
+          (record.equipment_type === "extintor" ||
+            record.equipment_type === "hidrante" ||
+            record.equipment_type === "luminaria") &&
+          typeof record.equipment_record_id === "string" &&
+          record.equipment_record_id.length > 0,
+      )
+      .map((record) =>
+        buildEquipmentExecutionKey(
+          record.equipment_type,
+          record.equipment_record_id,
+        ),
+      ),
+  );
+};
+
+const sanitizeEquipmentRecordChecklistSnapshot = <
+  T extends {
+    id: string;
+    checklist_snapshot: Json | null;
+  },
+>(
+  record: T,
+  equipmentType: EquipmentType,
+  startedExecutionKeys: Set<string>,
+) => {
+  if (startedExecutionKeys.has(buildEquipmentExecutionKey(equipmentType, record.id))) {
+    return record;
+  }
+
+  return {
+    ...record,
+    checklist_snapshot: sanitizeUnstartedEquipmentSnapshot(
+      record.checklist_snapshot,
+    ),
+  };
+};
+
+const loadEquipmentExecutionExists = async (
+  supabase: AppSupabaseClient,
+  {
+    companyId,
+    equipmentType,
+    equipmentRecordId,
+  }: {
+    companyId: string;
+    equipmentType: EquipmentType;
+    equipmentRecordId: string;
+  },
+) => {
+  const { data, error } = await supabase
+    .from("empresa_checklist_execucoes")
+    .select("id")
+    .eq("empresa_id", companyId)
+    .eq("context_type", "equipamento")
+    .eq("equipment_type", equipmentType)
+    .eq("equipment_record_id", equipmentRecordId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    if (
+      isMissingRelationError(error, "empresa_checklist_execucoes") ||
+      isMissingEquipmentQrSchemaError(error)
+    ) {
+      return false;
+    }
+
+    throw error;
+  }
+
+  return Boolean(data?.id);
+};
+
 export const mergeEquipmentChecklistSnapshotWithTemplate = ({
   existingSnapshot,
   templateSnapshot,
@@ -380,21 +531,19 @@ export const mergeEquipmentChecklistSnapshotWithTemplate = ({
   mode?: "preserve" | "overwrite";
 }) => {
   const normalizedExisting = normalizeEquipmentChecklistSnapshot(existingSnapshot);
+  const normalizedTemplate = resetEquipmentChecklistSnapshotResponses(
+    templateSnapshot,
+  );
 
   if (normalizedExisting.items.length === 0) {
-    return buildEquipmentChecklistSnapshotFromItems({
-      inspectionCode: templateSnapshot.inspection_code,
-      inspectionName: templateSnapshot.inspection_name,
-      items: templateSnapshot.items,
-      generatedAt: templateSnapshot.generated_at || new Date().toISOString(),
-    });
+    return normalizedTemplate;
   }
 
   const existingItemsById = new Map(
     normalizedExisting.items.map((item) => [item.checklist_item_id, item]),
   );
 
-  const mergedItems = templateSnapshot.items.map((templateItem) => {
+  const mergedItems = normalizedTemplate.items.map((templateItem) => {
     const existingItem = existingItemsById.get(templateItem.checklist_item_id);
     if (!existingItem || mode === "overwrite") {
       return templateItem;
@@ -411,8 +560,8 @@ export const mergeEquipmentChecklistSnapshotWithTemplate = ({
   });
 
   return buildEquipmentChecklistSnapshotFromItems({
-    inspectionCode: templateSnapshot.inspection_code,
-    inspectionName: templateSnapshot.inspection_name,
+    inspectionCode: normalizedTemplate.inspection_code,
+    inspectionName: normalizedTemplate.inspection_name,
     items: mergedItems,
   });
 };
@@ -1088,7 +1237,12 @@ export const loadChecklistEquipmentData = async (
   supabase: AppSupabaseClient,
   companyId: string,
 ) => {
-  const [luminairesResult, extinguishersResult, hydrantsResult] =
+  const [
+    luminairesResult,
+    extinguishersResult,
+    hydrantsResult,
+    startedExecutionKeys,
+  ] =
     await Promise.all([
       supabase
         .from("empresa_luminarias")
@@ -1105,6 +1259,7 @@ export const loadChecklistEquipmentData = async (
       .select("*")
       .eq("empresa_id", companyId)
       .order("numero", { ascending: true }),
+    loadStartedEquipmentExecutionKeys(supabase, companyId),
     ]);
 
   const missingTables =
@@ -1140,9 +1295,33 @@ export const loadChecklistEquipmentData = async (
   }
 
   return {
-    luminaires: sortByEquipmentNumber(luminairesResult.data || []),
-    extinguishers: sortByEquipmentNumber(extinguishersResult.data || []),
-    hydrants: sortByEquipmentNumber(hydrantsResult.data || []),
+    luminaires: sortByEquipmentNumber(
+      (luminairesResult.data || []).map((record) =>
+        sanitizeEquipmentRecordChecklistSnapshot(
+          record,
+          "luminaria",
+          startedExecutionKeys,
+        ),
+      ),
+    ),
+    extinguishers: sortByEquipmentNumber(
+      (extinguishersResult.data || []).map((record) =>
+        sanitizeEquipmentRecordChecklistSnapshot(
+          record,
+          "extintor",
+          startedExecutionKeys,
+        ),
+      ),
+    ),
+    hydrants: sortByEquipmentNumber(
+      (hydrantsResult.data || []).map((record) =>
+        sanitizeEquipmentRecordChecklistSnapshot(
+          record,
+          "hidrante",
+          startedExecutionKeys,
+        ),
+      ),
+    ),
     missingTables: false,
   };
 };
@@ -1169,6 +1348,12 @@ export const loadEquipmentQrPage = async (
       return null;
     }
 
+    const hasExecution = await loadEquipmentExecutionExists(supabase, {
+      companyId: data.empresa_id,
+      equipmentType: "extintor",
+      equipmentRecordId: data.id,
+    });
+
     return {
       equipment_type: "extintor",
       equipment_id: data.id,
@@ -1185,7 +1370,9 @@ export const loadEquipmentQrPage = async (
       subtitulo: `${data.tipo} - ${data.carga_nominal}`,
       qr_code_url: null,
       qr_code_svg: null,
-      checklist_snapshot: data.checklist_snapshot,
+      checklist_snapshot: hasExecution
+        ? data.checklist_snapshot
+        : sanitizeUnstartedEquipmentSnapshot(data.checklist_snapshot),
       equipment_data: {
         numero: data.numero,
         localizacao: data.localizacao,
@@ -1215,6 +1402,12 @@ export const loadEquipmentQrPage = async (
       return null;
     }
 
+    const hasExecution = await loadEquipmentExecutionExists(supabase, {
+      companyId: data.empresa_id,
+      equipmentType: "hidrante",
+      equipmentRecordId: data.id,
+    });
+
     return {
       equipment_type: "hidrante",
       equipment_id: data.id,
@@ -1231,7 +1424,9 @@ export const loadEquipmentQrPage = async (
       subtitulo: data.tipo_hidrante,
       qr_code_url: null,
       qr_code_svg: null,
-      checklist_snapshot: data.checklist_snapshot,
+      checklist_snapshot: hasExecution
+        ? data.checklist_snapshot
+        : sanitizeUnstartedEquipmentSnapshot(data.checklist_snapshot),
       equipment_data: {
         numero: data.numero,
         localizacao: data.localizacao,
@@ -1266,6 +1461,12 @@ export const loadEquipmentQrPage = async (
       return null;
     }
 
+    const hasExecution = await loadEquipmentExecutionExists(supabase, {
+      companyId: data.empresa_id,
+      equipmentType: "luminaria",
+      equipmentRecordId: data.id,
+    });
+
     return {
       equipment_type: "luminaria",
       equipment_id: data.id,
@@ -1282,7 +1483,9 @@ export const loadEquipmentQrPage = async (
       subtitulo: data.tipo_luminaria,
       qr_code_url: null,
       qr_code_svg: null,
-      checklist_snapshot: data.checklist_snapshot,
+      checklist_snapshot: hasExecution
+        ? data.checklist_snapshot
+        : sanitizeUnstartedEquipmentSnapshot(data.checklist_snapshot),
       equipment_data: {
         numero: data.numero,
         localizacao: data.localizacao,

@@ -886,15 +886,6 @@ const CompanyChecklists = () => {
     mirroredHydrantResponses,
     responses,
   ]);
-  const equipmentChecklistSnapshots = useMemo(
-    () =>
-      buildEquipmentChecklistSnapshots({
-        models: visibleModels,
-        groupsByModel: visibleGroupsByModel,
-        responses: mergedResponses,
-      }),
-    [visibleGroupsByModel, mergedResponses, visibleModels],
-  );
   const checklistProgressByModel = useMemo(() => {
     const next = new Map<string, ChecklistProgressSummary>();
 
@@ -1281,17 +1272,14 @@ const CompanyChecklists = () => {
         groupsByModel,
         responses,
       );
-      const currentEquipmentSnapshots = buildEquipmentChecklistSnapshots(
-        currentChecklistSnapshot,
-      );
 
       try {
         await saveChecklistResponses(supabase, id, responses);
         await syncEquipmentChecklistSnapshots(supabase, {
           companyId: id,
-          luminaireSnapshot: currentEquipmentSnapshots.luminaria,
-          extinguisherSnapshot: currentEquipmentSnapshots.extintor,
-          hydrantSnapshot: currentEquipmentSnapshots.hidrante,
+          luminaireSnapshot: equipmentChecklistTemplates.luminaria,
+          extinguisherSnapshot: equipmentChecklistTemplates.extintor,
+          hydrantSnapshot: equipmentChecklistTemplates.hidrante,
           mode: "preserve",
         });
         await upsertCompanyReportForCycle(supabase, id, {
@@ -1375,6 +1363,9 @@ const CompanyChecklists = () => {
     groupsByModel,
     models,
     responses,
+    equipmentChecklistTemplates.extintor,
+    equipmentChecklistTemplates.hidrante,
+    equipmentChecklistTemplates.luminaria,
     toast,
     user?.id,
   ]);
@@ -1421,9 +1412,9 @@ const CompanyChecklists = () => {
       try {
         const synced = await syncEquipmentChecklistSnapshots(supabase, {
           companyId: id,
-          luminaireSnapshot: equipmentChecklistSnapshots.luminaria,
-          extinguisherSnapshot: equipmentChecklistSnapshots.extintor,
-          hydrantSnapshot: equipmentChecklistSnapshots.hidrante,
+          luminaireSnapshot: equipmentChecklistTemplates.luminaria,
+          extinguisherSnapshot: equipmentChecklistTemplates.extintor,
+          hydrantSnapshot: equipmentChecklistTemplates.hidrante,
           mode: "preserve",
         });
 
@@ -1436,9 +1427,9 @@ const CompanyChecklists = () => {
           luminaires,
           extinguishers,
           hydrants,
-          luminaireSnapshot: equipmentChecklistSnapshots.luminaria,
-          extinguisherSnapshot: equipmentChecklistSnapshots.extintor,
-          hydrantSnapshot: equipmentChecklistSnapshots.hidrante,
+          luminaireSnapshot: equipmentChecklistTemplates.luminaria,
+          extinguisherSnapshot: equipmentChecklistTemplates.extintor,
+          hydrantSnapshot: equipmentChecklistTemplates.hidrante,
         });
 
         setLuminaires(updatedRecords.luminaires);
@@ -1455,9 +1446,9 @@ const CompanyChecklists = () => {
 
     void synchronizeEquipmentAssets();
   }, [
-    equipmentChecklistSnapshots.luminaria,
-    equipmentChecklistSnapshots.extintor,
-    equipmentChecklistSnapshots.hidrante,
+    equipmentChecklistTemplates.luminaria,
+    equipmentChecklistTemplates.extintor,
+    equipmentChecklistTemplates.hidrante,
     equipmentSchemaPending,
     luminaires,
     extinguishers,
@@ -2193,11 +2184,6 @@ const CompanyChecklists = () => {
         visibleGroupsByModel,
         mergedResponses,
       );
-      const equipmentSnapshots = buildEquipmentChecklistSnapshots({
-        models: visibleModels,
-        groupsByModel: visibleGroupsByModel,
-        responses: mergedResponses,
-      });
       const touchedInspections = Array.from(
         touchedInspectionExecutionsRef.current.values(),
       );
@@ -2205,9 +2191,9 @@ const CompanyChecklists = () => {
       if (!equipmentSchemaPending) {
         const synced = await syncEquipmentChecklistSnapshots(supabase, {
           companyId: id,
-          luminaireSnapshot: equipmentSnapshots.luminaria,
-          extinguisherSnapshot: equipmentSnapshots.extintor,
-          hydrantSnapshot: equipmentSnapshots.hidrante,
+          luminaireSnapshot: equipmentChecklistTemplates.luminaria,
+          extinguisherSnapshot: equipmentChecklistTemplates.extintor,
+          hydrantSnapshot: equipmentChecklistTemplates.hidrante,
           mode: "preserve",
         });
 
@@ -3681,7 +3667,7 @@ const CompanyChecklists = () => {
           <>
             <LuminaireDialog
               companyId={id}
-              checklistSnapshot={equipmentChecklistSnapshots.luminaria}
+              checklistSnapshot={equipmentChecklistTemplates.luminaria}
               open={luminaireDialogOpen}
               record={editingLuminaire}
               onOpenChange={(open) => {
@@ -3695,7 +3681,7 @@ const CompanyChecklists = () => {
 
             <ExtinguisherDialog
               companyId={id}
-              checklistSnapshot={equipmentChecklistSnapshots.extintor}
+              checklistSnapshot={equipmentChecklistTemplates.extintor}
               open={extinguisherDialogOpen}
               record={editingExtinguisher}
               onOpenChange={(open) => {
@@ -3709,7 +3695,7 @@ const CompanyChecklists = () => {
 
             <HydrantDialog
               companyId={id}
-              checklistSnapshot={equipmentChecklistSnapshots.hidrante}
+              checklistSnapshot={equipmentChecklistTemplates.hidrante}
               open={hydrantDialogOpen}
               record={editingHydrant}
               onOpenChange={(open) => {
