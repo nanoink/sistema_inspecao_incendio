@@ -272,13 +272,13 @@ const Fire360Landing = () => {
             </p>
 
             <div className="mt-7 flex flex-wrap gap-3">
-              <a
-                href="#plataforma"
+              <Link
+                to="/auth"
                 className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-bold text-[#11213c] transition-transform hover:-translate-y-0.5"
               >
-                Ver a plataforma
+                Acessar plataforma
                 <ArrowRight className="h-4 w-4" />
-              </a>
+              </Link>
               <a
                 href="#camadas"
                 className="inline-flex items-center gap-2 rounded-full border border-white/35 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-white/10"

@@ -43,10 +43,11 @@ const App = () => (
       >
         <Suspense fallback={<RouteLoader />}>
           <Routes>
+            <Route path="/" element={<Fire360Landing />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/fire360" element={<Fire360Landing />} />
             <Route path="/apresentacao/fire360" element={<Fire360Landing />} />
-            <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/cadastro" element={<ProtectedRoute><Index /></ProtectedRoute>} />
             <Route path="/empresas/:id/editar" element={<ProtectedRoute><EditCompanyPage /></ProtectedRoute>} />
             <Route path="/empresas/:companyId/usuarios/:userId/editar" element={<ProtectedRoute><EditCompanyUserPage /></ProtectedRoute>} />

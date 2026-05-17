@@ -40,7 +40,7 @@ export default function Auth() {
 
   useEffect(() => {
     if (user) {
-      navigate("/", { replace: true });
+      navigate("/dashboard", { replace: true });
     }
   }, [navigate, user]);
 
@@ -71,7 +71,7 @@ export default function Auth() {
         title: "Login realizado com sucesso",
         description: "Bem-vindo de volta.",
       });
-      navigate("/");
+      navigate("/dashboard");
     } catch {
       toast({
         title: "Erro inesperado",

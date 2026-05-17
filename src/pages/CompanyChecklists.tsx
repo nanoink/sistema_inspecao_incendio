@@ -2901,7 +2901,7 @@ const CompanyChecklists = () => {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => navigate("/")}
+                onClick={() => navigate("/dashboard")}
                 disabled={creatingTechnicalResponsible}
               >
                 Voltar ao dashboard

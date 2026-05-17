@@ -418,7 +418,7 @@ const EditCompanyPage = () => {
               type="button"
               variant="outline"
               className="mt-6"
-              onClick={() => navigate("/")}
+              onClick={() => navigate("/dashboard")}
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               Voltar ao dashboard
@@ -443,7 +443,7 @@ const EditCompanyPage = () => {
             </p>
           </div>
 
-          <Button type="button" variant="outline" onClick={() => navigate("/")}>
+          <Button type="button" variant="outline" onClick={() => navigate("/dashboard")}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             Voltar
           </Button>
@@ -764,7 +764,7 @@ const EditCompanyPage = () => {
                 </div>
 
                 <div className="flex flex-col justify-end gap-3 border-t pt-4 sm:flex-row">
-                  <Button type="button" variant="outline" onClick={() => navigate("/")}>
+                  <Button type="button" variant="outline" onClick={() => navigate("/dashboard")}>
                     Cancelar
                   </Button>
                   <Button type="submit" disabled={form.formState.isSubmitting}>
