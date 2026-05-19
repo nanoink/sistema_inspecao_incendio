@@ -15,6 +15,12 @@ import { Loader2, Check, ChevronsUpDown } from "lucide-react";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAuth } from "@/hooks/useAuth";
+import {
+  fetchAlturaOptions,
+  getAlturaSelectionState,
+  getSafeAlturaSelectValue,
+  type AlturaOption,
+} from "@/lib/altura-options";
 import { createCompanyUser, formatCpf, normalizeCpf } from "@/lib/company-members";
 import { isMissingColumnError } from "@/lib/supabase-errors";
 import { cn } from "@/lib/utils";
@@ -50,13 +56,6 @@ interface CNAEData {
   carga_incendio_mj_m2: number;
 }
 
-interface AlturaRef {
-  tipo: string;
-  denominacao: string;
-  h_min_m: number | null;
-  h_max_m: number | null;
-}
-
 export function CompanyForm() {
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -65,7 +64,7 @@ export function CompanyForm() {
   const [loadingCEP, setLoadingCEP] = useState(false);
   const [cnaeData, setCnaeData] = useState<CNAEData | null>(null);
   const [grauRisco, setGrauRisco] = useState<string>("");
-  const [alturaOptions, setAlturaOptions] = useState<AlturaRef[]>([]);
+  const [alturaOptions, setAlturaOptions] = useState<AlturaOption[]>([]);
   const [alturaDenominacao, setAlturaDenominacao] = useState<string>("");
   const [alturaDescricao, setAlturaDescricao] = useState<string>("");
   const [cnaeOptions, setCnaeOptions] = useState<CNAEData[]>([]);
@@ -98,19 +97,18 @@ export function CompanyForm() {
   });
   const firstUserName = form.watch("responsavel") || "";
   const firstUserEmail = form.watch("email") || "";
+  const alturaTipoValue = getSafeAlturaSelectValue(
+    form.watch("altura_tipo"),
+    alturaOptions,
+  );
 
   const loadAlturaOptions = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("altura_ref")
-      .select("*")
-      .order("tipo");
-    
-    if (error) {
+    try {
+      const options = await fetchAlturaOptions();
+      setAlturaOptions(options);
+    } catch (error) {
       console.error("Error loading altura options:", error);
-      return;
     }
-    
-    setAlturaOptions(data || []);
   }, []);
 
   const loadCnaeOptions = useCallback(async () => {
@@ -293,24 +291,14 @@ export function CompanyForm() {
 
   // Handle altura selection
   const handleAlturaChange = (tipo: string) => {
-    form.setValue("altura_tipo", tipo);
-    const selected = alturaOptions.find(a => a.tipo === tipo);
-    setAlturaDenominacao(selected?.denominacao || "");
-    
-    // Calculate altura description based on h_min_m and h_max_m
-    if (selected) {
-      let descricao = "";
-      if (selected.h_min_m === null && selected.h_max_m === null) {
-        descricao = "Um pavimento";
-      } else if (selected.h_min_m === null && selected.h_max_m !== null) {
-        descricao = `H < ${selected.h_max_m} m`;
-      } else if (selected.h_min_m !== null && selected.h_max_m === null) {
-        descricao = `Acima de ${selected.h_min_m} m`;
-      } else if (selected.h_min_m !== null && selected.h_max_m !== null) {
-        descricao = `${selected.h_min_m} < H < ${selected.h_max_m} m`;
-      }
-      setAlturaDescricao(descricao);
-    }
+    const selection = getAlturaSelectionState(tipo, alturaOptions);
+
+    form.setValue("altura_tipo", selection.tipo, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    setAlturaDenominacao(selection.denominacao);
+    setAlturaDescricao(selection.descricao);
   };
 
 
@@ -758,7 +746,7 @@ export function CompanyForm() {
             
             <div className="space-y-2">
               <Label htmlFor="altura_tipo">Altura da edificação *</Label>
-              <Select onValueChange={handleAlturaChange} value={form.watch("altura_tipo")}>
+              <Select onValueChange={handleAlturaChange} value={alturaTipoValue}>
                 <SelectTrigger>
                   <SelectValue placeholder="Altura em (m)" />
                 </SelectTrigger>

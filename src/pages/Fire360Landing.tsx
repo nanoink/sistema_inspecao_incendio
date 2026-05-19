@@ -38,8 +38,8 @@ const pageFontStyles = `
 
 const navigationItems = [
   { href: "#plataforma", label: "Plataforma" },
-  { href: "#modulos", label: "Modulos" },
-  { href: "#beneficios", label: "Beneficios" },
+  { href: "#modulos", label: "Módulos" },
+  { href: "#beneficios", label: "Benefícios" },
   { href: "#camadas", label: "Como funciona" },
   { href: "#faq", label: "FAQ" },
 ];
@@ -52,37 +52,37 @@ const benefitItems: Array<{
   {
     title: "Checklists inteligentes",
     description:
-      "Modelos tecnicos por sistema, execucao orientada e leitura imediata do que esta conforme, pendente ou critico.",
+      "Modelos técnicos por sistema, execução orientada e leitura imediata do que está conforme, pendente ou crítico.",
     icon: ClipboardCheck,
   },
   {
     title: "Fluxo de field service",
     description:
-      "Visitas em campo, equipes, historico de salvamentos e andamento operacional centralizados em uma unica rotina.",
+      "Visitas em campo, equipes, histórico de salvamentos e andamento operacional centralizados em uma única rotina.",
     icon: Users,
   },
   {
-    title: "Nao conformidades tecnicas",
+    title: "Não conformidades técnicas",
     description:
-      "Registro estruturado, plano de correcao, criticidade e rastreabilidade de cada item avaliado.",
+      "Registro estruturado, plano de correção, criticidade e rastreabilidade de cada item avaliado.",
     icon: Siren,
   },
   {
     title: "Controle documental",
     description:
-      "Relatorios, ART, anexos e evidencias vinculados ao ciclo tecnico correto, sem dispersao entre pastas e conversas.",
+      "Relatórios, ART, anexos e evidências vinculados ao ciclo técnico correto, sem dispersão entre pastas e conversas.",
     icon: FileText,
   },
   {
     title: "Conformidade recorrente",
     description:
-      "A plataforma acompanha o processo inteiro, da inspecao inicial ao fechamento das pendencias e nova validacao.",
+      "A plataforma acompanha o processo inteiro, da inspeção inicial ao fechamento das pendências e nova validação.",
     icon: ShieldCheck,
   },
   {
-    title: "Reducao de custo oculto",
+    title: "Redução de custo oculto",
     description:
-      "Menos retrabalho, menos perda de contexto e mais previsibilidade para operacao, engenharia e gestao executiva.",
+      "Menos retrabalho, menos perda de contexto e mais previsibilidade para operação, engenharia e gestão executiva.",
     icon: Gauge,
   },
 ];
@@ -95,107 +95,107 @@ const moduleItems: Array<{
   {
     title: "Extintores",
     description:
-      "Cadastro, QR individual, checklist proprio, vencimentos e visualizacao consolidada sem perder a inspecao unitara.",
+      "Cadastro, QR individual, checklist próprio, vencimentos e visualização consolidada sem perder a inspeção unitária.",
     icon: Flame,
   },
   {
     title: "Hidrantes",
     description:
-      "Controle de mangueiras, componentes, recalque, testes e pendencias operacionais associadas ao ponto certo.",
+      "Controle de mangueiras, componentes, recalque, testes e pendências operacionais associadas ao ponto certo.",
     icon: Building2,
   },
   {
-    title: "Luminarias",
+    title: "Luminárias",
     description:
-      "Acompanhamento do parque instalado, status operacional, historico de verificacoes e nao conformidades.",
+      "Acompanhamento do parque instalado, status operacional, histórico de verificações e não conformidades.",
     icon: Layers3,
   },
   {
-    title: "Relatorios tecnicos",
+    title: "Relatórios técnicos",
     description:
-      "Consolidacao por ciclo, anexos, assinatura, ART e uma narrativa tecnica pronta para auditoria e apresentacao.",
+      "Consolidação por ciclo, anexos, assinatura, ART e uma narrativa técnica pronta para auditoria e apresentação.",
     icon: FileText,
   },
 ];
 
 const layerItems = [
   {
-    title: "Operacao em Campo",
-    subtitle: "Para vistoriadores e equipes tecnicas",
+    title: "Operação em Campo",
+    subtitle: "Para vistoriadores e equipes técnicas",
     accent: "bg-[#f58220]",
     surface: "bg-white",
     text: "text-[#11213c]",
     border: "border-white/30",
     items: [
       "Checklists por sistema e por equipamento",
-      "Salvamento de execucao com autoria",
-      "Nao conformidades com evidencias",
-      "Leitura rapida do status em visita",
+      "Salvamento de execução com autoria",
+      "Não conformidades com evidências",
+      "Leitura rápida do status em visita",
     ],
   },
   {
-    title: "Compliance Tecnico",
-    subtitle: "Para engenharia, responsaveis tecnicos e auditoria",
+    title: "Compliance Técnico",
+    subtitle: "Para engenharia, responsáveis técnicos e auditoria",
     accent: "bg-[#0b57c9]",
     surface: "bg-[#11213c]",
     text: "text-white",
     border: "border-white/15",
     items: [
       "Rastreabilidade completa por ciclo",
-      "Relatorios, ART e anexos centralizados",
-      "Plano de correcao por criticidade",
-      "Historico tecnico de inspecao",
+      "Relatórios, ART e anexos centralizados",
+      "Plano de correção por criticidade",
+      "Histórico técnico de inspeção",
     ],
   },
   {
-    title: "Gestao Executiva",
-    subtitle: "Para decisao, visibilidade e recorrencia",
+    title: "Gestão Executiva",
+    subtitle: "Para decisão, visibilidade e recorrência",
     accent: "bg-[#11213c]",
     surface: "bg-[#fff7ef]",
     text: "text-[#11213c]",
     border: "border-[#11213c]/10",
     items: [
-      "Visao consolidada das frentes criticas",
+      "Visão consolidada das frentes críticas",
       "Leitura clara de risco e conformidade",
       "Prioridade operacional por impacto",
-      "Base unica para crescimento recorrente",
+      "Base única para crescimento recorrente",
     ],
   },
 ];
 
 const faqItems = [
   {
-    question: "O FIRE 360 e apenas um checklist digital?",
+    question: "O FIRE 360 é apenas um checklist digital?",
     answer:
-      "Nao. O FIRE 360 conecta execucao operacional, controle de equipamentos, nao conformidades, relatorios, rastreabilidade e conformidade documental em um unico fluxo.",
+      "Não. O FIRE 360 conecta execução operacional, controle de equipamentos, não conformidades, relatórios, rastreabilidade e conformidade documental em um único fluxo.",
   },
   {
     question: "Como a plataforma ajuda as equipes que atuam em campo?",
     answer:
-      "A equipe executa checklists por sistema e por equipamento, registra salvamentos ao longo da visita, acompanha pendencias e devolve tudo para a gestao com contexto tecnico preservado.",
+      "A equipe executa checklists por sistema e por equipamento, registra salvamentos ao longo da visita, acompanha pendências e devolve tudo para a gestão com contexto técnico preservado.",
   },
   {
     question: "Quais frentes o sistema acompanha hoje?",
     answer:
-      "O FIRE 360 apoia checklists gerais e o controle operacional de extintores, hidrantes, luminarias, relatorios tecnicos, anexos e rastreabilidade por ciclo.",
+      "O FIRE 360 apoia checklists gerais e o controle operacional de extintores, hidrantes, luminárias, relatórios técnicos, anexos e rastreabilidade por ciclo.",
   },
   {
     question: "O sistema ajuda na conformidade legal e na auditoria?",
     answer:
-      "Sim. A proposta central e organizar a conformidade recorrente, gerar trilha de execucao, consolidar documentacao tecnica e facilitar demonstracao de historico e correcao.",
+      "Sim. A proposta central é organizar a conformidade recorrente, gerar trilha de execução, consolidar documentação técnica e facilitar demonstração de histórico e correção.",
   },
   {
     question: "Como o FIRE 360 se posiciona no mercado?",
     answer:
-      "Como uma plataforma vertical de gestao continua de seguranca contra incendio, combinando SaaS, compliance operacional e field service management.",
+      "Como uma plataforma vertical de gestão contínua de segurança contra incêndio, combinando SaaS, compliance operacional e field service management.",
   },
 ];
 
 const fireStats = [
-  { value: "360", label: "visao continua da operacao" },
-  { value: "01", label: "plataforma para campo, tecnica e gestao" },
-  { value: "03", label: "frentes criticas de equipamentos controladas" },
-  { value: "24/7", label: "historico tecnico disponivel no sistema" },
+  { value: "360", label: "visão contínua da operação" },
+  { value: "01", label: "plataforma para campo, técnica e gestão" },
+  { value: "03", label: "frentes críticas de equipamentos controladas" },
+  { value: "24/7", label: "histórico técnico disponível no sistema" },
 ];
 
 const Fire360Landing = () => {
@@ -242,7 +242,7 @@ const Fire360Landing = () => {
               href="#cta"
               className="inline-flex items-center gap-2 rounded-full bg-[#f58220] px-4 py-2.5 text-sm font-bold text-white shadow-[0_16px_30px_rgba(245,130,32,0.30)] transition-transform hover:-translate-y-0.5"
             >
-              Solicitar demonstracao
+              Solicitar demonstração
               <ArrowRight className="h-4 w-4" />
             </a>
           </div>
@@ -260,15 +260,15 @@ const Fire360Landing = () => {
         <div className="relative mx-auto grid max-w-6xl gap-12 px-4 md:px-6 lg:grid-cols-[1.02fr_0.98fr] lg:items-center">
           <div className="max-w-2xl text-white">
             <span className="inline-flex rounded-full border border-white/30 bg-white/12 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-white/90">
-              Plataforma de gestao continua de seguranca contra incendio
+              Plataforma de gestão contínua de segurança contra incêndio
             </span>
             <h1 className="fire360-display mt-6 text-4xl font-extrabold leading-[1.02] tracking-[-0.04em] text-white md:text-6xl">
-              Inspecao, conformidade e operacao tecnica no mesmo sistema.
+              Inspeção, conformidade e operação técnica no mesmo sistema.
             </h1>
             <p className="mt-5 max-w-xl text-base leading-7 text-white/84 md:text-lg">
-              O FIRE 360 conecta checklists, equipamentos, nao conformidades,
-              relatorios, equipe em campo e rastreabilidade documental em uma
-              unica experiencia operacional.
+              O FIRE 360 conecta checklists, equipamentos, não conformidades,
+              relatórios, equipe em campo e rastreabilidade documental em uma
+              única experiência operacional.
             </p>
 
             <div className="mt-7 flex flex-wrap gap-3">
@@ -298,14 +298,14 @@ const Fire360Landing = () => {
               />
               <HeroChip
                 icon={FileText}
-                label="Relatorio por ciclo"
+                label="Relatório por ciclo"
               />
             </div>
           </div>
 
           <div className="relative">
             <div className="absolute right-4 top-3 inline-flex rounded-full bg-[#ffb547] px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-[#11213c] shadow-[0_14px_28px_rgba(255,181,71,0.28)]">
-              visao operacional + compliance
+              visão operacional + compliance
             </div>
 
             <div className="rounded-[34px] bg-[#11213c] p-5 shadow-[0_24px_80px_rgba(17,33,60,0.30)]">
@@ -348,7 +348,7 @@ const Fire360Landing = () => {
                       <MetricOrb
                         tone="bg-[#f58220]"
                         value="NC"
-                        label="nao conforme"
+                        label="não conforme"
                       />
                       <MetricOrb
                         tone="bg-[#11213c]"
@@ -368,7 +368,7 @@ const Fire360Landing = () => {
                         barClassName="w-[71%] bg-[#f58220]"
                       />
                       <ProgressRow
-                        label="Pendencias com plano"
+                        label="Pendências com plano"
                         percent="92%"
                         barClassName="w-[92%] bg-[#11213c]"
                       />
@@ -377,14 +377,14 @@ const Fire360Landing = () => {
 
                   <div className="space-y-4">
                     <StatusCard
-                      title="Inspecoes em campo"
+                      title="Inspeções em campo"
                       value="Fluxo assistido"
                       description="Equipe salva por etapa, sem perder autoria e contexto."
                       tone="bg-[#0b57c9]"
                     />
                     <StatusCard
-                      title="Relatorios tecnicos"
-                      value="Ciclo auditavel"
+                      title="Relatórios técnicos"
+                      value="Ciclo auditável"
                       description="Anexos, ART e assinatura no mesmo encadeamento."
                       tone="bg-[#f58220]"
                     />
@@ -413,9 +413,9 @@ const Fire360Landing = () => {
                   </span>
                 </div>
                 <div className="mt-3 space-y-2 text-[11px] leading-5 text-white/80">
-                  <p>Checklist proprio</p>
-                  <p>Historico preservado</p>
-                  <p>Sem heranca indevida entre equipamentos</p>
+                  <p>Checklist próprio</p>
+                  <p>Histórico preservado</p>
+                  <p>Sem herança indevida entre equipamentos</p>
                 </div>
               </div>
             </div>
@@ -431,10 +431,10 @@ const Fire360Landing = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0b57c9]">
-                      tudo em um so lugar
+                      tudo em um só lugar
                     </p>
                     <h2 className="fire360-display mt-2 text-3xl font-bold tracking-tight text-[#11213c]">
-                      Inspecao, documento e decisao.
+                      Inspeção, documento e decisão.
                     </h2>
                   </div>
                   <div className="rounded-full bg-[#f58220]/12 px-3 py-2 text-xs font-bold uppercase tracking-[0.14em] text-[#f58220]">
@@ -445,14 +445,14 @@ const Fire360Landing = () => {
                 <div className="mt-6 grid gap-4 sm:grid-cols-[1.1fr_0.9fr]">
                   <div className="rounded-[24px] bg-[#11213c] p-4 text-white">
                     <p className="text-sm font-semibold text-white">
-                      Linha de execucao
+                      Linha de execução
                     </p>
                     <div className="mt-4 space-y-3">
                       {[
                         "Cadastro da empresa e enquadramento",
                         "Checklist geral e por equipamento",
-                        "Nao conformidade com evidencias",
-                        "Relatorio final com trilha tecnica",
+                        "Não conformidade com evidências",
+                        "Relatório final com trilha técnica",
                       ].map((item) => (
                         <div
                           key={item}
@@ -467,16 +467,16 @@ const Fire360Landing = () => {
 
                   <div className="space-y-3">
                     <CalloutCard
-                      title="Inspecoes"
-                      description="Execucao orientada por sistema e por equipamento."
+                      title="Inspeções"
+                      description="Execução orientada por sistema e por equipamento."
                     />
                     <CalloutCard
-                      title="Relatorios"
-                      description="Consolidacao com assinaturas, anexos e ART."
+                      title="Relatórios"
+                      description="Consolidação com assinaturas, anexos e ART."
                     />
                     <CalloutCard
                       title="Rastreabilidade"
-                      description="Cada item ligado ao ciclo tecnico correto."
+                      description="Cada item ligado ao ciclo técnico correto."
                     />
                   </div>
                 </div>
@@ -488,7 +488,7 @@ const Fire360Landing = () => {
                 status ao vivo
               </p>
               <p className="fire360-display mt-2 text-2xl font-bold">
-                checklist + equipamentos + relatorio
+                checklist + equipamentos + relatório
               </p>
             </div>
           </div>
@@ -498,13 +498,13 @@ const Fire360Landing = () => {
               plataforma de compliance operacional
             </span>
             <h3 className="fire360-display mt-5 text-3xl font-bold leading-tight tracking-[-0.03em] text-[#11213c] md:text-5xl">
-              O FIRE 360 nao organiza apenas dados. Ele organiza a rotina tecnica.
+              O FIRE 360 não organiza apenas dados. Ele organiza a rotina técnica.
             </h3>
             <p className="mt-5 text-base leading-8 text-[#11213c]/72">
               Em vez de operar com planilhas, conversas soltas, laudos isolados e
               controles descentralizados, a plataforma cria uma espinha dorsal
-              para a seguranca contra incendio: execucao, analise, prova,
-              acompanhamento e revalidacao.
+              para a segurança contra incêndio: execução, análise, prova,
+              acompanhamento e revalidação.
             </p>
             <div className="mt-8 grid gap-4 sm:grid-cols-2">
               <StoryBadge
@@ -513,15 +513,15 @@ const Fire360Landing = () => {
               />
               <StoryBadge
                 title="CMMS simplificado"
-                description="Controle tecnico de equipamentos criticos."
+                description="Controle técnico de equipamentos críticos."
               />
               <StoryBadge
                 title="Compliance"
-                description="Documentacao e trilha tecnica preparadas para auditoria."
+                description="Documentação e trilha técnica preparadas para auditoria."
               />
               <StoryBadge
-                title="Gestao"
-                description="Leitura executiva do que exige acao imediata."
+                title="Gestão"
+                description="Leitura executiva do que exige ação imediata."
               />
             </div>
           </div>
@@ -554,15 +554,15 @@ const Fire360Landing = () => {
         <div className="relative mx-auto max-w-6xl px-4 md:px-6">
           <div className="max-w-3xl rounded-[30px] border border-white/18 bg-white/8 px-5 py-6 text-white md:px-8">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/75">
-              beneficios do FIRE 360
+              benefícios do FIRE 360
             </p>
             <h3 className="fire360-display mt-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Uma plataforma de gestao continua para quem precisa manter risco sob vigilancia permanente.
+              Uma plataforma de gestão contínua para quem precisa manter risco sob vigilância permanente.
             </h3>
             <p className="mt-4 text-sm leading-7 text-white/80 md:text-base">
-              O sistema foi pensado para afastar a empresa da guerra de preco do
-              checklist solto e aproximar a operacao de um modelo recorrente de
-              inteligencia tecnica.
+              O sistema foi pensado para afastar a empresa da guerra de preço do
+              checklist solto e aproximar a operação de um modelo recorrente de
+              inteligência técnica.
             </p>
           </div>
 
@@ -581,7 +581,7 @@ const Fire360Landing = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/70">
-                    modulos tecnicos
+                    módulos técnicos
                   </p>
                   <h3 className="fire360-display mt-2 text-3xl font-bold tracking-tight">
                     Do equipamento ao parecer final.
@@ -615,38 +615,38 @@ const Fire360Landing = () => {
 
           <div>
             <span className="inline-flex rounded-full bg-[#eff4ff] px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-[#0b57c9]">
-              uma plataforma, multiplos contextos
+              uma plataforma, múltiplos contextos
             </span>
             <h3 className="fire360-display mt-5 text-3xl font-bold leading-tight tracking-[-0.03em] text-[#11213c] md:text-5xl">
-              FIRE 360 e o encontro entre software vertical, compliance e operacao de campo.
+              FIRE 360 é o encontro entre software vertical, compliance e operação de campo.
             </h3>
             <p className="mt-5 text-base leading-8 text-[#11213c]/72">
-              Ele nao se comporta como um software generico. Ele foi desenhado
+              Ele não se comporta como um software genérico. Ele foi desenhado
               para a realidade de quem precisa acompanhar extintores, hidrantes,
-              luminarias, nao conformidades, documentos tecnicos e decisoes de
-              priorizacao sem perder continuidade entre visita e gestao.
+              luminárias, não conformidades, documentos técnicos e decisões de
+              priorização sem perder continuidade entre visita e gestão.
             </p>
 
             <div className="mt-8 grid gap-4 sm:grid-cols-2">
               <ModulePill
                 icon={ScanSearch}
                 title="Checklists executados"
-                description="Itens gerais e individuais consolidados com logica tecnica."
+                description="Itens gerais e individuais consolidados com lógica técnica."
               />
               <ModulePill
                 icon={QrCode}
                 title="QR por ativo"
-                description="Cada equipamento com identidade propria e historico preservado."
+                description="Cada equipamento com identidade própria e histórico preservado."
               />
               <ModulePill
                 icon={BarChart3}
                 title="Leitura executiva"
-                description="Gestao enxerga progresso, pendencias e riscos sem entrar na operacao."
+                description="Gestão enxerga progresso, pendências e riscos sem entrar na operação."
               />
               <ModulePill
                 icon={ShieldCheck}
                 title="Prova documental"
-                description="Relatorio, anexos e assinatura no mesmo encadeamento de evidencia."
+                description="Relatório, anexos e assinatura no mesmo encadeamento de evidência."
               />
             </div>
           </div>
@@ -658,22 +658,22 @@ const Fire360Landing = () => {
           <div className="grid gap-6 lg:grid-cols-[0.86fr_1.14fr]">
             <div className="rounded-[34px] bg-white px-6 py-7 shadow-[0_22px_60px_rgba(17,33,60,0.08)]">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#f58220]">
-                posicionamento estrategico
+                posicionamento estratégico
               </p>
               <h3 className="fire360-display mt-4 text-3xl font-bold leading-tight tracking-[-0.03em] text-[#11213c]">
-                Um SOC da seguranca contra incendio, com foco em continuidade.
+                Um SOC da segurança contra incêndio, com foco em continuidade.
               </h3>
               <p className="mt-4 text-base leading-8 text-[#11213c]/72">
-                O cliente nao compra apenas uma tela. Ele passa a operar com uma
-                camada continua de inteligencia operacional para conformidade,
-                risco e evidencias tecnicas.
+                O cliente não compra apenas uma tela. Ele passa a operar com uma
+                camada contínua de inteligência operacional para conformidade,
+                risco e evidências técnicas.
               </p>
               <div className="mt-6 flex flex-wrap gap-2">
                 {[
                   "Vertical SaaS",
                   "Compliance operacional",
                   "Field service management",
-                  "Gestao continua de risco",
+                  "Gestão contínua de risco",
                 ].map((chip) => (
                   <span
                     key={chip}
@@ -688,18 +688,18 @@ const Fire360Landing = () => {
             <div className="rounded-[34px] bg-[#11213c] p-5 text-white shadow-[0_28px_74px_rgba(17,33,60,0.20)]">
               <div className="grid gap-4 md:grid-cols-3">
                 <PositioningCard
-                  title="Gestao"
-                  description="Visao consolidada, priorizacao e leitura de maturidade operacional."
+                  title="Gestão"
+                  description="Visão consolidada, priorização e leitura de maturidade operacional."
                   icon={BarChart3}
                 />
                 <PositioningCard
                   title="Conformidade"
-                  description="Documentacao, historico e encadeamento tecnico dos ciclos de inspecao."
+                  description="Documentação, histórico e encadeamento técnico dos ciclos de inspeção."
                   icon={FileText}
                 />
                 <PositioningCard
-                  title="Operacao"
-                  description="Campo, equipamentos, evidencias e salvamentos ligados ao ativo correto."
+                  title="Operação"
+                  description="Campo, equipamentos, evidências e salvamentos ligados ao ativo correto."
                   icon={Users}
                 />
               </div>
@@ -708,11 +708,11 @@ const Fire360Landing = () => {
                   por que isso importa
                 </p>
                 <p className="mt-3 fire360-display text-2xl font-bold leading-tight">
-                  Quanto maior a operacao, maior o custo de perder contexto tecnico.
+                  Quanto maior a operação, maior o custo de perder contexto técnico.
                 </p>
                 <p className="mt-3 text-sm leading-7 text-white/76">
                   O FIRE 360 foi pensado para diminuir esse custo estrutural:
-                  menos retrabalho, mais rastreabilidade, melhor recorrencia e
+                  menos retrabalho, mais rastreabilidade, melhor recorrência e
                   mais clareza sobre o que precisa ser corrigido agora.
                 </p>
               </div>
@@ -732,10 +732,10 @@ const Fire360Landing = () => {
               camadas de visibilidade
             </p>
             <h3 className="fire360-display mt-4 text-3xl font-bold tracking-[-0.03em] md:text-5xl">
-              A mesma operacao, lida de tres formas.
+              A mesma operação, lida de três formas.
             </h3>
             <p className="mt-4 text-base leading-8 text-white/82">
-              Inspirada no ritmo comercial do site de referencia, esta secao
+              Inspirada no ritmo comercial do site de referência, esta seção
               mostra como o FIRE 360 entrega valor diferente para quem executa,
               valida tecnicamente e decide estrategicamente.
             </p>
@@ -756,13 +756,13 @@ const Fire360Landing = () => {
               perguntas frequentes
             </p>
             <h3 className="fire360-display mt-4 text-3xl font-bold tracking-[-0.03em] text-[#11213c] md:text-5xl">
-              Uma plataforma pensada para crescer junto com a maturidade da operacao.
+              Uma plataforma pensada para crescer junto com a maturidade da operação.
             </h3>
             <p className="mt-5 text-base leading-8 text-[#11213c]/72">
               O posicionamento do FIRE 360 fica mais forte quando a conversa sai
               do simples checklist e entra em continuidade, conformidade e prova
-              operacional. Estas sao as perguntas que normalmente surgem nessa
-              transicao.
+              operacional. Estas são as perguntas que normalmente surgem nessa
+              transição.
             </p>
           </div>
 
@@ -796,12 +796,12 @@ const Fire360Landing = () => {
                   pronto para apresentar o FIRE 360
                 </p>
                 <h3 className="fire360-display mt-4 text-3xl font-bold tracking-[-0.03em] md:text-5xl">
-                  Transforme inspeção em inteligencia operacional recorrente.
+                  Transforme inspeção em inteligência operacional recorrente.
                 </h3>
                 <p className="mt-4 max-w-2xl text-base leading-8 text-[#11213c]/74">
                   Esta landing foi desenhada para apresentar o sistema sem tocar
                   no software principal: narrativa comercial, identidade visual
-                  propria e posicionamento claro de mercado para o FIRE 360.
+                  própria e posicionamento claro de mercado para o FIRE 360.
                 </p>
               </div>
 
@@ -812,15 +812,15 @@ const Fire360Landing = () => {
                   </p>
                   <p className="mt-3 text-sm leading-7 text-[#11213c]/72">
                     Saia da disputa por checklist e entre na conversa de
-                    gestao continua de seguranca contra incendio.
+                    gestão contínua de segurança contra incêndio.
                   </p>
                 </div>
                 <div className="rounded-[26px] bg-[#11213c] px-5 py-5 text-white">
                   <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#ffb547]">
-                    Entrada publica
+                    Entrada pública
                   </p>
                   <p className="mt-3 text-sm leading-7 text-white/74">
-                    Rota publica separada para apresentar o produto sem expor o
+                    Rota pública separada para apresentar o produto sem expor o
                     ambiente autenticado do sistema.
                   </p>
                 </div>
@@ -860,15 +860,15 @@ const Fire360Landing = () => {
               </div>
             </div>
             <p className="mt-4 max-w-md text-sm leading-7 text-white/68">
-              Plataforma de gestao continua de seguranca contra incendio,
+              Plataforma de gestão contínua de segurança contra incêndio,
               compliance operacional e field service para equipes que precisam
-              transformar execucao em previsibilidade.
+              transformar execução em previsibilidade.
             </p>
           </div>
 
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-white/56">
-              Navegacao
+              Navegação
             </p>
             <div className="mt-4 grid gap-3 text-sm text-white/72">
               {navigationItems.map((item) => (
@@ -888,9 +888,9 @@ const Fire360Landing = () => {
                 Acessar plataforma
               </Link>
               <a href="#cta" className="hover:text-white">
-                Solicitar demonstracao
+                Solicitar demonstração
               </a>
-              <span>Landing publica do produto FIRE 360</span>
+              <span>Landing pública do produto FIRE 360</span>
             </div>
           </div>
         </div>

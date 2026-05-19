@@ -35,6 +35,12 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import {
+  fetchAlturaOptions,
+  getAlturaSelectionState,
+  getSafeAlturaSelectValue,
+  type AlturaOption,
+} from "@/lib/altura-options";
 import { cn } from "@/lib/utils";
 import { CompanyMembersManager } from "@/components/company/CompanyMembersManager";
 import { isMissingColumnError } from "@/lib/supabase-errors";
@@ -65,13 +71,6 @@ interface CNAEData {
   carga_incendio_mj_m2: number;
 }
 
-interface AlturaRef {
-  tipo: string;
-  denominacao: string;
-  h_min_m: number | null;
-  h_max_m: number | null;
-}
-
 const EditCompanyPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -81,7 +80,7 @@ const EditCompanyPage = () => {
   const [cnaeOpen, setCnaeOpen] = useState(false);
   const [cnaeData, setCnaeData] = useState<CNAEData | null>(null);
   const [grauRisco, setGrauRisco] = useState<string>("");
-  const [alturaOptions, setAlturaOptions] = useState<AlturaRef[]>([]);
+  const [alturaOptions, setAlturaOptions] = useState<AlturaOption[]>([]);
   const [alturaDenominacao, setAlturaDenominacao] = useState<string>("");
   const [alturaDescricao, setAlturaDescricao] = useState<string>("");
   const [cnaeOptions, setCnaeOptions] = useState<CNAEData[]>([]);
@@ -105,17 +104,12 @@ const EditCompanyPage = () => {
 
   useEffect(() => {
     const loadAlturaOptions = async () => {
-      const { data, error } = await supabase
-        .from("altura_ref")
-        .select("*")
-        .order("tipo");
-
-      if (error) {
+      try {
+        const options = await fetchAlturaOptions();
+        setAlturaOptions(options);
+      } catch (error) {
         console.error("Error loading altura options:", error);
-        return;
       }
-
-      setAlturaOptions(data || []);
     };
 
     const loadCnaeOptions = async () => {
@@ -274,23 +268,14 @@ const EditCompanyPage = () => {
   };
 
   const handleAlturaChange = (tipo: string) => {
-    form.setValue("altura_tipo", tipo);
-    const selected = alturaOptions.find((altura) => altura.tipo === tipo);
-    setAlturaDenominacao(selected?.denominacao || "");
+    const selection = getAlturaSelectionState(tipo, alturaOptions);
 
-    if (selected) {
-      let descricao = "";
-      if (selected.h_min_m === null && selected.h_max_m === null) {
-        descricao = "Um pavimento";
-      } else if (selected.h_min_m === null && selected.h_max_m !== null) {
-        descricao = `H < ${selected.h_max_m} m`;
-      } else if (selected.h_min_m !== null && selected.h_max_m === null) {
-        descricao = `Acima de ${selected.h_min_m} m`;
-      } else if (selected.h_min_m !== null && selected.h_max_m !== null) {
-        descricao = `${selected.h_min_m} < H < ${selected.h_max_m} m`;
-      }
-      setAlturaDescricao(descricao);
-    }
+    form.setValue("altura_tipo", selection.tipo, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    setAlturaDenominacao(selection.denominacao);
+    setAlturaDescricao(selection.descricao);
   };
 
   const handleOcupantesChange = (value: number) => {
@@ -674,7 +659,10 @@ const EditCompanyPage = () => {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Altura da Edificacao *</FormLabel>
-                          <Select onValueChange={handleAlturaChange} value={field.value}>
+                          <Select
+                            onValueChange={handleAlturaChange}
+                            value={getSafeAlturaSelectValue(field.value, alturaOptions)}
+                          >
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder="Selecione a altura" />
