@@ -127,6 +127,8 @@ import {
   type LuminaireRecord,
 } from "@/lib/checklist-equipment";
 import {
+  getChecklistNonConformityImagePreviewUrl,
+  getChecklistNonConformityImageStoredValue,
   groupChecklistNonConformitiesByEquipmentRecordId,
   loadEquipmentChecklistNonConformitiesByType,
   loadChecklistNonConformities,
@@ -591,7 +593,7 @@ const buildEquipmentItemNonConformityEntries = ({
         equipmentNumber: record.numero,
         location: record.localizacao,
         description: nonConformity.descricao,
-        imageDataUrl: nonConformity.imagem_data_url,
+        imageDataUrl: getChecklistNonConformityImagePreviewUrl(nonConformity),
       } satisfies EquipmentNonConformityEntry,
     ];
   });
@@ -2138,10 +2140,14 @@ const CompanyChecklists = () => {
 
   const handleSavePrincipalNonConformity = async ({
     description,
-    imageDataUrl,
+    imageValue,
+    previousImageValue,
+    imageFile,
   }: {
     description: string;
-    imageDataUrl: string;
+    imageValue?: string | null;
+    previousImageValue?: string | null;
+    imageFile?: Blob | null;
   }) => {
     if (!id || !selectedNonConformityItem) {
       return;
@@ -2154,7 +2160,9 @@ const CompanyChecklists = () => {
         companyId: id,
         checklistItemId: selectedNonConformityItem.itemId,
         description,
-        imageDataUrl,
+        imageValue,
+        previousImageValue,
+        imageFile,
       });
 
       if (savedRecord) {
@@ -3819,11 +3827,22 @@ const CompanyChecklists = () => {
                     )?.descricao || ""
                   : ""
               }
-              initialImageDataUrl={
+              initialImageValue={
                 selectedNonConformityItem
-                  ? principalNonConformities.get(
-                      selectedNonConformityItem.itemId,
-                    )?.imagem_data_url || ""
+                  ? getChecklistNonConformityImageStoredValue(
+                      principalNonConformities.get(
+                        selectedNonConformityItem.itemId,
+                      ),
+                    ) || ""
+                  : ""
+              }
+              initialImagePreviewUrl={
+                selectedNonConformityItem
+                  ? getChecklistNonConformityImagePreviewUrl(
+                      principalNonConformities.get(
+                        selectedNonConformityItem.itemId,
+                      ),
+                    ) || ""
                   : ""
               }
               saving={savingNonConformity}

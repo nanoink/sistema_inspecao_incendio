@@ -5,6 +5,10 @@ import type {
   TablesInsert,
 } from "@/integrations/supabase/types";
 import {
+  loadEquipmentQrPage,
+  type EquipmentType,
+} from "@/lib/checklist-equipment";
+import {
   resolveActiveReportCycleId,
   resolveEditableReportCycleId,
 } from "@/lib/report-cycles";
@@ -17,12 +21,20 @@ export type NonConformityEquipmentType =
   | "hidrante"
   | "luminaria";
 export type ChecklistNonConformityRecord =
-  Tables<"empresa_checklist_nao_conformidades">;
+  Tables<"empresa_checklist_nao_conformidades"> & {
+    imagem_original_value?: string | null;
+    imagem_preview_url?: string | null;
+  };
 type ChecklistNonConformityPayload =
   TablesInsert<"empresa_checklist_nao_conformidades">;
 
 const LIGHTWEIGHT_NON_CONFORMITY_COLUMNS =
   "id, context_key, empresa_id, relatorio_ciclo_id, checklist_item_id, equipment_type, equipment_record_id, descricao, created_at, updated_at";
+const NON_CONFORMITY_IMAGE_STORAGE_BUCKET =
+  "empresa-checklist-nao-conformidades";
+const NON_CONFORMITY_IMAGE_STORAGE_PREFIX = "storage://";
+const SIGNED_URL_DURATION_SECONDS = 60 * 60 * 12;
+const STORAGE_UPLOAD_FALLBACK_CONTENT_TYPE = "image/jpeg";
 
 interface BaseScope {
   companyId: string;
@@ -42,6 +54,351 @@ interface EquipmentScope extends BaseScope {
 
 type ChecklistNonConformityScope = PrincipalScope | EquipmentScope;
 
+interface ChecklistNonConformityImageSaveOptions {
+  companyId: string;
+  checklistItemId: string;
+  equipmentType?: NonConformityEquipmentType | null;
+  equipmentRecordId?: string | null;
+  imageValue?: string | null;
+  previousImageValue?: string | null;
+  imageFile?: Blob | null;
+}
+
+interface SaveEquipmentQrNonConformityOptions {
+  token: string;
+  checklistItemId: string;
+  description: string;
+  imageValue?: string | null;
+  previousImageValue?: string | null;
+  imageFile?: Blob | null;
+  companyId?: string | null;
+  equipmentType?: EquipmentType | null;
+  equipmentRecordId?: string | null;
+}
+
+interface SaveChecklistNonConformityOptions {
+  companyId: string;
+  checklistItemId: string;
+  description: string;
+  imageValue?: string | null;
+  previousImageValue?: string | null;
+  imageFile?: Blob | null;
+  equipmentType?: NonConformityEquipmentType | null;
+  equipmentRecordId?: string | null;
+}
+
+const normalizeOptionalString = (value?: string | null) => {
+  const trimmed = value?.trim() || "";
+  return trimmed || null;
+};
+
+const createClientSideId = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.round(Math.random() * 1_000_000_000)}`;
+
+const blobToDataUrl = (blob: Blob) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () =>
+      resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+
+const normalizeStorageObjectFileName = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "_");
+
+const getBlobExtension = (blob: Blob) => {
+  const normalizedType = blob.type.trim().toLowerCase();
+
+  if (normalizedType === "image/png") {
+    return "png";
+  }
+
+  if (normalizedType === "image/webp") {
+    return "webp";
+  }
+
+  return "jpg";
+};
+
+const isEquipmentScope = (
+  scope: ChecklistNonConformityScope,
+): scope is EquipmentScope =>
+  !!scope.equipmentType && !!scope.equipmentRecordId;
+
+const isDataUrl = (value: string) => value.startsWith("data:");
+const isHttpUrl = (value: string) =>
+  /^https?:\/\//i.test(value);
+const isBlobUrl = (value: string) => value.startsWith("blob:");
+
+const parseChecklistNonConformityStorageReference = (value?: string | null) => {
+  const normalizedValue = normalizeOptionalString(value);
+
+  if (
+    !normalizedValue ||
+    !normalizedValue.startsWith(NON_CONFORMITY_IMAGE_STORAGE_PREFIX)
+  ) {
+    return null;
+  }
+
+  const withoutPrefix = normalizedValue.slice(
+    NON_CONFORMITY_IMAGE_STORAGE_PREFIX.length,
+  );
+  const slashIndex = withoutPrefix.indexOf("/");
+
+  if (slashIndex <= 0 || slashIndex === withoutPrefix.length - 1) {
+    return null;
+  }
+
+  return {
+    bucket: withoutPrefix.slice(0, slashIndex),
+    path: withoutPrefix.slice(slashIndex + 1),
+  };
+};
+
+const buildChecklistNonConformityStorageReference = (
+  bucket: string,
+  path: string,
+) => `${NON_CONFORMITY_IMAGE_STORAGE_PREFIX}${bucket}/${path}`;
+
+const buildChecklistNonConformityImageUploadPath = ({
+  companyId,
+  checklistItemId,
+  equipmentType,
+  equipmentRecordId,
+  blob,
+}: {
+  companyId: string;
+  checklistItemId: string;
+  equipmentType?: NonConformityEquipmentType | null;
+  equipmentRecordId?: string | null;
+  blob: Blob;
+}) => {
+  const extension = getBlobExtension(blob);
+  const normalizedChecklistItemId = normalizeStorageObjectFileName(
+    checklistItemId,
+  );
+  const scopePath =
+    equipmentType && equipmentRecordId
+      ? `${equipmentType}/${equipmentRecordId}`
+      : "principal";
+
+  return `${companyId}/checklist-non-conformities/${scopePath}/${normalizedChecklistItemId}/${Date.now()}-${createClientSideId()}.${extension}`;
+};
+
+const removeChecklistNonConformityStoredImage = async (
+  supabase: AppSupabaseClient,
+  value?: string | null,
+) => {
+  const storageReference = parseChecklistNonConformityStorageReference(value);
+
+  if (!storageReference) {
+    return;
+  }
+
+  await supabase.storage
+    .from(storageReference.bucket)
+    .remove([storageReference.path])
+    .catch(() => undefined);
+};
+
+const resolveExistingImageValueForSave = ({
+  imageValue,
+  previousImageValue,
+  imageFile,
+}: Pick<
+  ChecklistNonConformityImageSaveOptions,
+  "imageValue" | "previousImageValue" | "imageFile"
+>) => {
+  const normalizedImageValue = normalizeOptionalString(imageValue);
+  const normalizedPreviousValue = normalizeOptionalString(previousImageValue);
+
+  if (imageFile) {
+    return normalizedImageValue;
+  }
+
+  if (
+    normalizedImageValue &&
+    !isHttpUrl(normalizedImageValue) &&
+    !isBlobUrl(normalizedImageValue)
+  ) {
+    return normalizedImageValue;
+  }
+
+  if (normalizedPreviousValue) {
+    return normalizedPreviousValue;
+  }
+
+  return normalizedImageValue;
+};
+
+const uploadChecklistNonConformityImage = async (
+  supabase: AppSupabaseClient,
+  {
+    companyId,
+    checklistItemId,
+    equipmentType,
+    equipmentRecordId,
+    imageFile,
+  }: Pick<
+    ChecklistNonConformityImageSaveOptions,
+    "companyId" | "checklistItemId" | "equipmentType" | "equipmentRecordId" | "imageFile"
+  >,
+) => {
+  if (!imageFile) {
+    throw new Error("Nenhuma imagem foi fornecida para upload.");
+  }
+
+  const uploadedFilePath = buildChecklistNonConformityImageUploadPath({
+    companyId,
+    checklistItemId,
+    equipmentType,
+    equipmentRecordId,
+    blob: imageFile,
+  });
+  const { error } = await supabase.storage
+    .from(NON_CONFORMITY_IMAGE_STORAGE_BUCKET)
+    .upload(uploadedFilePath, imageFile, {
+      contentType:
+        normalizeOptionalString(imageFile.type) ||
+        STORAGE_UPLOAD_FALLBACK_CONTENT_TYPE,
+      upsert: true,
+    });
+
+  if (error) {
+    throw error;
+  }
+
+  return buildChecklistNonConformityStorageReference(
+    NON_CONFORMITY_IMAGE_STORAGE_BUCKET,
+    uploadedFilePath,
+  );
+};
+
+const resolveChecklistNonConformityImageValueForSave = async (
+  supabase: AppSupabaseClient,
+  options: ChecklistNonConformityImageSaveOptions,
+) => {
+  const previousImageValue = normalizeOptionalString(options.previousImageValue);
+  const existingImageValue = resolveExistingImageValueForSave(options);
+  let nextImageValue = existingImageValue;
+  let uploadedImageValue: string | null = null;
+
+  if (options.imageFile) {
+    try {
+      uploadedImageValue = await uploadChecklistNonConformityImage(
+        supabase,
+        options,
+      );
+      nextImageValue = uploadedImageValue;
+    } catch (uploadError) {
+      console.error(
+        "Error uploading checklist non conformity image to storage. Falling back to inline image data:",
+        uploadError,
+      );
+      nextImageValue = await blobToDataUrl(options.imageFile);
+    }
+  }
+
+  return {
+    nextImageValue,
+    previousImageValue,
+    uploadedImageValue,
+  };
+};
+
+const hydrateChecklistNonConformityImageRecord = async (
+  supabase: AppSupabaseClient,
+  record: ChecklistNonConformityRecord,
+) => {
+  const originalValue = normalizeOptionalString(
+    record.imagem_original_value ?? record.imagem_data_url,
+  );
+
+  if (!originalValue) {
+    return {
+      ...record,
+      imagem_data_url: null,
+      imagem_original_value: null,
+      imagem_preview_url: null,
+    } satisfies ChecklistNonConformityRecord;
+  }
+
+  if (isDataUrl(originalValue) || isHttpUrl(originalValue)) {
+    return {
+      ...record,
+      imagem_data_url: originalValue,
+      imagem_original_value: originalValue,
+      imagem_preview_url: originalValue,
+    } satisfies ChecklistNonConformityRecord;
+  }
+
+  const storageReference =
+    parseChecklistNonConformityStorageReference(originalValue);
+
+  if (!storageReference) {
+    return {
+      ...record,
+      imagem_data_url: originalValue,
+      imagem_original_value: originalValue,
+      imagem_preview_url: originalValue,
+    } satisfies ChecklistNonConformityRecord;
+  }
+
+  const { data, error } = await supabase.storage
+    .from(storageReference.bucket)
+    .createSignedUrl(storageReference.path, SIGNED_URL_DURATION_SECONDS);
+
+  if (error) {
+    console.error(
+      `Error creating signed URL for checklist non conformity ${record.id}:`,
+      error,
+    );
+
+    return {
+      ...record,
+      imagem_data_url: null,
+      imagem_original_value: originalValue,
+      imagem_preview_url: null,
+    } satisfies ChecklistNonConformityRecord;
+  }
+
+  const signedUrl = data?.signedUrl || null;
+
+  return {
+    ...record,
+    imagem_data_url: signedUrl,
+    imagem_original_value: originalValue,
+    imagem_preview_url: signedUrl,
+  } satisfies ChecklistNonConformityRecord;
+};
+
+export const hydrateChecklistNonConformityImageRecords = async (
+  supabase: AppSupabaseClient,
+  records: ChecklistNonConformityRecord[],
+) =>
+  Promise.all(
+    records.map((record) =>
+      hydrateChecklistNonConformityImageRecord(supabase, record),
+    ),
+  );
+
+export const getChecklistNonConformityImageStoredValue = (
+  record?: ChecklistNonConformityRecord | null,
+) =>
+  normalizeOptionalString(record?.imagem_original_value ?? record?.imagem_data_url);
+
+export const getChecklistNonConformityImagePreviewUrl = (
+  record?: ChecklistNonConformityRecord | null,
+) =>
+  normalizeOptionalString(record?.imagem_preview_url ?? record?.imagem_data_url);
+
 export const groupChecklistNonConformitiesByEquipmentRecordId = (
   records: ChecklistNonConformityRecord[],
 ) => {
@@ -59,11 +416,6 @@ export const groupChecklistNonConformitiesByEquipmentRecordId = (
 
   return grouped;
 };
-
-const isEquipmentScope = (
-  scope: ChecklistNonConformityScope,
-): scope is EquipmentScope =>
-  !!scope.equipmentType && !!scope.equipmentRecordId;
 
 export const buildChecklistNonConformityContextKey = ({
   companyId,
@@ -102,9 +454,7 @@ export const loadChecklistNonConformities = async (
 
   let query = supabase
     .from("empresa_checklist_nao_conformidades")
-    .select(
-      includeImageData ? "*" : LIGHTWEIGHT_NON_CONFORMITY_COLUMNS,
-    )
+    .select(includeImageData ? "*" : LIGHTWEIGHT_NON_CONFORMITY_COLUMNS)
     .eq("empresa_id", scope.companyId)
     .order("updated_at", { ascending: false });
 
@@ -130,16 +480,18 @@ export const loadChecklistNonConformities = async (
     let fallbackQuery = supabase
       .from("empresa_checklist_nao_conformidades")
       .select(
-        includeImageData ? "*" : LIGHTWEIGHT_NON_CONFORMITY_COLUMNS.replace(
-          "relatorio_ciclo_id, ",
-          "",
-        ),
+        includeImageData
+          ? "*"
+          : LIGHTWEIGHT_NON_CONFORMITY_COLUMNS.replace("relatorio_ciclo_id, ", ""),
       )
       .eq("empresa_id", scope.companyId)
       .order("updated_at", { ascending: false });
 
     if (scope.checklistItemId) {
-      fallbackQuery = fallbackQuery.eq("checklist_item_id", scope.checklistItemId);
+      fallbackQuery = fallbackQuery.eq(
+        "checklist_item_id",
+        scope.checklistItemId,
+      );
     }
 
     if (isEquipmentScope(scope)) {
@@ -158,7 +510,7 @@ export const loadChecklistNonConformities = async (
       throw fallbackResult.error;
     }
 
-    return ((fallbackResult.data || []) as ChecklistNonConformityRecord[]).map(
+    const fallbackRecords = ((fallbackResult.data || []) as ChecklistNonConformityRecord[]).map(
       (record) =>
         includeImageData
           ? record
@@ -167,13 +519,17 @@ export const loadChecklistNonConformities = async (
               imagem_data_url: null,
             } satisfies ChecklistNonConformityRecord),
     );
+
+    return includeImageData
+      ? hydrateChecklistNonConformityImageRecords(supabase, fallbackRecords)
+      : fallbackRecords;
   }
 
   if (error) {
     throw error;
   }
 
-  return ((data || []) as ChecklistNonConformityRecord[]).map((record) =>
+  const records = ((data || []) as ChecklistNonConformityRecord[]).map((record) =>
     includeImageData
       ? record
       : ({
@@ -181,6 +537,10 @@ export const loadChecklistNonConformities = async (
           imagem_data_url: null,
         } satisfies ChecklistNonConformityRecord),
   );
+
+  return includeImageData
+    ? hydrateChecklistNonConformityImageRecords(supabase, records)
+    : records;
 };
 
 export const loadEquipmentChecklistNonConformitiesByType = async (
@@ -220,14 +580,20 @@ export const loadEquipmentChecklistNonConformitiesByType = async (
       throw fallbackResult.error;
     }
 
-    return fallbackResult.data || [];
+    return hydrateChecklistNonConformityImageRecords(
+      supabase,
+      (fallbackResult.data || []) as ChecklistNonConformityRecord[],
+    );
   }
 
   if (error) {
     throw error;
   }
 
-  return data || [];
+  return hydrateChecklistNonConformityImageRecords(
+    supabase,
+    (data || []) as ChecklistNonConformityRecord[],
+  );
 };
 
 export const loadAllChecklistNonConformitiesForActiveCycle = async (
@@ -259,14 +625,20 @@ export const loadAllChecklistNonConformitiesForActiveCycle = async (
       throw fallbackResult.error;
     }
 
-    return fallbackResult.data || [];
+    return hydrateChecklistNonConformityImageRecords(
+      supabase,
+      (fallbackResult.data || []) as ChecklistNonConformityRecord[],
+    );
   }
 
   if (error) {
     throw error;
   }
 
-  return data || [];
+  return hydrateChecklistNonConformityImageRecords(
+    supabase,
+    (data || []) as ChecklistNonConformityRecord[],
+  );
 };
 
 export const loadEquipmentQrNonConformities = async (
@@ -284,7 +656,10 @@ export const loadEquipmentQrNonConformities = async (
     throw error;
   }
 
-  return (data || []) as ChecklistNonConformityRecord[];
+  return hydrateChecklistNonConformityImageRecords(
+    supabase,
+    (data || []) as ChecklistNonConformityRecord[],
+  );
 };
 
 export const saveEquipmentQrNonConformity = async (
@@ -293,29 +668,115 @@ export const saveEquipmentQrNonConformity = async (
     token,
     checklistItemId,
     description,
-    imageDataUrl,
-  }: {
-    token: string;
-    checklistItemId: string;
-    description: string;
-    imageDataUrl?: string | null;
-  },
+    imageValue,
+    previousImageValue,
+    imageFile,
+    companyId,
+    equipmentType,
+    equipmentRecordId,
+  }: SaveEquipmentQrNonConformityOptions,
 ) => {
-  const { data, error } = await supabase.rpc(
-    "save_equipment_qr_non_conformity",
-    {
-      p_token: token,
-      p_checklist_item_id: checklistItemId,
-      p_descricao: description.trim(),
-      p_imagem_data_url: imageDataUrl?.trim() || null,
-    },
-  );
+  let resolvedCompanyId = normalizeOptionalString(companyId);
+  let resolvedEquipmentType =
+    equipmentType === "extintor" ||
+    equipmentType === "hidrante" ||
+    equipmentType === "luminaria"
+      ? equipmentType
+      : null;
+  let resolvedEquipmentRecordId = normalizeOptionalString(equipmentRecordId);
 
-  if (error) {
-    throw error;
+  if (imageFile && (!resolvedCompanyId || !resolvedEquipmentType || !resolvedEquipmentRecordId)) {
+    const equipmentQrRecord = await loadEquipmentQrPage(
+      supabase,
+      token,
+      resolvedEquipmentType,
+    );
+
+    if (!equipmentQrRecord) {
+      throw new Error(
+        "Nao foi possivel localizar o equipamento para salvar a imagem da nao conformidade.",
+      );
+    }
+
+    resolvedCompanyId = equipmentQrRecord.empresa_id;
+    resolvedEquipmentType = equipmentQrRecord.equipment_type;
+    resolvedEquipmentRecordId = equipmentQrRecord.equipment_id;
   }
 
-  return (data?.[0] || null) as ChecklistNonConformityRecord | null;
+  const {
+    nextImageValue,
+    previousImageValue: normalizedPreviousImageValue,
+    uploadedImageValue,
+  } =
+    resolvedCompanyId && imageFile
+      ? await resolveChecklistNonConformityImageValueForSave(supabase, {
+          companyId: resolvedCompanyId,
+          checklistItemId,
+          equipmentType: resolvedEquipmentType,
+          equipmentRecordId: resolvedEquipmentRecordId,
+          imageValue,
+          previousImageValue,
+          imageFile,
+        })
+      : {
+          nextImageValue: resolveExistingImageValueForSave({
+            imageValue,
+            previousImageValue,
+            imageFile,
+          }),
+          previousImageValue: normalizeOptionalString(previousImageValue),
+          uploadedImageValue: null,
+        };
+
+  try {
+    const { data, error } = await supabase.rpc(
+      "save_equipment_qr_non_conformity",
+      {
+        p_token: token,
+        p_checklist_item_id: checklistItemId,
+        p_descricao: description.trim(),
+        p_imagem_data_url: nextImageValue,
+      },
+    );
+
+    if (error) {
+      throw error;
+    }
+
+    if (
+      normalizedPreviousImageValue &&
+      normalizedPreviousImageValue !== nextImageValue
+    ) {
+      await removeChecklistNonConformityStoredImage(
+        supabase,
+        normalizedPreviousImageValue,
+      );
+    }
+
+    const savedRecord = (data?.[0] || null) as ChecklistNonConformityRecord | null;
+
+    if (!savedRecord) {
+      return null;
+    }
+
+    const [hydratedRecord] = await hydrateChecklistNonConformityImageRecords(
+      supabase,
+      [
+        {
+          ...savedRecord,
+          imagem_data_url: nextImageValue,
+        } satisfies ChecklistNonConformityRecord,
+      ],
+    );
+
+    return hydratedRecord || null;
+  } catch (error) {
+    if (uploadedImageValue) {
+      await removeChecklistNonConformityStoredImage(supabase, uploadedImageValue);
+    }
+
+    throw error;
+  }
 };
 
 export const saveChecklistNonConformity = async (
@@ -324,22 +785,30 @@ export const saveChecklistNonConformity = async (
     companyId,
     checklistItemId,
     description,
-    imageDataUrl,
+    imageValue,
+    previousImageValue,
+    imageFile,
     equipmentType,
     equipmentRecordId,
-  }: {
-    companyId: string;
-    checklistItemId: string;
-    description: string;
-    imageDataUrl?: string | null;
-    equipmentType?: NonConformityEquipmentType | null;
-    equipmentRecordId?: string | null;
-  },
+  }: SaveChecklistNonConformityOptions,
 ) => {
   const editableReportCycleId = await resolveEditableReportCycleId(
     supabase,
     companyId,
   );
+  const {
+    nextImageValue,
+    previousImageValue: normalizedPreviousImageValue,
+    uploadedImageValue,
+  } = await resolveChecklistNonConformityImageValueForSave(supabase, {
+    companyId,
+    checklistItemId,
+    equipmentType,
+    equipmentRecordId,
+    imageValue,
+    previousImageValue,
+    imageFile,
+  });
   const payload: ChecklistNonConformityPayload = {
     relatorio_ciclo_id: editableReportCycleId ?? undefined,
     context_key: buildChecklistNonConformityContextKey({
@@ -354,61 +823,105 @@ export const saveChecklistNonConformity = async (
     equipment_type: equipmentType ?? null,
     equipment_record_id: equipmentRecordId ?? null,
     descricao: description.trim(),
-    imagem_data_url: imageDataUrl?.trim() || null,
+    imagem_data_url: nextImageValue,
   };
 
-  const { data, error } = await supabase
-    .from("empresa_checklist_nao_conformidades")
-    .upsert(payload, { onConflict: "context_key" })
-    .select(
-      "id, context_key, empresa_id, relatorio_ciclo_id, checklist_item_id, equipment_type, equipment_record_id, descricao, created_at, updated_at",
-    )
-    .maybeSingle();
-
-  if (error && isMissingColumnError(error, ["relatorio_ciclo_id"])) {
-    const legacyPayload = {
-      context_key: buildChecklistNonConformityContextKey({
-        companyId,
-        checklistItemId,
-        equipmentType,
-        equipmentRecordId,
-      }),
-      empresa_id: companyId,
-      checklist_item_id: checklistItemId,
-      equipment_type: equipmentType ?? null,
-      equipment_record_id: equipmentRecordId ?? null,
-      descricao: description.trim(),
-      imagem_data_url: imageDataUrl?.trim() || null,
-    } satisfies ChecklistNonConformityPayload;
-
-    const legacyResult = await supabase
+  try {
+    const { data, error } = await supabase
       .from("empresa_checklist_nao_conformidades")
-      .upsert(legacyPayload, { onConflict: "context_key" })
+      .upsert(payload, { onConflict: "context_key" })
       .select(
-        "id, context_key, empresa_id, checklist_item_id, equipment_type, equipment_record_id, descricao, created_at, updated_at",
+        "id, context_key, empresa_id, relatorio_ciclo_id, checklist_item_id, equipment_type, equipment_record_id, descricao, created_at, updated_at",
       )
       .maybeSingle();
 
-    if (legacyResult.error) {
-      throw legacyResult.error;
+    if (error && isMissingColumnError(error, ["relatorio_ciclo_id"])) {
+      const legacyPayload = {
+        context_key: buildChecklistNonConformityContextKey({
+          companyId,
+          checklistItemId,
+          equipmentType,
+          equipmentRecordId,
+        }),
+        empresa_id: companyId,
+        checklist_item_id: checklistItemId,
+        equipment_type: equipmentType ?? null,
+        equipment_record_id: equipmentRecordId ?? null,
+        descricao: description.trim(),
+        imagem_data_url: nextImageValue,
+      } satisfies ChecklistNonConformityPayload;
+
+      const legacyResult = await supabase
+        .from("empresa_checklist_nao_conformidades")
+        .upsert(legacyPayload, { onConflict: "context_key" })
+        .select(
+          "id, context_key, empresa_id, checklist_item_id, equipment_type, equipment_record_id, descricao, created_at, updated_at",
+        )
+        .maybeSingle();
+
+      if (legacyResult.error) {
+        throw legacyResult.error;
+      }
+
+      if (
+        normalizedPreviousImageValue &&
+        normalizedPreviousImageValue !== nextImageValue
+      ) {
+        await removeChecklistNonConformityStoredImage(
+          supabase,
+          normalizedPreviousImageValue,
+        );
+      }
+
+      if (!legacyResult.data) {
+        return null;
+      }
+
+      const [hydratedLegacyRecord] =
+        await hydrateChecklistNonConformityImageRecords(supabase, [
+          {
+            ...legacyResult.data,
+            imagem_data_url: nextImageValue,
+          } satisfies ChecklistNonConformityRecord,
+        ]);
+
+      return hydratedLegacyRecord || null;
     }
 
-    return legacyResult.data
-      ? ({
-          ...legacyResult.data,
-          imagem_data_url: legacyPayload.imagem_data_url,
-        } satisfies ChecklistNonConformityRecord)
-      : null;
-  }
+    if (error) {
+      throw error;
+    }
 
-  if (error) {
+    if (
+      normalizedPreviousImageValue &&
+      normalizedPreviousImageValue !== nextImageValue
+    ) {
+      await removeChecklistNonConformityStoredImage(
+        supabase,
+        normalizedPreviousImageValue,
+      );
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    const [hydratedRecord] = await hydrateChecklistNonConformityImageRecords(
+      supabase,
+      [
+        {
+          ...data,
+          imagem_data_url: nextImageValue,
+        } satisfies ChecklistNonConformityRecord,
+      ],
+    );
+
+    return hydratedRecord || null;
+  } catch (error) {
+    if (uploadedImageValue) {
+      await removeChecklistNonConformityStoredImage(supabase, uploadedImageValue);
+    }
+
     throw error;
   }
-
-  return data
-    ? ({
-        ...data,
-        imagem_data_url: payload.imagem_data_url,
-      } satisfies ChecklistNonConformityRecord)
-    : null;
 };

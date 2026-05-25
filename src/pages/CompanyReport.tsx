@@ -31,7 +31,10 @@ import {
   type ChecklistSnapshot,
   type ChecklistSnapshotItem,
 } from "@/lib/checklist";
-import { loadAllChecklistNonConformitiesForActiveCycle } from "@/lib/checklist-non-conformities";
+import {
+  loadAllChecklistNonConformitiesForActiveCycle,
+  type ChecklistNonConformityRecord,
+} from "@/lib/checklist-non-conformities";
 import { loadChecklistData } from "@/lib/checklist-source";
 import {
   buildExtinguisherSummary,
@@ -97,8 +100,7 @@ type Company = Pick<
 
 type ReportRow = Database["public"]["Tables"]["empresa_relatorios"]["Row"];
 type ReportStatus = "rascunho" | "finalizado";
-type NonConformityRow =
-  Database["public"]["Tables"]["empresa_checklist_nao_conformidades"]["Row"];
+type NonConformityRow = ChecklistNonConformityRecord;
 type ExtinguisherRow = Pick<
   Database["public"]["Tables"]["empresa_extintores"]["Row"],
   | "id"
