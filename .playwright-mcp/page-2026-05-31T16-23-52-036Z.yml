@@ -1,0 +1,61 @@
+- generic [ref=e2]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - generic [ref=e8]:
+          - img "Fire Tetraedro" [ref=e10]
+          - link "Voltar ao site" [ref=e11] [cursor=pointer]:
+            - /url: /
+            - text: Voltar ao site
+            - img [ref=e12]
+        - generic [ref=e14]: acesso ao ecossistema fire 360
+        - heading "Entre na operacao continua da Fire Tetraedro." [level=1] [ref=e15]
+        - paragraph [ref=e16]: O portal autenticado concentra cadastro, exigencias, checklists, relatorios e rastreabilidade operacional em uma interface unica.
+        - generic [ref=e17]:
+          - generic [ref=e18]:
+            - img [ref=e20]
+            - heading "Operacao padronizada" [level=2] [ref=e24]
+            - paragraph [ref=e25]: Checklists, evidencias e nao conformidades no mesmo fluxo.
+          - generic [ref=e26]:
+            - img [ref=e28]
+            - heading "Compliance rastreavel" [level=2] [ref=e31]
+            - paragraph [ref=e32]: Visibilidade tecnica, historico e prova documental por ciclo.
+          - generic [ref=e33]:
+            - img [ref=e35]
+            - heading "Gestao por empresa" [level=2] [ref=e39]
+            - paragraph [ref=e40]: Cada conta acessa apenas a estrutura e os ativos permitidos.
+      - generic [ref=e41]:
+        - generic [ref=e42]:
+          - generic [ref=e43]: Campo
+          - generic [ref=e44]: execucao assistida
+        - generic [ref=e45]:
+          - generic [ref=e46]: Compliance
+          - generic [ref=e47]: trilha tecnica ativa
+        - generic [ref=e48]:
+          - generic [ref=e49]: Gestao
+          - generic [ref=e50]: decisao baseada em ciclo
+    - generic [ref=e51]:
+      - generic [ref=e52]:
+        - generic [ref=e53]: login protegido
+        - heading "Acessar plataforma" [level=3] [ref=e54]:
+          - img [ref=e56]
+          - text: Acessar plataforma
+        - paragraph [ref=e60]: Entre com suas credenciais para continuar na operacao do FIRE 360.
+      - generic [ref=e62]:
+        - generic [ref=e63]:
+          - text: Email
+          - textbox "Email" [ref=e64]:
+            - /placeholder: seu@email.com
+        - generic [ref=e65]:
+          - text: Senha
+          - textbox "Senha" [ref=e66]:
+            - /placeholder: ••••••
+        - button "Entrar no sistema" [ref=e67] [cursor=pointer]:
+          - img
+          - text: Entrar no sistema
+        - generic [ref=e68]:
+          - paragraph [ref=e69]: Provisionamento centralizado de contas
+          - paragraph [ref=e70]: As contas sao criadas pelo administrador geral do sistema ou pelo gestor da empresa, mantendo o controle de acesso alinhado a cada operacao.

@@ -186,20 +186,20 @@ export default function Auth() {
           </div>
         </section>
 
-        <Card className="self-center">
-          <CardHeader className="space-y-3">
+        <Card className="self-center overflow-hidden border-white/70 bg-white shadow-[0_30px_90px_rgba(7,22,47,0.18)]">
+          <CardHeader className="space-y-3 border-b border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.99),rgba(244,248,255,0.97))]">
             <div className="fire-app-chip w-fit">login protegido</div>
-            <CardTitle className="flex items-center gap-3 text-3xl">
-              <span className="rounded-2xl bg-primary/10 p-3 text-primary">
+            <CardTitle className="flex items-center gap-3 text-3xl text-slate-950">
+              <span className="rounded-2xl border border-primary/10 bg-primary/12 p-3 text-primary shadow-[0_12px_30px_rgba(255,91,31,0.12)]">
                 <LockKeyhole className="h-5 w-5" />
               </span>
               Acessar plataforma
             </CardTitle>
-            <CardDescription className="text-base leading-7">
+            <CardDescription className="max-w-xl text-base leading-7 text-slate-600">
               Entre com suas credenciais para continuar na operacao do FIRE 360.
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="bg-white">
             <form
               onSubmit={loginForm.handleSubmit(handleLogin)}
               className="space-y-5"
