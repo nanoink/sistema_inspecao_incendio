@@ -1,4 +1,5 @@
 import { CompanyForm } from "@/components/company/CompanyForm";
+import { FirePageHeader, FirePageShell } from "@/components/branding/FirePageShell";
 import { Shield, ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -10,42 +11,36 @@ const Index = () => {
   const { isSystemAdmin } = useAuth();
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto py-4 md:py-8 px-4">
-        <div className="mb-6 md:mb-8">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate(-1)}
-            className="mb-4"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
+    <FirePageShell>
+      <FirePageHeader
+        icon={Shield}
+        eyebrow="cadastro estrategico"
+        title="Cadastro de Empresas"
+        description="Abra novas operacoes na base Fire 360 com dados institucionais, classificacao tecnica e configuracao inicial de acesso."
+        actions={
+          <Button variant="outline" size="lg" onClick={() => navigate(-1)}>
+            <ArrowLeft className="mr-2 h-4 w-4" />
             Voltar
           </Button>
-          <div className="text-center">
-          <div className="flex flex-col items-center justify-center mb-4">
-            <Shield className="h-8 w-8 md:h-12 md:w-12 text-primary mb-2 md:mb-0 md:mr-3" />
-            <h1 className="text-2xl md:text-4xl font-bold text-foreground">Sistema de Cadastro de Empresas</h1>
-          </div>
-          <p className="text-sm md:text-lg text-muted-foreground">
-            Cadastro conforme IT-01 e IT-02 do Corpo de Bombeiros
-          </p>
-          </div>
-        </div>
-        
-        <div className="max-w-5xl mx-auto">
-          {isSystemAdmin ? (
-            <CompanyForm />
-          ) : (
-            <Card>
-              <CardContent className="py-12 text-center text-muted-foreground">
-                Apenas o administrador geral do sistema pode cadastrar novas empresas.
-              </CardContent>
-            </Card>
-          )}
-        </div>
+        }
+        stats={[
+          { value: "IT-01", label: "referencia normativa" },
+          { value: "IT-02", label: "classificacao base" },
+        ]}
+      />
+      
+      <div className="mx-auto max-w-5xl">
+        {isSystemAdmin ? (
+          <CompanyForm />
+        ) : (
+          <Card className="fire-app-surface">
+            <CardContent className="py-12 text-center text-muted-foreground">
+              Apenas o administrador geral do sistema pode cadastrar novas empresas.
+            </CardContent>
+          </Card>
+        )}
       </div>
-    </div>
+    </FirePageShell>
   );
 };
 

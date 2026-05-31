@@ -22,10 +22,10 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 const queryClient = new QueryClient();
 
 const RouteLoader = () => (
-  <div className="min-h-screen flex items-center justify-center bg-background">
-    <div className="flex items-center gap-3 text-sm text-muted-foreground">
+  <div className="fire-app-shell flex min-h-screen items-center justify-center">
+    <div className="fire-app-surface flex items-center gap-3 px-6 py-4 text-sm text-muted-foreground">
       <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
-      Carregando...
+      Carregando ambiente Fire 360...
     </div>
   </div>
 );

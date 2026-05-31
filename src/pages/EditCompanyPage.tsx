@@ -7,6 +7,7 @@ import { ArrowLeft, Check, ChevronsUpDown, Loader2, Save } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { useToast } from "@/hooks/use-toast";
+import { FirePageHeader, FirePageShell } from "@/components/branding/FirePageShell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -384,7 +385,7 @@ const EditCompanyPage = () => {
 
   if (loadingPage) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="fire-app-shell flex min-h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
@@ -392,7 +393,7 @@ const EditCompanyPage = () => {
 
   if (!company) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center px-4">
+      <div className="fire-app-shell flex min-h-screen items-center justify-center px-4">
         <Card className="w-full max-w-xl">
           <CardContent className="py-12 text-center">
             <p className="text-lg font-semibold">Empresa nao encontrada</p>
@@ -415,26 +416,25 @@ const EditCompanyPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto max-w-5xl px-4 py-6 md:py-8">
-        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-sm uppercase tracking-[0.24em] text-muted-foreground">
-              Edicao da empresa
-            </p>
-            <h1 className="text-2xl font-bold md:text-3xl">{company.razao_social}</h1>
-            <p className="text-sm text-muted-foreground">
-              Atualize os dados da empresa e gerencie os usuarios em uma unica view.
-            </p>
-          </div>
+    <FirePageShell containerClassName="max-w-6xl">
+        <FirePageHeader
+          icon={Save}
+          eyebrow="gestao da base"
+          title={company.razao_social}
+          description="Atualize os dados da empresa, ajuste classificações e administre os usuários na mesma camada visual do ecossistema Fire 360."
+          actions={
+            <Button type="button" variant="outline" size="lg" onClick={() => navigate("/dashboard")}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Voltar
+            </Button>
+          }
+          stats={[
+            { value: company.cnpj || "-", label: "cnpj" },
+            { value: company.grau_risco || "-", label: "grau de risco" },
+          ]}
+        />
 
-          <Button type="button" variant="outline" onClick={() => navigate("/dashboard")}>
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Voltar
-          </Button>
-        </div>
-
-        <Card>
+        <Card className="fire-app-surface">
           <CardHeader>
             <CardTitle>Editar Empresa</CardTitle>
           </CardHeader>
@@ -768,8 +768,7 @@ const EditCompanyPage = () => {
             </Form>
           </CardContent>
         </Card>
-      </div>
-    </div>
+    </FirePageShell>
   );
 };
 

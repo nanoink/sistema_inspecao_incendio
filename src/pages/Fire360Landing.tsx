@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   Accordion,
@@ -8,82 +9,287 @@ import {
 import {
   ArrowRight,
   BarChart3,
-  Building2,
+  Binary,
+  Camera,
   CheckCircle2,
   ClipboardCheck,
-  FileText,
+  FileCheck2,
   Flame,
-  Gauge,
   Layers3,
+  MapPinned,
   QrCode,
+  RadioTower,
   ScanSearch,
   ShieldCheck,
   Siren,
   Smartphone,
   Users,
+  Waypoints,
   type LucideIcon,
 } from "lucide-react";
+import fireTetraedroLogo from "@/assets/firetetraedro-logo.svg";
 
 const pageFontStyles = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Lexend:wght@500;600;700;800&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap');
 
   .fire360-landing {
-    font-family: 'Inter', sans-serif;
+    --fire-ink: #07162f;
+    --fire-ink-soft: #0d2345;
+    --fire-cyan: #73e7ff;
+    --fire-blue: #2f7dff;
+    --fire-blue-soft: #d7ecff;
+    --fire-orange: #ff5b1f;
+    --fire-orange-soft: #ffe2d3;
+    --fire-red: #ff4d57;
+    --fire-shell: #f7f9fc;
+    --fire-line: rgba(115, 231, 255, 0.16);
+    font-family: 'Manrope', sans-serif;
+    background:
+      radial-gradient(circle at top center, rgba(47, 125, 255, 0.18), transparent 30%),
+      linear-gradient(180deg, #07162f 0%, #081d3a 18%, #f7f9fc 18%, #f7f9fc 100%);
   }
 
   .fire360-display {
-    font-family: 'Lexend', sans-serif;
+    font-family: 'Space Grotesk', sans-serif;
+  }
+
+  .fire360-grid {
+    background-image:
+      linear-gradient(rgba(115, 231, 255, 0.12) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(115, 231, 255, 0.12) 1px, transparent 1px);
+    background-size: 42px 42px;
+    mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9), transparent);
+  }
+
+  .fire360-orbit {
+    animation: fire360Float 8s ease-in-out infinite;
+  }
+
+  .fire360-glow {
+    animation: fire360Pulse 5.2s ease-in-out infinite;
+  }
+
+  .fire360-line {
+    animation: fire360Sweep 7s linear infinite;
+  }
+
+  @keyframes fire360Float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+  }
+
+  @keyframes fire360Pulse {
+    0%, 100% {
+      box-shadow: 0 0 0 0 rgba(115, 231, 255, 0.18), 0 0 60px rgba(47, 125, 255, 0.2);
+    }
+    50% {
+      box-shadow: 0 0 0 18px rgba(115, 231, 255, 0.03), 0 0 78px rgba(47, 125, 255, 0.34);
+    }
+  }
+
+  @keyframes fire360Sweep {
+    0% { transform: translateX(-110%); }
+    100% { transform: translateX(110%); }
   }
 `;
 
 const navigationItems = [
-  { href: "#plataforma", label: "Plataforma" },
+  { href: "#visao", label: "Visão 360" },
+  { href: "#problema", label: "Problema" },
+  { href: "#ciclo", label: "Ciclo" },
+  { href: "#camadas", label: "Camadas" },
   { href: "#modulos", label: "Módulos" },
-  { href: "#beneficios", label: "Benefícios" },
-  { href: "#camadas", label: "Como funciona" },
-  { href: "#faq", label: "FAQ" },
+  { href: "#cta", label: "Contato" },
 ];
 
-const benefitItems: Array<{
+const heroPillars: Array<{
   title: string;
   description: string;
   icon: LucideIcon;
 }> = [
   {
-    title: "Checklists inteligentes",
-    description:
-      "Modelos técnicos por sistema, execução orientada e leitura imediata do que está conforme, pendente ou crítico.",
-    icon: ClipboardCheck,
+    title: "Campo",
+    description: "Execução orientada por sistema e por ativo.",
+    icon: Smartphone,
   },
   {
-    title: "Fluxo de field service",
-    description:
-      "Visitas em campo, equipes, histórico de salvamentos e andamento operacional centralizados em uma única rotina.",
-    icon: Users,
-  },
-  {
-    title: "Não conformidades técnicas",
-    description:
-      "Registro estruturado, plano de correção, criticidade e rastreabilidade de cada item avaliado.",
-    icon: Siren,
-  },
-  {
-    title: "Controle documental",
-    description:
-      "Relatórios, ART, anexos e evidências vinculados ao ciclo técnico correto, sem dispersão entre pastas e conversas.",
-    icon: FileText,
-  },
-  {
-    title: "Conformidade recorrente",
-    description:
-      "A plataforma acompanha o processo inteiro, da inspeção inicial ao fechamento das pendências e nova validação.",
+    title: "Compliance",
+    description: "Trilha técnica, evidências e relatório final.",
     icon: ShieldCheck,
   },
   {
-    title: "Redução de custo oculto",
+    title: "Gestão",
+    description: "Leitura executiva do que exige ação imediata.",
+    icon: BarChart3,
+  },
+];
+
+const problemItems: Array<{
+  title: string;
+  description: string;
+  accentClassName: string;
+}> = [
+  {
+    title: "Planilhas e controles paralelos",
     description:
-      "Menos retrabalho, menos perda de contexto e mais previsibilidade para operação, engenharia e gestão executiva.",
-    icon: Gauge,
+      "Dados espalhados entre arquivos locais e versões diferentes da mesma operação.",
+    accentClassName: "bg-emerald-500",
+  },
+  {
+    title: "Conversas e imagens soltas",
+    description:
+      "Evidências importantes ficam presas em mensagens e deixam de compor a memória técnica.",
+    accentClassName: "bg-[var(--fire-orange)]",
+  },
+  {
+    title: "Laudos e PDFs isolados",
+    description:
+      "A prova legal existe, mas sem encadeamento com o ativo físico e com a execução em campo.",
+    accentClassName: "bg-[var(--fire-red)]",
+  },
+];
+
+const advantageItems: Array<{
+  title: string;
+  description: string;
+  icon: LucideIcon;
+}> = [
+  {
+    title: "Espinha dorsal operacional",
+    description: "Vertical SaaS 100% integrado à rotina de inspeção.",
+    icon: Waypoints,
+  },
+  {
+    title: "Identidade única por ativo",
+    description: "QR individual preservando a memória exata do equipamento.",
+    icon: QrCode,
+  },
+  {
+    title: "Ciclo auditável",
+    description: "Não conformidade, anexos, assinatura e ART no mesmo fluxo.",
+    icon: FileCheck2,
+  },
+  {
+    title: "Leitura executiva contínua",
+    description: "Progresso, pendências e risco direto em uma única leitura.",
+    icon: RadioTower,
+  },
+];
+
+const cycleSteps: Array<{
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  toneClassName: string;
+}> = [
+  {
+    title: "Execução",
+    description: "Checklist em campo, por sistema e por equipamento.",
+    icon: ClipboardCheck,
+    toneClassName: "text-[var(--fire-cyan)]",
+  },
+  {
+    title: "Análise",
+    description: "Leitura do que está conforme, pendente ou crítico.",
+    icon: ScanSearch,
+    toneClassName: "text-white",
+  },
+  {
+    title: "Prova",
+    description: "Registro técnico com fotos, observações e evidências.",
+    icon: Camera,
+    toneClassName: "text-[var(--fire-orange)]",
+  },
+  {
+    title: "Acompanhamento",
+    description: "Plano de correção com prioridade e rastreabilidade.",
+    icon: Siren,
+    toneClassName: "text-[var(--fire-red)]",
+  },
+  {
+    title: "Revalidação",
+    description: "Fechamento das pendências e novo ciclo ativo.",
+    icon: CheckCircle2,
+    toneClassName: "text-[var(--fire-cyan)]",
+  },
+];
+
+const traceabilityItems: Array<{
+  title: string;
+  description: string;
+  icon: LucideIcon;
+}> = [
+  {
+    title: "Ativo físico",
+    description: "Cada extintor, hidrante ou luminária nasce com identidade própria.",
+    icon: Flame,
+  },
+  {
+    title: "Inspeção orientada",
+    description: "Checklist próprio com autoria, geolocalização e salvamento contínuo.",
+    icon: MapPinned,
+  },
+  {
+    title: "Desvio estruturado",
+    description: "Não conformidade registrada com contexto, foto e prioridade.",
+    icon: Siren,
+  },
+  {
+    title: "Prova legal",
+    description: "Relatório final com anexos, assinatura e vinculação da ART.",
+    icon: FileCheck2,
+  },
+];
+
+const layerItems: Array<{
+  title: string;
+  subtitle: string;
+  description: string;
+  surfaceClassName: string;
+  borderClassName: string;
+  items: string[];
+}> = [
+  {
+    title: "Operação em Campo",
+    subtitle: "Para vistoriadores e equipes técnicas",
+    description:
+      "Fluxo assistido, preservação de contexto e captura imediata de evidências durante a visita.",
+    surfaceClassName:
+      "bg-white text-[var(--fire-ink)] shadow-[0_24px_64px_rgba(7,22,47,0.12)]",
+    borderClassName: "border-[var(--fire-blue-soft)]",
+    items: [
+      "Checklist por equipamento, etapa por etapa",
+      "Salvamento contínuo com autoria",
+      "Registro rápido de foto e não conformidade",
+    ],
+  },
+  {
+    title: "Compliance Técnico",
+    subtitle: "Para engenharia e responsáveis técnicos",
+    description:
+      "Validação do risco, rastreabilidade por ciclo e documentação pronta para auditoria técnica.",
+    surfaceClassName:
+      "bg-[var(--fire-ink-soft)] text-white shadow-[0_24px_64px_rgba(7,22,47,0.26)]",
+    borderClassName: "border-white/10",
+    items: [
+      "Checklist consolidado com lógica técnica",
+      "Encadeamento entre ativo, desvio e relatório",
+      "Controle documental com anexos e ART",
+    ],
+  },
+  {
+    title: "Gestão Executiva",
+    subtitle: "Para decisão, visibilidade e crescimento previsível",
+    description:
+      "A gestão enxerga progresso, pendências e frentes críticas sem precisar descer à operação.",
+    surfaceClassName:
+      "bg-[linear-gradient(180deg,#102a56_0%,#0b1f40_100%)] text-white shadow-[0_24px_64px_rgba(7,22,47,0.28)]",
+    borderClassName: "border-[var(--fire-red)]/20",
+    items: [
+      "Leitura executiva por impacto",
+      "Priorização de correções e recorrência",
+      "Base única para expansão do serviço",
+    ],
   },
 ];
 
@@ -95,127 +301,112 @@ const moduleItems: Array<{
   {
     title: "Extintores",
     description:
-      "Cadastro, QR individual, checklist próprio, vencimentos e visualização consolidada sem perder a inspeção unitária.",
+      "QR individual, checklist próprio, vencimentos e memória preservada do ativo.",
     icon: Flame,
   },
   {
     title: "Hidrantes",
     description:
-      "Controle de mangueiras, componentes, recalque, testes e pendências operacionais associadas ao ponto certo.",
-    icon: Building2,
+      "Controle de mangueiras, componentes, testes e pendências operacionais.",
+    icon: RadioTower,
   },
   {
     title: "Luminárias",
     description:
-      "Acompanhamento do parque instalado, status operacional, histórico de verificações e não conformidades.",
+      "Status operacional, histórico de verificação e conformidade por ponto.",
     icon: Layers3,
+  },
+  {
+    title: "Não conformidades",
+    description:
+      "Registro estruturado com imagem, criticidade e plano de correção rastreável.",
+    icon: Siren,
   },
   {
     title: "Relatórios técnicos",
     description:
-      "Consolidação por ciclo, anexos, assinatura, ART e uma narrativa técnica pronta para auditoria e apresentação.",
-    icon: FileText,
-  },
-];
-
-const layerItems = [
-  {
-    title: "Operação em Campo",
-    subtitle: "Para vistoriadores e equipes técnicas",
-    accent: "bg-[#f58220]",
-    surface: "bg-white",
-    text: "text-[#11213c]",
-    border: "border-white/30",
-    items: [
-      "Checklists por sistema e por equipamento",
-      "Salvamento de execução com autoria",
-      "Não conformidades com evidências",
-      "Leitura rápida do status em visita",
-    ],
+      "Ciclo consolidado com assinaturas, anexos e narrativa pronta para auditoria.",
+    icon: FileCheck2,
   },
   {
-    title: "Compliance Técnico",
-    subtitle: "Para engenharia, responsáveis técnicos e auditoria",
-    accent: "bg-[#0b57c9]",
-    surface: "bg-[#11213c]",
-    text: "text-white",
-    border: "border-white/15",
-    items: [
-      "Rastreabilidade completa por ciclo",
-      "Relatórios, ART e anexos centralizados",
-      "Plano de correção por criticidade",
-      "Histórico técnico de inspeção",
-    ],
-  },
-  {
-    title: "Gestão Executiva",
-    subtitle: "Para decisão, visibilidade e recorrência",
-    accent: "bg-[#11213c]",
-    surface: "bg-[#fff7ef]",
-    text: "text-[#11213c]",
-    border: "border-[#11213c]/10",
-    items: [
-      "Visão consolidada das frentes críticas",
-      "Leitura clara de risco e conformidade",
-      "Prioridade operacional por impacto",
-      "Base única para crescimento recorrente",
-    ],
+    title: "Visão de maturidade",
+    description:
+      "Plataforma projetada para sair do checklist isolado e chegar ao SOC do risco físico.",
+    icon: Binary,
   },
 ];
 
 const faqItems = [
   {
-    question: "O FIRE 360 é apenas um checklist digital?",
+    question: "O Fire 360 é apenas um checklist digital?",
     answer:
-      "Não. O FIRE 360 conecta execução operacional, controle de equipamentos, não conformidades, relatórios, rastreabilidade e conformidade documental em um único fluxo.",
+      "Não. Ele conecta execução em campo, compliance técnico, prova documental e leitura executiva no mesmo ecossistema operacional.",
   },
   {
-    question: "Como a plataforma ajuda as equipes que atuam em campo?",
+    question: "O que diferencia o Fire 360 do padrão de mercado?",
     answer:
-      "A equipe executa checklists por sistema e por equipamento, registra salvamentos ao longo da visita, acompanha pendências e devolve tudo para a gestão com contexto técnico preservado.",
+      "A espinha dorsal integrada. O sistema liga o ativo físico, a inspeção, a não conformidade, o relatório e a decisão de gestão sem herança indevida de dados.",
   },
   {
-    question: "Quais frentes o sistema acompanha hoje?",
+    question: "Ele serve só para extintores?",
     answer:
-      "O FIRE 360 apoia checklists gerais e o controle operacional de extintores, hidrantes, luminárias, relatórios técnicos, anexos e rastreabilidade por ciclo.",
+      "Não. O Fire 360 foi desenhado para checklists gerais e para o controle operacional de extintores, hidrantes, luminárias, relatórios técnicos, anexos e ciclos de conformidade.",
   },
   {
-    question: "O sistema ajuda na conformidade legal e na auditoria?",
+    question: "Como a Fire Tetraedro se posiciona com esse produto?",
     answer:
-      "Sim. A proposta central é organizar a conformidade recorrente, gerar trilha de execução, consolidar documentação técnica e facilitar demonstração de histórico e correção.",
+      "Como uma plataforma de gestão contínua de segurança contra incêndio, combinando Vertical SaaS, field service, compliance operacional e rastreabilidade legal.",
   },
-  {
-    question: "Como o FIRE 360 se posiciona no mercado?",
-    answer:
-      "Como uma plataforma vertical de gestão contínua de segurança contra incêndio, combinando SaaS, compliance operacional e field service management.",
-  },
-];
-
-const fireStats = [
-  { value: "360", label: "visão contínua da operação" },
-  { value: "01", label: "plataforma para campo, técnica e gestão" },
-  { value: "03", label: "frentes críticas de equipamentos controladas" },
-  { value: "24/7", label: "histórico técnico disponível no sistema" },
 ];
 
 const Fire360Landing = () => {
+  useEffect(() => {
+    const previousTitle = document.title;
+    const descriptionMeta = document.querySelector('meta[name="description"]');
+    const authorMeta = document.querySelector('meta[name="author"]');
+    const ogTitleMeta = document.querySelector('meta[property="og:title"]');
+    const ogDescriptionMeta = document.querySelector(
+      'meta[property="og:description"]',
+    );
+    const previousDescription = descriptionMeta?.getAttribute("content");
+    const previousAuthor = authorMeta?.getAttribute("content");
+    const previousOgTitle = ogTitleMeta?.getAttribute("content");
+    const previousOgDescription = ogDescriptionMeta?.getAttribute("content");
+
+    document.title = "Fire Tetraedro | FIRE 360";
+    descriptionMeta?.setAttribute(
+      "content",
+      "Fire Tetraedro apresenta o FIRE 360, plataforma de gestão contínua de segurança contra incêndio, compliance operacional e inteligência em campo.",
+    );
+    authorMeta?.setAttribute("content", "Fire Tetraedro");
+    ogTitleMeta?.setAttribute("content", "Fire Tetraedro | FIRE 360");
+    ogDescriptionMeta?.setAttribute(
+      "content",
+      "Transforme inspeção em inteligência operacional recorrente com o FIRE 360.",
+    );
+
+    return () => {
+      document.title = previousTitle;
+      descriptionMeta?.setAttribute("content", previousDescription ?? "");
+      authorMeta?.setAttribute("content", previousAuthor ?? "");
+      ogTitleMeta?.setAttribute("content", previousOgTitle ?? "");
+      ogDescriptionMeta?.setAttribute("content", previousOgDescription ?? "");
+    };
+  }, []);
+
   return (
-    <div className="fire360-landing min-h-screen bg-[#fff7ef] text-[#11213c]">
+    <div className="fire360-landing min-h-screen text-[var(--fire-ink)]">
       <style>{pageFontStyles}</style>
 
       <div className="fixed inset-x-0 top-3 z-50 px-3 md:top-5">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 rounded-full border border-white/70 bg-white/90 px-4 py-3 shadow-[0_18px_45px_rgba(17,33,60,0.12)] backdrop-blur md:px-6">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 rounded-full border border-white/10 bg-[rgba(7,22,47,0.78)] px-4 py-3 text-white shadow-[0_18px_60px_rgba(4,12,28,0.35)] backdrop-blur md:px-6">
           <a href="#hero" className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#0b57c9] text-white shadow-[0_12px_24px_rgba(11,87,201,0.28)]">
-              <Flame className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="fire360-display text-sm font-semibold uppercase tracking-[0.26em] text-[#0b57c9]">
-                FIRE
-              </p>
-              <p className="fire360-display -mt-1 text-xl font-bold tracking-tight text-[#11213c]">
-                360
-              </p>
+            <div className="rounded-2xl bg-white px-3 py-2 shadow-[0_14px_34px_rgba(255,91,31,0.18)]">
+              <img
+                src={fireTetraedroLogo}
+                alt="Fire Tetraedro"
+                className="h-9 w-auto md:h-10"
+              />
             </div>
           </a>
 
@@ -224,7 +415,7 @@ const Fire360Landing = () => {
               <a
                 key={item.href}
                 href={item.href}
-                className="text-sm font-semibold text-[#11213c]/78 transition-colors hover:text-[#f58220]"
+                className="text-sm font-semibold text-white/72 transition-colors hover:text-[var(--fire-cyan)]"
               >
                 {item.label}
               </a>
@@ -234,13 +425,13 @@ const Fire360Landing = () => {
           <div className="flex items-center gap-3">
             <Link
               to="/auth"
-              className="hidden rounded-full border border-[#0b57c9]/18 px-4 py-2 text-sm font-semibold text-[#0b57c9] transition-colors hover:bg-[#0b57c9]/6 md:inline-flex"
+              className="hidden rounded-full border border-white/14 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/8 md:inline-flex"
             >
               Acessar plataforma
             </Link>
             <a
               href="#cta"
-              className="inline-flex items-center gap-2 rounded-full bg-[#f58220] px-4 py-2.5 text-sm font-bold text-white shadow-[0_16px_30px_rgba(245,130,32,0.30)] transition-transform hover:-translate-y-0.5"
+              className="inline-flex items-center gap-2 rounded-full bg-[var(--fire-orange)] px-4 py-2.5 text-sm font-bold text-white shadow-[0_18px_38px_rgba(255,91,31,0.28)] transition-transform hover:-translate-y-0.5"
             >
               Solicitar demonstração
               <ArrowRight className="h-4 w-4" />
@@ -251,494 +442,305 @@ const Fire360Landing = () => {
 
       <section
         id="hero"
-        className="relative overflow-hidden bg-[#f58220] pb-16 pt-32 md:pb-24 md:pt-36"
+        className="relative overflow-hidden px-4 pb-16 pt-32 text-white md:px-6 md:pb-24 md:pt-36"
       >
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,214,171,0.35),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.18),transparent_28%)]" />
-        <div className="absolute -left-16 top-20 h-40 w-40 rounded-full bg-white/12 blur-3xl" />
-        <div className="absolute bottom-0 right-0 h-56 w-56 rounded-full bg-[#0b57c9]/22 blur-3xl" />
+        <div className="fire360-grid absolute inset-x-0 top-0 h-[82%]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_18%,rgba(115,231,255,0.18),transparent_18%),radial-gradient(circle_at_78%_22%,rgba(255,91,31,0.18),transparent_24%),radial-gradient(circle_at_50%_78%,rgba(47,125,255,0.12),transparent_28%)]" />
+        <div className="absolute inset-x-0 bottom-0 h-px overflow-hidden bg-white/10">
+          <div className="fire360-line h-full w-1/3 bg-[linear-gradient(90deg,transparent,rgba(115,231,255,0.9),transparent)]" />
+        </div>
 
-        <div className="relative mx-auto grid max-w-6xl gap-12 px-4 md:px-6 lg:grid-cols-[1.02fr_0.98fr] lg:items-center">
-          <div className="max-w-2xl text-white">
-            <span className="inline-flex rounded-full border border-white/30 bg-white/12 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-white/90">
+        <div className="relative mx-auto grid max-w-7xl gap-12 lg:grid-cols-[1.04fr_0.96fr] lg:items-center">
+          <div className="max-w-3xl">
+            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-white/62">
               Plataforma de gestão contínua de segurança contra incêndio
-            </span>
-            <h1 className="fire360-display mt-6 text-4xl font-extrabold leading-[1.02] tracking-[-0.04em] text-white md:text-6xl">
-              Inspeção, conformidade e operação técnica no mesmo sistema.
-            </h1>
-            <p className="mt-5 max-w-xl text-base leading-7 text-white/84 md:text-lg">
-              O FIRE 360 conecta checklists, equipamentos, não conformidades,
-              relatórios, equipe em campo e rastreabilidade documental em uma
-              única experiência operacional.
             </p>
 
-            <div className="mt-7 flex flex-wrap gap-3">
+            <h1 className="fire360-display mt-4 text-5xl font-bold leading-[0.94] tracking-[-0.06em] text-white md:text-7xl lg:text-[6.4rem]">
+              FIRE 360
+            </h1>
+
+            <p className="fire360-display mt-4 max-w-3xl text-2xl font-medium leading-tight tracking-[-0.03em] text-white/90 md:text-4xl">
+              Transforme inspeção em inteligência operacional recorrente.
+            </p>
+
+            <p className="mt-6 max-w-2xl text-base leading-8 text-white/76 md:text-lg">
+              O Fire 360 conecta o ativo físico à diretoria no mesmo encadeamento:
+              campo, compliance técnico, não conformidade, relatório, anexos e
+              decisão executiva em uma única plataforma.
+            </p>
+
+            <div className="mt-8 flex flex-wrap gap-3">
               <Link
                 to="/auth"
-                className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-bold text-[#11213c] transition-transform hover:-translate-y-0.5"
+                className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-bold text-[var(--fire-ink)] transition-transform hover:-translate-y-0.5"
               >
-                Acessar plataforma
+                Acessar a plataforma
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <a
-                href="#camadas"
-                className="inline-flex items-center gap-2 rounded-full border border-white/35 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-white/10"
+                href="#visao"
+                className="inline-flex items-center gap-2 rounded-full border border-white/14 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-white/8"
               >
-                Entender as camadas
+                Ver a visão 360
               </a>
             </div>
 
-            <div className="mt-8 grid gap-3 sm:grid-cols-3">
-              <HeroChip
-                icon={ClipboardCheck}
-                label="Checklists por sistema"
-              />
-              <HeroChip
-                icon={QrCode}
-                label="QR por equipamento"
-              />
-              <HeroChip
-                icon={FileText}
-                label="Relatório por ciclo"
-              />
+            <div className="mt-10 grid gap-3 md:grid-cols-3">
+              {heroPillars.map((item) => (
+                <HeroPillar key={item.title} {...item} />
+              ))}
             </div>
           </div>
 
-          <div className="relative">
-            <div className="absolute right-4 top-3 inline-flex rounded-full bg-[#ffb547] px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-[#11213c] shadow-[0_14px_28px_rgba(255,181,71,0.28)]">
-              visão operacional + compliance
-            </div>
+          <div className="relative lg:pl-6">
+            <div className="fire360-orbit fire360-glow relative mx-auto aspect-square max-w-[36rem] rounded-full border border-white/10 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.06),rgba(255,255,255,0.01)_42%,transparent_66%)] p-6 shadow-[0_0_0_1px_rgba(115,231,255,0.06),0_40px_120px_rgba(8,29,58,0.62)]">
+              <div className="absolute inset-5 rounded-full border border-[var(--fire-cyan)]/14" />
+              <div className="absolute inset-14 rounded-full border border-[var(--fire-orange)]/16" />
+              <div className="absolute inset-24 rounded-full border border-[var(--fire-blue)]/18" />
 
-            <div className="rounded-[34px] bg-[#11213c] p-5 shadow-[0_24px_80px_rgba(17,33,60,0.30)]">
-              <div className="rounded-[28px] bg-white p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0b57c9]">
-                      Painel FIRE 360
-                    </p>
-                    <h2 className="fire360-display mt-2 text-2xl font-bold tracking-tight text-[#11213c]">
-                      Risco sob controle
-                    </h2>
-                  </div>
-                  <div className="rounded-2xl bg-[#fff3e7] px-3 py-2 text-right">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#f58220]">
-                      ciclo ativo
-                    </p>
-                    <p className="fire360-display mt-1 text-2xl font-bold text-[#11213c]">
-                      01
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-5 grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
-                  <div className="rounded-[24px] bg-[#fff7ef] p-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-[#11213c]">
-                        Conformidade recorrente
-                      </p>
-                      <span className="rounded-full bg-[#0b57c9] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-white">
-                        360
-                      </span>
-                    </div>
-                    <div className="mt-4 grid grid-cols-3 gap-3">
-                      <MetricOrb
-                        tone="bg-[#0b57c9]"
-                        value="C"
-                        label="conforme"
-                      />
-                      <MetricOrb
-                        tone="bg-[#f58220]"
-                        value="NC"
-                        label="não conforme"
-                      />
-                      <MetricOrb
-                        tone="bg-[#11213c]"
-                        value="RT"
-                        label="rastreado"
-                      />
-                    </div>
-                    <div className="mt-5 space-y-3">
-                      <ProgressRow
-                        label="Checklists executados"
-                        percent="84%"
-                        barClassName="w-[84%] bg-[#0b57c9]"
-                      />
-                      <ProgressRow
-                        label="Equipamentos auditados"
-                        percent="71%"
-                        barClassName="w-[71%] bg-[#f58220]"
-                      />
-                      <ProgressRow
-                        label="Pendências com plano"
-                        percent="92%"
-                        barClassName="w-[92%] bg-[#11213c]"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <StatusCard
-                      title="Inspeções em campo"
-                      value="Fluxo assistido"
-                      description="Equipe salva por etapa, sem perder autoria e contexto."
-                      tone="bg-[#0b57c9]"
-                    />
-                    <StatusCard
-                      title="Relatórios técnicos"
-                      value="Ciclo auditável"
-                      description="Anexos, ART e assinatura no mesmo encadeamento."
-                      tone="bg-[#f58220]"
-                    />
-                  </div>
-                </div>
+              <div className="absolute left-[8%] top-[12%]">
+                <OrbitBadge
+                  icon={ClipboardCheck}
+                  label="Execução"
+                  value="Campo assistido"
+                />
               </div>
-            </div>
-
-            <div className="absolute -bottom-10 -left-4 w-48 rotate-[-10deg] rounded-[28px] bg-white p-4 shadow-[0_22px_50px_rgba(17,33,60,0.22)] md:w-56">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#f58220]">
-                    QR individual
-                  </p>
-                  <p className="mt-1 text-sm font-semibold text-[#11213c]">
-                    Equipamento auditado
-                  </p>
-                </div>
-                <Smartphone className="h-5 w-5 text-[#0b57c9]" />
+              <div className="absolute right-[2%] top-[18%]">
+                <OrbitBadge
+                  icon={ScanSearch}
+                  label="Análise"
+                  value="Conforme, pendente ou crítico"
+                />
               </div>
-              <div className="mt-4 rounded-[22px] bg-[#11213c] p-4 text-white">
-                <div className="flex items-center justify-between">
-                  <QrCode className="h-8 w-8" />
-                  <span className="rounded-full bg-white/14 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em]">
-                    extintor 01
+              <div className="absolute right-[8%] bottom-[16%]">
+                <OrbitBadge
+                  icon={BarChart3}
+                  label="Gestão"
+                  value="Leitura executiva"
+                />
+              </div>
+              <div className="absolute left-[4%] bottom-[18%]">
+                <OrbitBadge
+                  icon={FileCheck2}
+                  label="Prova"
+                  value="Relatório + anexos + ART"
+                />
+              </div>
+
+              <div className="absolute inset-[20%] rounded-full border border-[var(--fire-cyan)]/16 bg-[radial-gradient(circle_at_center,rgba(47,125,255,0.26),rgba(8,29,58,0.24)_52%,rgba(7,22,47,0.72)_76%)]" />
+
+              <div className="absolute inset-[24%] rounded-full bg-[linear-gradient(180deg,rgba(12,35,69,0.94),rgba(7,22,47,0.96))] p-8 shadow-[inset_0_0_0_1px_rgba(115,231,255,0.10),0_26px_60px_rgba(0,0,0,0.42)]">
+                <div className="flex h-full flex-col items-center justify-center text-center">
+                  <span className="rounded-full border border-[var(--fire-orange)]/28 bg-[var(--fire-orange)]/12 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--fire-orange)]">
+                    ciclo ativo 360
                   </span>
-                </div>
-                <div className="mt-3 space-y-2 text-[11px] leading-5 text-white/80">
-                  <p>Checklist próprio</p>
-                  <p>Histórico preservado</p>
-                  <p>Sem herança indevida entre equipamentos</p>
+                  <p className="fire360-display mt-6 text-5xl font-bold tracking-[-0.06em] md:text-6xl">
+                    FIRE 360
+                  </p>
+                  <p className="mt-4 max-w-xs text-sm leading-7 text-white/72 md:text-base">
+                    A única plataforma que conecta o extintor físico à decisão
+                    de diretoria em um único encadeamento.
+                  </p>
                 </div>
               </div>
+            </div>
+
+            <div className="mx-auto mt-7 grid max-w-3xl gap-3 sm:grid-cols-3">
+              <MetricCard value="84%" label="checklists executados" />
+              <MetricCard value="92%" label="pendências com plano ativo" />
+              <MetricCard value="71%" label="equipamentos auditados" />
             </div>
           </div>
         </div>
       </section>
 
-      <section id="plataforma" className="bg-white py-16 md:py-24">
-        <div className="mx-auto grid max-w-6xl gap-10 px-4 md:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
-          <div className="relative">
-            <div className="rounded-[34px] bg-[#fff7ef] p-4 shadow-[0_20px_56px_rgba(17,33,60,0.08)]">
-              <div className="rounded-[30px] border border-[#11213c]/8 bg-white p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0b57c9]">
-                      tudo em um só lugar
-                    </p>
-                    <h2 className="fire360-display mt-2 text-3xl font-bold tracking-tight text-[#11213c]">
-                      Inspeção, documento e decisão.
-                    </h2>
-                  </div>
-                  <div className="rounded-full bg-[#f58220]/12 px-3 py-2 text-xs font-bold uppercase tracking-[0.14em] text-[#f58220]">
-                    vertical SaaS
-                  </div>
-                </div>
+      <section id="visao" className="bg-[var(--fire-shell)] px-4 py-16 md:px-6 md:py-24">
+        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.98fr_1.02fr] lg:items-center">
+          <div className="rounded-[2rem] bg-white p-7 shadow-[0_24px_80px_rgba(7,22,47,0.08)]">
+            <div className="inline-flex rounded-full bg-[var(--fire-blue-soft)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-[var(--fire-blue)]">
+              Fire Tetraedro + Fire 360
+            </div>
+            <h2 className="fire360-display mt-5 text-3xl font-bold tracking-[-0.04em] text-[var(--fire-ink)] md:text-5xl">
+              Saindo do checklist solto para o risco sob vigilância permanente.
+            </h2>
+            <p className="mt-5 text-base leading-8 text-[var(--fire-ink)]/72">
+              O Fire 360 foi desenhado como a infraestrutura da operação:
+              organiza a rotina técnica, rastreia o ativo individualmente, estrutura
+              a não conformidade e devolve previsibilidade para compliance e gestão.
+            </p>
+          </div>
 
-                <div className="mt-6 grid gap-4 sm:grid-cols-[1.1fr_0.9fr]">
-                  <div className="rounded-[24px] bg-[#11213c] p-4 text-white">
-                    <p className="text-sm font-semibold text-white">
-                      Linha de execução
-                    </p>
-                    <div className="mt-4 space-y-3">
-                      {[
-                        "Cadastro da empresa e enquadramento",
-                        "Checklist geral e por equipamento",
-                        "Não conformidade com evidências",
-                        "Relatório final com trilha técnica",
-                      ].map((item) => (
-                        <div
-                          key={item}
-                          className="flex items-center gap-3 rounded-2xl bg-white/8 px-3 py-3"
-                        >
-                          <CheckCircle2 className="h-4 w-4 text-[#ffb547]" />
-                          <span className="text-sm text-white/84">{item}</span>
-                        </div>
-                      ))}
+          <div className="rounded-[2rem] bg-[linear-gradient(180deg,#0b1f40_0%,#09162f_100%)] p-6 text-white shadow-[0_34px_90px_rgba(7,22,47,0.28)]">
+            <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[var(--fire-cyan)]">
+              O motor da gestão contínua
+            </p>
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              {cycleSteps.slice(0, 4).map((step, index) => (
+                <div
+                  key={step.title}
+                  className="rounded-[1.5rem] border border-white/10 bg-white/6 p-4"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`rounded-2xl bg-white/10 p-3 ${step.toneClassName}`}>
+                      <step.icon className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/56">
+                        etapa {index + 1}
+                      </p>
+                      <p className="fire360-display text-xl font-bold">{step.title}</p>
                     </div>
                   </div>
+                  <p className="mt-4 text-sm leading-7 text-white/72">
+                    {step.description}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
 
-                  <div className="space-y-3">
-                    <CalloutCard
-                      title="Inspeções"
-                      description="Execução orientada por sistema e por equipamento."
-                    />
-                    <CalloutCard
-                      title="Relatórios"
-                      description="Consolidação com assinaturas, anexos e ART."
-                    />
-                    <CalloutCard
-                      title="Rastreabilidade"
-                      description="Cada item ligado ao ciclo técnico correto."
-                    />
+      <section id="problema" className="bg-white px-4 py-16 md:px-6 md:py-24">
+        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.92fr_1.08fr]">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--fire-orange)]">
+              O custo oculto da dispersão técnica
+            </p>
+            <h2 className="fire360-display mt-4 text-3xl font-bold tracking-[-0.04em] text-[var(--fire-ink)] md:text-5xl">
+              O risco real não é a falta de inspeção. É a quebra da rastreabilidade.
+            </h2>
+            <p className="mt-5 text-base leading-8 text-[var(--fire-ink)]/72">
+              Quanto maior a operação, maior o custo de perder contexto técnico.
+              Operar com planilhas, conversas soltas e laudos isolados gera retrabalho,
+              herança indevida de dados e baixa previsibilidade.
+            </p>
+
+            <div className="mt-8 space-y-4">
+              {problemItems.map((item) => (
+                <ProblemCard key={item.title} {...item} />
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-[2rem] bg-[linear-gradient(180deg,#091a37_0%,#07162f_100%)] p-6 text-white shadow-[0_34px_90px_rgba(7,22,47,0.24)]">
+            <div className="rounded-[1.75rem] border border-white/10 bg-white/4 p-5">
+              <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+                <div className="rounded-[1.5rem] bg-white p-4 text-[var(--fire-ink)]">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--fire-blue)]">
+                    O padrão de mercado
+                  </p>
+                  <div className="mt-4 space-y-3">
+                    {[
+                      "Descentralizado",
+                      "Herança indevida entre equipamentos",
+                      "Pastas e fotos dispersas",
+                      "Operação reativa",
+                    ].map((item) => (
+                      <div
+                        key={item}
+                        className="rounded-[1.2rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold"
+                      >
+                        {item}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-[1.5rem] border border-[var(--fire-cyan)]/16 bg-[linear-gradient(180deg,rgba(47,125,255,0.16),rgba(8,29,58,0.12))] p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--fire-cyan)]">
+                    O padrão Fire 360
+                  </p>
+                  <div className="mt-4 grid gap-3">
+                    {advantageItems.map((item) => (
+                      <AdvantageCard key={item.title} {...item} />
+                    ))}
                   </div>
                 </div>
               </div>
             </div>
-
-            <div className="absolute -right-2 bottom-6 rounded-[26px] bg-[#0b57c9] p-4 text-white shadow-[0_22px_50px_rgba(11,87,201,0.28)] md:-right-6">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/70">
-                status ao vivo
-              </p>
-              <p className="fire360-display mt-2 text-2xl font-bold">
-                checklist + equipamentos + relatório
-              </p>
-            </div>
-          </div>
-
-          <div className="max-w-xl">
-            <span className="inline-flex rounded-full bg-[#fff3e7] px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-[#f58220]">
-              plataforma de compliance operacional
-            </span>
-            <h3 className="fire360-display mt-5 text-3xl font-bold leading-tight tracking-[-0.03em] text-[#11213c] md:text-5xl">
-              O FIRE 360 não organiza apenas dados. Ele organiza a rotina técnica.
-            </h3>
-            <p className="mt-5 text-base leading-8 text-[#11213c]/72">
-              Em vez de operar com planilhas, conversas soltas, laudos isolados e
-              controles descentralizados, a plataforma cria uma espinha dorsal
-              para a segurança contra incêndio: execução, análise, prova,
-              acompanhamento e revalidação.
-            </p>
-            <div className="mt-8 grid gap-4 sm:grid-cols-2">
-              <StoryBadge
-                title="Field service"
-                description="Equipe em campo com fluxo e acompanhamento."
-              />
-              <StoryBadge
-                title="CMMS simplificado"
-                description="Controle técnico de equipamentos críticos."
-              />
-              <StoryBadge
-                title="Compliance"
-                description="Documentação e trilha técnica preparadas para auditoria."
-              />
-              <StoryBadge
-                title="Gestão"
-                description="Leitura executiva do que exige ação imediata."
-              />
-            </div>
           </div>
         </div>
       </section>
 
-      <section className="bg-[#0b57c9] py-10 text-white">
-        <div className="mx-auto grid max-w-6xl gap-4 px-4 md:grid-cols-4 md:px-6">
-          {fireStats.map((stat) => (
-            <div
-              key={stat.value}
-              className="rounded-[28px] border border-white/12 bg-white/10 px-5 py-5"
-            >
-              <p className="fire360-display text-4xl font-bold tracking-tight">
-                {stat.value}
-              </p>
-              <p className="mt-2 text-sm leading-6 text-white/78">
-                {stat.label}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section
-        id="beneficios"
-        className="relative overflow-hidden bg-[#f58220] py-16 md:py-24"
-      >
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.16),transparent_32%)]" />
-        <div className="relative mx-auto max-w-6xl px-4 md:px-6">
-          <div className="max-w-3xl rounded-[30px] border border-white/18 bg-white/8 px-5 py-6 text-white md:px-8">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/75">
-              benefícios do FIRE 360
+      <section id="ciclo" className="relative overflow-hidden bg-[var(--fire-ink)] px-4 py-16 text-white md:px-6 md:py-24">
+        <div className="fire360-grid absolute inset-0 opacity-60" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_22%,rgba(255,91,31,0.14),transparent_18%),radial-gradient(circle_at_82%_18%,rgba(115,231,255,0.12),transparent_24%)]" />
+        <div className="relative mx-auto max-w-7xl">
+          <div className="max-w-3xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--fire-cyan)]">
+              O ciclo inteligente de gestão de riscos de incêndio
             </p>
-            <h3 className="fire360-display mt-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Uma plataforma de gestão contínua para quem precisa manter risco sob vigilância permanente.
-            </h3>
-            <p className="mt-4 text-sm leading-7 text-white/80 md:text-base">
-              O sistema foi pensado para afastar a empresa da guerra de preço do
-              checklist solto e aproximar a operação de um modelo recorrente de
-              inteligência técnica.
+            <h2 className="fire360-display mt-4 text-3xl font-bold tracking-[-0.04em] md:text-5xl">
+              Do cadastro e enquadramento legal ao relatório final com prova robusta.
+            </h2>
+            <p className="mt-5 text-base leading-8 text-white/74">
+              O Fire 360 organiza a operação como um ciclo ativo: executa, analisa,
+              prova, acompanha, revalida e reinicia com memória preservada.
             </p>
           </div>
 
-          <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {benefitItems.map((item) => (
-              <BenefitCard key={item.title} {...item} />
+          <div className="mt-10 grid gap-4 lg:grid-cols-5">
+            {cycleSteps.map((step, index) => (
+              <CycleStepCard
+                key={step.title}
+                index={index + 1}
+                title={step.title}
+                description={step.description}
+                icon={step.icon}
+                toneClassName={step.toneClassName}
+              />
             ))}
           </div>
         </div>
       </section>
 
-      <section id="modulos" className="bg-white py-16 md:py-24">
-        <div className="mx-auto grid max-w-6xl gap-12 px-4 md:px-6 lg:grid-cols-[0.98fr_1.02fr] lg:items-center">
-          <div className="rounded-[34px] bg-[#0b57c9] p-4 shadow-[0_24px_64px_rgba(11,87,201,0.22)]">
-            <div className="rounded-[30px] bg-[#11213c] px-5 py-6 text-white">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/70">
-                    módulos técnicos
-                  </p>
-                  <h3 className="fire360-display mt-2 text-3xl font-bold tracking-tight">
-                    Do equipamento ao parecer final.
-                  </h3>
-                </div>
-                <div className="rounded-full bg-white/10 px-3 py-2 text-xs font-bold uppercase tracking-[0.16em] text-[#ffb547]">
-                  compliance engine
-                </div>
-              </div>
-
-              <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                {moduleItems.map((item) => (
-                  <div
-                    key={item.title}
-                    className="rounded-[24px] bg-white/8 px-4 py-4"
-                  >
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#f58220] text-white">
-                      <item.icon className="h-5 w-5" />
-                    </div>
-                    <p className="mt-4 fire360-display text-xl font-bold">
-                      {item.title}
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-white/78">
-                      {item.description}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
+      <section className="bg-[var(--fire-shell)] px-4 py-16 md:px-6 md:py-24">
+        <div className="mx-auto max-w-7xl">
+          <div className="flex max-w-3xl flex-col gap-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--fire-blue)]">
+              Anatomia da rastreabilidade
+            </p>
+            <h2 className="fire360-display text-3xl font-bold tracking-[-0.04em] md:text-5xl">
+              O mesmo encadeamento de evidências da base ao topo.
+            </h2>
           </div>
 
-          <div>
-            <span className="inline-flex rounded-full bg-[#eff4ff] px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-[#0b57c9]">
-              uma plataforma, múltiplos contextos
-            </span>
-            <h3 className="fire360-display mt-5 text-3xl font-bold leading-tight tracking-[-0.03em] text-[#11213c] md:text-5xl">
-              FIRE 360 é o encontro entre software vertical, compliance e operação de campo.
-            </h3>
-            <p className="mt-5 text-base leading-8 text-[#11213c]/72">
-              Ele não se comporta como um software genérico. Ele foi desenhado
-              para a realidade de quem precisa acompanhar extintores, hidrantes,
-              luminárias, não conformidades, documentos técnicos e decisões de
-              priorização sem perder continuidade entre visita e gestão.
-            </p>
-
-            <div className="mt-8 grid gap-4 sm:grid-cols-2">
-              <ModulePill
-                icon={ScanSearch}
-                title="Checklists executados"
-                description="Itens gerais e individuais consolidados com lógica técnica."
+          <div className="relative mt-10 grid gap-4 lg:grid-cols-4">
+            {traceabilityItems.map((item, index) => (
+              <TraceabilityCard
+                key={item.title}
+                title={item.title}
+                description={item.description}
+                icon={item.icon}
+                isFirst={index === 0}
               />
-              <ModulePill
-                icon={QrCode}
-                title="QR por ativo"
-                description="Cada equipamento com identidade própria e histórico preservado."
-              />
-              <ModulePill
-                icon={BarChart3}
-                title="Leitura executiva"
-                description="Gestão enxerga progresso, pendências e riscos sem entrar na operação."
-              />
-              <ModulePill
-                icon={ShieldCheck}
-                title="Prova documental"
-                description="Relatório, anexos e assinatura no mesmo encadeamento de evidência."
-              />
-            </div>
+            ))}
           </div>
         </div>
       </section>
 
-      <section className="bg-[#fff7ef] py-16 md:py-24">
-        <div className="mx-auto max-w-6xl px-4 md:px-6">
-          <div className="grid gap-6 lg:grid-cols-[0.86fr_1.14fr]">
-            <div className="rounded-[34px] bg-white px-6 py-7 shadow-[0_22px_60px_rgba(17,33,60,0.08)]">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#f58220]">
-                posicionamento estratégico
+      <section id="camadas" className="bg-white px-4 py-16 md:px-6 md:py-24">
+        <div className="mx-auto max-w-7xl">
+          <div className="grid gap-8 lg:grid-cols-[0.92fr_1.08fr] lg:items-end">
+            <div className="max-w-2xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--fire-orange)]">
+                Camadas de visibilidade
               </p>
-              <h3 className="fire360-display mt-4 text-3xl font-bold leading-tight tracking-[-0.03em] text-[#11213c]">
-                Um SOC da segurança contra incêndio, com foco em continuidade.
-              </h3>
-              <p className="mt-4 text-base leading-8 text-[#11213c]/72">
-                O cliente não compra apenas uma tela. Ele passa a operar com uma
-                camada contínua de inteligência operacional para conformidade,
-                risco e evidências técnicas.
+              <h2 className="fire360-display mt-4 text-3xl font-bold tracking-[-0.04em] text-[var(--fire-ink)] md:text-5xl">
+                A mesma operação, lida em três níveis de necessidade.
+              </h2>
+              <p className="mt-5 text-base leading-8 text-[var(--fire-ink)]/72">
+                Para o campo, o sistema orienta execução. Para o compliance técnico,
+                valida risco e documentação. Para a gestão, entrega previsibilidade.
               </p>
-              <div className="mt-6 flex flex-wrap gap-2">
-                {[
-                  "Vertical SaaS",
-                  "Compliance operacional",
-                  "Field service management",
-                  "Gestão contínua de risco",
-                ].map((chip) => (
-                  <span
-                    key={chip}
-                    className="rounded-full border border-[#11213c]/10 bg-[#fff7ef] px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#11213c]"
-                  >
-                    {chip}
-                  </span>
-                ))}
-              </div>
             </div>
 
-            <div className="rounded-[34px] bg-[#11213c] p-5 text-white shadow-[0_28px_74px_rgba(17,33,60,0.20)]">
-              <div className="grid gap-4 md:grid-cols-3">
-                <PositioningCard
-                  title="Gestão"
-                  description="Visão consolidada, priorização e leitura de maturidade operacional."
-                  icon={BarChart3}
-                />
-                <PositioningCard
-                  title="Conformidade"
-                  description="Documentação, histórico e encadeamento técnico dos ciclos de inspeção."
-                  icon={FileText}
-                />
-                <PositioningCard
-                  title="Operação"
-                  description="Campo, equipamentos, evidências e salvamentos ligados ao ativo correto."
-                  icon={Users}
-                />
-              </div>
-              <div className="mt-4 rounded-[26px] border border-white/12 bg-white/8 px-5 py-5">
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-white/64">
-                  por que isso importa
-                </p>
-                <p className="mt-3 fire360-display text-2xl font-bold leading-tight">
-                  Quanto maior a operação, maior o custo de perder contexto técnico.
-                </p>
-                <p className="mt-3 text-sm leading-7 text-white/76">
-                  O FIRE 360 foi pensado para diminuir esse custo estrutural:
-                  menos retrabalho, mais rastreabilidade, melhor recorrência e
-                  mais clareza sobre o que precisa ser corrigido agora.
-                </p>
-              </div>
+            <div className="rounded-[1.75rem] border border-[var(--fire-blue-soft)] bg-[var(--fire-shell)] px-5 py-5 text-sm leading-7 text-[var(--fire-ink)]/70">
+              Do checklist digital à prova documental robusta, o produto acompanha
+              o ritmo de maturidade da operação e transforma execução em previsibilidade.
             </div>
-          </div>
-        </div>
-      </section>
-
-      <section
-        id="camadas"
-        className="relative overflow-hidden bg-[#f58220] py-16 md:py-24"
-      >
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom_left,rgba(255,255,255,0.16),transparent_28%)]" />
-        <div className="relative mx-auto max-w-6xl px-4 md:px-6">
-          <div className="max-w-2xl text-white">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/72">
-              camadas de visibilidade
-            </p>
-            <h3 className="fire360-display mt-4 text-3xl font-bold tracking-[-0.03em] md:text-5xl">
-              A mesma operação, lida de três formas.
-            </h3>
-            <p className="mt-4 text-base leading-8 text-white/82">
-              Inspirada no ritmo comercial do site de referência, esta seção
-              mostra como o FIRE 360 entrega valor diferente para quem executa,
-              valida tecnicamente e decide estrategicamente.
-            </p>
           </div>
 
           <div className="mt-10 grid gap-5 xl:grid-cols-3">
@@ -749,35 +751,72 @@ const Fire360Landing = () => {
         </div>
       </section>
 
-      <section id="faq" className="bg-white py-16 md:py-24">
-        <div className="mx-auto grid max-w-6xl gap-10 px-4 md:px-6 lg:grid-cols-[0.9fr_1.1fr]">
-          <div className="max-w-xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#f58220]">
-              perguntas frequentes
+      <section id="modulos" className="bg-[var(--fire-shell)] px-4 py-16 md:px-6 md:py-24">
+        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.92fr_1.08fr] lg:items-start">
+          <div className="rounded-[2rem] bg-[linear-gradient(180deg,#0a1f3e_0%,#08162d_100%)] p-6 text-white shadow-[0_34px_90px_rgba(7,22,47,0.24)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--fire-cyan)]">
+              Infraestrutura da operação
             </p>
-            <h3 className="fire360-display mt-4 text-3xl font-bold tracking-[-0.03em] text-[#11213c] md:text-5xl">
-              Uma plataforma pensada para crescer junto com a maturidade da operação.
-            </h3>
-            <p className="mt-5 text-base leading-8 text-[#11213c]/72">
-              O posicionamento do FIRE 360 fica mais forte quando a conversa sai
-              do simples checklist e entra em continuidade, conformidade e prova
-              operacional. Estas são as perguntas que normalmente surgem nessa
-              transição.
+            <h2 className="fire360-display mt-4 text-3xl font-bold tracking-[-0.04em] md:text-5xl">
+              Um verdadeiro SOC da segurança contra incêndio.
+            </h2>
+            <p className="mt-5 text-base leading-8 text-white/74">
+              O Fire 360 reúne field service, controle contínuo de ativos críticos,
+              compliance operacional e gestão executiva em uma única plataforma.
+            </p>
+
+            <div className="mt-8 grid gap-3">
+              {[
+                "Field service com fluxo assistido",
+                "CMMS simplificado para equipamentos críticos",
+                "Compliance com documentação pronta para auditoria",
+                "Gestão com leitura executiva do que exige ação imediata",
+              ].map((item) => (
+                <div
+                  key={item}
+                  className="rounded-[1.3rem] border border-white/10 bg-white/6 px-4 py-3 text-sm font-semibold text-white/84"
+                >
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {moduleItems.map((item) => (
+              <ModuleCard key={item.title} {...item} />
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="faq" className="bg-white px-4 py-16 md:px-6 md:py-24">
+        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.92fr_1.08fr]">
+          <div className="max-w-2xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--fire-blue)]">
+              Perguntas frequentes
+            </p>
+            <h2 className="fire360-display mt-4 text-3xl font-bold tracking-[-0.04em] text-[var(--fire-ink)] md:text-5xl">
+              O produto foi desenhado para crescer junto com a maturidade da sua operação.
+            </h2>
+            <p className="mt-5 text-base leading-8 text-[var(--fire-ink)]/72">
+              Quando a conversa sai do checklist solto e entra em continuidade,
+              rastreabilidade e prova operacional, estas são as perguntas que mais aparecem.
             </p>
           </div>
 
-          <div className="rounded-[34px] border border-[#11213c]/8 bg-[#fff7ef] px-5 py-4 shadow-[0_18px_54px_rgba(17,33,60,0.06)] md:px-8">
+          <div className="rounded-[2rem] border border-[var(--fire-blue-soft)] bg-[var(--fire-shell)] px-5 py-4 shadow-[0_24px_70px_rgba(7,22,47,0.06)] md:px-8">
             <Accordion type="single" collapsible className="w-full">
               {faqItems.map((item, index) => (
                 <AccordionItem
                   key={item.question}
                   value={`faq-${index}`}
-                  className="border-[#11213c]/10"
+                  className="border-[var(--fire-blue-soft)]"
                 >
-                  <AccordionTrigger className="py-5 text-left text-base font-semibold text-[#11213c] hover:no-underline">
+                  <AccordionTrigger className="py-5 text-left text-base font-semibold text-[var(--fire-ink)] hover:no-underline">
                     {item.question}
                   </AccordionTrigger>
-                  <AccordionContent className="pb-5 text-sm leading-7 text-[#11213c]/70">
+                  <AccordionContent className="pb-5 text-sm leading-7 text-[var(--fire-ink)]/70">
                     {item.answer}
                   </AccordionContent>
                 </AccordionItem>
@@ -787,53 +826,51 @@ const Fire360Landing = () => {
         </div>
       </section>
 
-      <section id="cta" className="bg-[#0b57c9] py-14 text-white md:py-20">
-        <div className="mx-auto max-w-6xl px-4 md:px-6">
-          <div className="rounded-[36px] bg-white px-6 py-7 text-[#11213c] shadow-[0_24px_70px_rgba(7,43,102,0.22)] md:px-10 md:py-10">
-            <div className="grid gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
+      <section id="cta" className="bg-[var(--fire-ink)] px-4 py-14 text-white md:px-6 md:py-20">
+        <div className="mx-auto max-w-7xl">
+          <div className="rounded-[2.2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] px-6 py-7 shadow-[0_32px_100px_rgba(0,0,0,0.32)] md:px-10 md:py-10">
+            <div className="grid gap-8 lg:grid-cols-[1.02fr_0.98fr] lg:items-center">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#f58220]">
-                  pronto para apresentar o FIRE 360
-                </p>
-                <h3 className="fire360-display mt-4 text-3xl font-bold tracking-[-0.03em] md:text-5xl">
-                  Transforme inspeção em inteligência operacional recorrente.
-                </h3>
-                <p className="mt-4 max-w-2xl text-base leading-8 text-[#11213c]/74">
-                  Esta landing foi desenhada para apresentar o sistema sem tocar
-                  no software principal: narrativa comercial, identidade visual
-                  própria e posicionamento claro de mercado para o FIRE 360.
+                <div className="inline-flex rounded-full border border-white/10 bg-white/6 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-[var(--fire-cyan)]">
+                  Fire Tetraedro
+                </div>
+                <h2 className="fire360-display mt-4 text-3xl font-bold tracking-[-0.04em] md:text-5xl">
+                  Transforme execução em previsibilidade com o FIRE 360.
+                </h2>
+                <p className="mt-5 max-w-2xl text-base leading-8 text-white/72">
+                  A Fire Tetraedro apresenta uma plataforma criada para unir
+                  inspeção, conformidade e inteligência operacional recorrente na
+                  segurança contra incêndio.
                 </p>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="rounded-[26px] bg-[#fff7ef] px-5 py-5">
-                  <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#0b57c9]">
-                    Melhor narrativa
+                <div className="rounded-[1.7rem] bg-white px-5 py-5 text-[var(--fire-ink)]">
+                  <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--fire-blue)]">
+                    Entrada pública forte
                   </p>
-                  <p className="mt-3 text-sm leading-7 text-[#11213c]/72">
-                    Saia da disputa por checklist e entre na conversa de
-                    gestão contínua de segurança contra incêndio.
+                  <p className="mt-3 text-sm leading-7 text-[var(--fire-ink)]/72">
+                    Marca Fire Tetraedro presente, mas com o Fire 360 como protagonista logo na abertura.
                   </p>
                 </div>
-                <div className="rounded-[26px] bg-[#11213c] px-5 py-5 text-white">
-                  <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#ffb547]">
-                    Entrada pública
+                <div className="rounded-[1.7rem] border border-white/10 bg-white/6 px-5 py-5">
+                  <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--fire-orange)]">
+                    Posicionamento premium
                   </p>
                   <p className="mt-3 text-sm leading-7 text-white/74">
-                    Rota pública separada para apresentar o produto sem expor o
-                    ambiente autenticado do sistema.
+                    Vertical SaaS, field service, compliance e gestão contínua do risco físico.
                   </p>
                 </div>
                 <Link
                   to="/auth"
-                  className="inline-flex items-center justify-center gap-2 rounded-full bg-[#f58220] px-5 py-3 text-sm font-bold text-white shadow-[0_16px_30px_rgba(245,130,32,0.28)] transition-transform hover:-translate-y-0.5"
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-[var(--fire-orange)] px-5 py-3 text-sm font-bold text-white shadow-[0_18px_40px_rgba(255,91,31,0.28)] transition-transform hover:-translate-y-0.5"
                 >
-                  Acessar plataforma
+                  Acessar a plataforma
                   <ArrowRight className="h-4 w-4" />
                 </Link>
                 <a
                   href="#hero"
-                  className="inline-flex items-center justify-center gap-2 rounded-full border border-[#11213c]/10 px-5 py-3 text-sm font-bold text-[#11213c] transition-colors hover:bg-[#11213c]/4"
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-white/10 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-white/8"
                 >
                   Voltar ao topo
                 </a>
@@ -843,31 +880,24 @@ const Fire360Landing = () => {
         </div>
       </section>
 
-      <footer className="bg-[#11213c] py-10 text-white">
-        <div className="mx-auto grid max-w-6xl gap-8 px-4 md:grid-cols-[1.1fr_0.9fr_0.9fr] md:px-6">
+      <footer className="bg-[#050f22] px-4 py-10 text-white md:px-6">
+        <div className="mx-auto grid max-w-7xl gap-8 md:grid-cols-[1.05fr_0.95fr_0.95fr]">
           <div>
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#f58220] text-white">
-                <Flame className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="fire360-display text-sm font-semibold uppercase tracking-[0.24em] text-[#ffb547]">
-                  FIRE
-                </p>
-                <p className="fire360-display -mt-1 text-2xl font-bold tracking-tight">
-                  360
-                </p>
-              </div>
+            <div className="inline-flex rounded-[1.2rem] bg-white px-4 py-3">
+              <img
+                src={fireTetraedroLogo}
+                alt="Logo Fire Tetraedro"
+                className="h-12 w-auto"
+              />
             </div>
-            <p className="mt-4 max-w-md text-sm leading-7 text-white/68">
-              Plataforma de gestão contínua de segurança contra incêndio,
-              compliance operacional e field service para equipes que precisam
-              transformar execução em previsibilidade.
+            <p className="mt-4 max-w-md text-sm leading-7 text-white/64">
+              Fire Tetraedro com foco em operação técnica, rastreabilidade,
+              conformidade e inteligência contínua em segurança contra incêndio.
             </p>
           </div>
 
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-white/56">
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-white/52">
               Navegação
             </p>
             <div className="mt-4 grid gap-3 text-sm text-white/72">
@@ -880,8 +910,8 @@ const Fire360Landing = () => {
           </div>
 
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-white/56">
-              Entrada
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-white/52">
+              Produto
             </p>
             <div className="mt-4 grid gap-3 text-sm text-white/72">
               <Link to="/auth" className="hover:text-white">
@@ -890,7 +920,7 @@ const Fire360Landing = () => {
               <a href="#cta" className="hover:text-white">
                 Solicitar demonstração
               </a>
-              <span>Landing pública do produto FIRE 360</span>
+              <span>Landing pública do Fire 360</span>
             </div>
           </div>
         </div>
@@ -899,115 +929,88 @@ const Fire360Landing = () => {
   );
 };
 
-const HeroChip = ({
+const HeroPillar = ({
+  title,
+  description,
   icon: Icon,
-  label,
 }: {
+  title: string;
+  description: string;
   icon: LucideIcon;
-  label: string;
 }) => (
-  <div className="inline-flex items-center gap-3 rounded-full border border-white/24 bg-white/10 px-4 py-3 text-sm font-semibold text-white/90">
-    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-[#f58220]">
-      <Icon className="h-4 w-4" />
+  <div className="rounded-[1.5rem] border border-white/10 bg-white/6 px-4 py-4 shadow-[0_16px_40px_rgba(0,0,0,0.18)]">
+    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-[var(--fire-orange)]">
+      <Icon className="h-5 w-5" />
     </div>
-    {label}
+    <p className="fire360-display mt-4 text-xl font-bold">{title}</p>
+    <p className="mt-2 text-sm leading-6 text-white/72">{description}</p>
   </div>
 );
 
-const MetricOrb = ({
-  tone,
+const OrbitBadge = ({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: string;
+  icon: LucideIcon;
+}) => (
+  <div className="max-w-[11rem] rounded-[1.3rem] border border-white/10 bg-[rgba(7,22,47,0.82)] px-4 py-3 shadow-[0_20px_50px_rgba(0,0,0,0.34)] backdrop-blur">
+    <div className="flex items-center gap-2">
+      <div className="rounded-xl bg-white/8 p-2 text-[var(--fire-cyan)]">
+        <Icon className="h-4 w-4" />
+      </div>
+      <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/62">
+        {label}
+      </span>
+    </div>
+    <p className="mt-3 text-sm font-semibold leading-6 text-white/86">{value}</p>
+  </div>
+);
+
+const MetricCard = ({
   value,
   label,
 }: {
-  tone: string;
   value: string;
   label: string;
 }) => (
-  <div className="rounded-[22px] bg-white px-3 py-3 text-center shadow-sm">
-    <div
-      className={`mx-auto flex h-12 w-12 items-center justify-center rounded-full text-sm font-bold uppercase text-white ${tone}`}
-    >
+  <div className="rounded-[1.5rem] border border-white/10 bg-white/6 px-4 py-4 text-center shadow-[0_16px_40px_rgba(0,0,0,0.18)]">
+    <p className="fire360-display text-3xl font-bold tracking-[-0.04em] text-white">
       {value}
-    </div>
-    <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#11213c]/68">
+    </p>
+    <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/62">
       {label}
     </p>
   </div>
 );
 
-const ProgressRow = ({
-  label,
-  percent,
-  barClassName,
-}: {
-  label: string;
-  percent: string;
-  barClassName: string;
-}) => (
-  <div>
-    <div className="mb-2 flex items-center justify-between text-[12px] font-semibold text-[#11213c]">
-      <span>{label}</span>
-      <span>{percent}</span>
-    </div>
-    <div className="h-3 rounded-full bg-white">
-      <div className={`h-3 rounded-full ${barClassName}`} />
-    </div>
-  </div>
-);
-
-const StatusCard = ({
-  title,
-  value,
-  description,
-  tone,
-}: {
-  title: string;
-  value: string;
-  description: string;
-  tone: string;
-}) => (
-  <div className="rounded-[24px] border border-[#11213c]/6 bg-white p-4 shadow-sm">
-    <div className={`inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-white ${tone}`}>
-      {title}
-    </div>
-    <p className="fire360-display mt-3 text-xl font-bold tracking-tight text-[#11213c]">
-      {value}
-    </p>
-    <p className="mt-2 text-sm leading-6 text-[#11213c]/64">{description}</p>
-  </div>
-);
-
-const CalloutCard = ({
+const ProblemCard = ({
   title,
   description,
+  accentClassName,
 }: {
   title: string;
   description: string;
+  accentClassName: string;
 }) => (
-  <div className="rounded-[22px] border border-[#11213c]/6 bg-[#fff7ef] px-4 py-4">
-    <p className="fire360-display text-lg font-bold tracking-tight text-[#11213c]">
-      {title}
-    </p>
-    <p className="mt-2 text-sm leading-6 text-[#11213c]/68">{description}</p>
+  <div className="rounded-[1.6rem] border border-slate-200 bg-[var(--fire-shell)] p-4 shadow-[0_14px_32px_rgba(7,22,47,0.04)]">
+    <div className="flex items-start gap-4">
+      <span className={`mt-1 h-3.5 w-3.5 rounded-full ${accentClassName}`} />
+      <div>
+        <p className="fire360-display text-xl font-bold tracking-tight text-[var(--fire-ink)]">
+          {title}
+        </p>
+        <p className="mt-2 text-sm leading-7 text-[var(--fire-ink)]/70">
+          {description}
+        </p>
+      </div>
+    </div>
   </div>
 );
 
-const StoryBadge = ({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) => (
-  <div className="rounded-[24px] border border-[#11213c]/8 bg-white px-4 py-4 shadow-[0_10px_24px_rgba(17,33,60,0.04)]">
-    <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#0b57c9]">
-      {title}
-    </p>
-    <p className="mt-2 text-sm leading-6 text-[#11213c]/66">{description}</p>
-  </div>
-);
-
-const BenefitCard = ({
+const AdvantageCard = ({
   title,
   description,
   icon: Icon,
@@ -1016,90 +1019,126 @@ const BenefitCard = ({
   description: string;
   icon: LucideIcon;
 }) => (
-  <div className="rounded-[30px] border border-white/16 bg-[#ff8d32] px-5 py-5 text-white shadow-[0_18px_46px_rgba(196,93,16,0.18)]">
-    <div className="flex h-14 w-14 items-center justify-center rounded-[18px] bg-white text-[#f58220]">
-      <Icon className="h-6 w-6" />
+  <div className="rounded-[1.3rem] border border-white/10 bg-[rgba(255,255,255,0.04)] p-4">
+    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/8 text-[var(--fire-cyan)]">
+      <Icon className="h-5 w-5" />
+    </div>
+    <p className="fire360-display mt-4 text-xl font-bold tracking-tight text-white">
+      {title}
+    </p>
+    <p className="mt-2 text-sm leading-7 text-white/72">{description}</p>
+  </div>
+);
+
+const CycleStepCard = ({
+  index,
+  title,
+  description,
+  icon: Icon,
+  toneClassName,
+}: {
+  index: number;
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  toneClassName: string;
+}) => (
+  <div className="rounded-[1.7rem] border border-white/10 bg-white/6 p-5 shadow-[0_18px_44px_rgba(0,0,0,0.2)]">
+    <div className="flex items-center justify-between gap-3">
+      <div className={`rounded-2xl bg-white/8 p-3 ${toneClassName}`}>
+        <Icon className="h-5 w-5" />
+      </div>
+      <span className="rounded-full border border-white/10 bg-white/6 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/62">
+        {index}
+      </span>
     </div>
     <p className="fire360-display mt-5 text-2xl font-bold tracking-tight">
       {title}
     </p>
-    <p className="mt-3 text-sm leading-7 text-white/82">{description}</p>
+    <p className="mt-3 text-sm leading-7 text-white/72">{description}</p>
   </div>
 );
 
-const ModulePill = ({
-  icon: Icon,
+const TraceabilityCard = ({
   title,
   description,
+  icon: Icon,
+  isFirst,
 }: {
-  icon: LucideIcon;
   title: string;
   description: string;
+  icon: LucideIcon;
+  isFirst: boolean;
 }) => (
-  <div className="rounded-[26px] border border-[#11213c]/8 bg-[#fff7ef] px-4 py-4">
-    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#11213c] text-white">
+  <div className="relative rounded-[1.7rem] border border-[var(--fire-blue-soft)] bg-white p-5 shadow-[0_18px_46px_rgba(7,22,47,0.06)]">
+    {!isFirst ? (
+      <div className="absolute left-[-22px] top-[44px] hidden h-px w-[22px] bg-[var(--fire-blue)]/30 lg:block" />
+    ) : null}
+    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--fire-ink)] text-[var(--fire-cyan)]">
       <Icon className="h-5 w-5" />
     </div>
-    <p className="mt-4 fire360-display text-xl font-bold tracking-tight text-[#11213c]">
+    <p className="fire360-display mt-5 text-2xl font-bold tracking-tight text-[var(--fire-ink)]">
       {title}
     </p>
-    <p className="mt-2 text-sm leading-6 text-[#11213c]/68">{description}</p>
-  </div>
-);
-
-const PositioningCard = ({
-  title,
-  description,
-  icon: Icon,
-}: {
-  title: string;
-  description: string;
-  icon: LucideIcon;
-}) => (
-  <div className="rounded-[28px] border border-white/12 bg-white/8 px-4 py-4">
-    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#f58220] text-white">
-      <Icon className="h-5 w-5" />
-    </div>
-    <p className="mt-4 fire360-display text-xl font-bold">{title}</p>
-    <p className="mt-2 text-sm leading-7 text-white/76">{description}</p>
+    <p className="mt-3 text-sm leading-7 text-[var(--fire-ink)]/70">
+      {description}
+    </p>
   </div>
 );
 
 const LayerCard = ({
   title,
   subtitle,
-  accent,
-  surface,
-  text,
-  border,
+  description,
+  surfaceClassName,
+  borderClassName,
   items,
 }: {
   title: string;
   subtitle: string;
-  accent: string;
-  surface: string;
-  text: string;
-  border: string;
+  description: string;
+  surfaceClassName: string;
+  borderClassName: string;
   items: string[];
 }) => (
-  <div className={`rounded-[34px] ${surface} ${text} px-5 py-5 shadow-[0_22px_60px_rgba(17,33,60,0.14)]`}>
-    <div className={`inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-white ${accent}`}>
-      {title}
+  <div className={`rounded-[2rem] p-6 ${surfaceClassName}`}>
+    <div className={`rounded-[1.5rem] border px-4 py-3 text-sm font-semibold uppercase tracking-[0.18em] ${borderClassName}`}>
+      {subtitle}
     </div>
-    <p className="mt-4 fire360-display text-3xl font-bold tracking-tight">
-      {title}
-    </p>
-    <p className="mt-2 text-sm leading-7 opacity-75">{subtitle}</p>
-    <div className={`mt-5 rounded-[28px] border ${border} px-4 py-4`}>
+    <p className="fire360-display mt-5 text-3xl font-bold tracking-tight">{title}</p>
+    <p className="mt-4 text-sm leading-7 opacity-80">{description}</p>
+    <div className={`mt-6 rounded-[1.6rem] border px-4 py-4 ${borderClassName}`}>
       <div className="space-y-3">
         {items.map((item) => (
           <div key={item} className="flex items-start gap-3">
-            <div className={`mt-1 h-2.5 w-2.5 rounded-full ${accent}`} />
-            <p className="text-sm leading-6 opacity-85">{item}</p>
+            <span className="mt-2 h-2.5 w-2.5 rounded-full bg-[var(--fire-orange)]" />
+            <p className="text-sm leading-6 opacity-86">{item}</p>
           </div>
         ))}
       </div>
     </div>
+  </div>
+);
+
+const ModuleCard = ({
+  title,
+  description,
+  icon: Icon,
+}: {
+  title: string;
+  description: string;
+  icon: LucideIcon;
+}) => (
+  <div className="rounded-[1.7rem] border border-[var(--fire-blue-soft)] bg-white p-5 shadow-[0_18px_46px_rgba(7,22,47,0.06)]">
+    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--fire-orange-soft)] text-[var(--fire-orange)]">
+      <Icon className="h-5 w-5" />
+    </div>
+    <p className="fire360-display mt-5 text-2xl font-bold tracking-tight text-[var(--fire-ink)]">
+      {title}
+    </p>
+    <p className="mt-3 text-sm leading-7 text-[var(--fire-ink)]/70">
+      {description}
+    </p>
   </div>
 );
 

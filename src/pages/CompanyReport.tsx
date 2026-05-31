@@ -16,6 +16,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { FirePageHeader, FirePageShell } from "@/components/branding/FirePageShell";
 import {
   formatCpf,
   loadCompanyMembers,
@@ -4019,7 +4020,7 @@ const CompanyReport = () => {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
+      <div className="fire-app-shell flex min-h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
@@ -4027,7 +4028,7 @@ const CompanyReport = () => {
 
   if (!company || !snapshot) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="fire-app-shell flex min-h-screen items-center justify-center px-4">
         <Card className="w-full max-w-xl">
           <CardContent className="py-12">
             <p className="text-center text-muted-foreground">
@@ -5728,7 +5729,7 @@ const CompanyReport = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#edf0f5]">
+    <FirePageShell className="bg-transparent">
       <style>{`
         @page {
           size: A4;
@@ -5778,7 +5779,33 @@ const CompanyReport = () => {
         }
       `}</style>
 
-      <div className="report-print-wrapper mx-auto max-w-[1400px] space-y-6 px-4 py-6">
+      <div className="report-print-wrapper mx-auto max-w-[1400px] space-y-6">
+        <FirePageHeader
+          icon={FileCheck}
+          eyebrow="camada documental"
+          title="Relatorio consolidado"
+          description={`Estruture a narrativa tecnica, os anexos e o fechamento do ciclo para ${company.razao_social}.`}
+          className="report-controls"
+          actions={
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={() => navigate(`/checklists/${id}`)}
+            >
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Voltar aos Checklists
+            </Button>
+          }
+          stats={[
+            { value: String(technicalSummary.total), label: "itens avaliados" },
+            {
+              value: String(technicalSummary.naoConforme),
+              label: "nao conformes",
+            },
+            { value: String(reportEntries.length), label: "registros detalhados" },
+          ]}
+        />
+
         <ReportToolbar
           navigateBack={() => navigate(`/checklists/${id}`)}
           onSync={handleSyncChecklistSnapshot}
@@ -6106,7 +6133,7 @@ const CompanyReport = () => {
           <span>Snapshot em {formatDateTime(snapshot.generated_at)} | {snapshotIsCurrent ? "Atual" : "Defasado em relacao ao checklist"}</span>
         </div>
       </div>
-    </div>
+    </FirePageShell>
   );
 };
 

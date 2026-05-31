@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { FirePageHeader, FirePageShell } from "@/components/branding/FirePageShell";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
@@ -360,7 +361,7 @@ const CompanyRequirements = () => {
 
     if (entries.length === 0) {
       return (
-        <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+        <div className="fire-app-surface border-dashed p-6 text-sm text-muted-foreground">
           Nenhuma exigencia encontrada nesta secao.
         </div>
       );
@@ -368,12 +369,15 @@ const CompanyRequirements = () => {
 
     return (
       <div className="space-y-6">
-        <div className="rounded-lg border bg-card p-4">
+        <div className="fire-app-surface p-4">
           <h3 className="text-lg font-semibold">{sectionTitle}</h3>
         </div>
 
         {entries.map(([categoria, exigs]) => (
-          <div key={`${sectionTitle}-${categoria}`} className={`border-l-4 p-4 rounded-lg ${getCategoryColor(categoria)}`}>
+          <div
+            key={`${sectionTitle}-${categoria}`}
+            className={`rounded-[1.5rem] border border-border/60 border-l-4 p-4 shadow-[0_18px_44px_rgba(7,22,47,0.05)] ${getCategoryColor(categoria)}`}
+          >
             <h4 className={`text-lg font-semibold mb-4 ${getCategoryTextColor(categoria)}`}>
               {categoria}
             </h4>
@@ -384,7 +388,10 @@ const CompanyRequirements = () => {
                 const observacoes = requirement?.observacoes || "";
 
                 return (
-                  <div key={exigencia.id} className="bg-white p-4 rounded-md shadow-sm border">
+                  <div
+                    key={exigencia.id}
+                    className="rounded-[1.2rem] border border-white/70 bg-white/92 p-4 shadow-[0_12px_30px_rgba(7,22,47,0.04)]"
+                  >
                     <div className="flex items-start gap-4 mb-2">
                       <div className="flex-1">
                         <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -452,43 +459,56 @@ const CompanyRequirements = () => {
 
   if (loading) {
     return (
-      <div className="container mx-auto py-8 px-4 flex justify-center items-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
+      <FirePageShell containerClassName="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </FirePageShell>
     );
   }
 
   if (!company) {
     return (
-      <div className="container mx-auto py-8 px-4">
-        <p className="text-center">Empresa não encontrada.</p>
-      </div>
+      <FirePageShell containerClassName="flex min-h-screen items-center justify-center">
+        <div className="fire-app-surface w-full max-w-xl px-6 py-12 text-center">
+          <p className="text-center text-lg font-semibold">Empresa não encontrada.</p>
+        </div>
+      </FirePageShell>
     );
   }
 
   return (
-    <div className="container mx-auto py-8 px-4">
-      <div className="mb-6 flex items-center gap-4">
-        <Button
-          variant="outline"
-          onClick={() => navigate("/dashboard")}
-          className="flex items-center gap-2"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Voltar
-        </Button>
-        <h1 className="text-3xl font-bold">Exigências de Segurança</h1>
-      </div>
+    <FirePageShell>
+      <FirePageHeader
+        icon={ClipboardList}
+        eyebrow="leitura normativa"
+        title="Exigências de Segurança"
+        description={`Consolide os requisitos aplicáveis para ${company.razao_social} antes de seguir para a execução operacional dos checklists.`}
+        actions={
+          <Button
+            variant="outline"
+            size="lg"
+            onClick={() => navigate("/dashboard")}
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Voltar
+          </Button>
+        }
+        stats={[
+          { value: company.divisao || "-", label: "divisão" },
+          { value: `${company.area_m2} m2`, label: "área total" },
+          {
+            value: company.altura_descricao || company.altura_tipo || "-",
+            label: "altura classificada",
+          },
+        ]}
+      />
 
-      {company && (
-        <div className="mb-6 p-4 bg-card rounded-lg border">
-          <div className="grid gap-2 text-sm text-muted-foreground md:grid-cols-2 xl:grid-cols-3">
-            <p>Divisao: {company.divisao || "-"}</p>
-            <p>Area total: {company.area_m2} m2</p>
-            <p>Altura classificada: {company.altura_descricao || company.altura_tipo || "-"}</p>
-          </div>
+      <div className="fire-app-note mb-6">
+        <div className="grid gap-2 text-sm text-muted-foreground md:grid-cols-2 xl:grid-cols-3">
+          <p>Divisao: {company.divisao || "-"}</p>
+          <p>Area total: {company.area_m2} m2</p>
+          <p>Altura classificada: {company.altura_descricao || company.altura_tipo || "-"}</p>
         </div>
-      )}
+      </div>
 
       <div className="space-y-8">
         {renderRequirementGroups(
@@ -529,7 +549,7 @@ const CompanyRequirements = () => {
           )}
         </Button>
       </div>
-    </div>
+    </FirePageShell>
   );
 };
 

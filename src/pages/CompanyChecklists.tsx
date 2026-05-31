@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { FirePageHeader, FirePageShell } from "@/components/branding/FirePageShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -2482,7 +2483,7 @@ const CompanyChecklists = () => {
 
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="fire-app-shell flex min-h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
@@ -2490,7 +2491,7 @@ const CompanyChecklists = () => {
 
   if (!company) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="fire-app-shell flex min-h-screen items-center justify-center">
         <Card>
           <CardContent className="py-12">
             <p className="text-center text-muted-foreground">
@@ -2509,7 +2510,7 @@ const CompanyChecklists = () => {
 
   if (!canExecuteCompanyChecklists) {
     return (
-      <div className="min-h-screen bg-background px-4 py-10">
+      <FirePageShell containerClassName="px-4 py-10">
         <div className="mx-auto max-w-2xl">
           <Card>
             <CardHeader>
@@ -2538,7 +2539,7 @@ const CompanyChecklists = () => {
             </CardContent>
           </Card>
         </div>
-      </div>
+      </FirePageShell>
     );
   }
 
@@ -2601,45 +2602,43 @@ const CompanyChecklists = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto py-4 md:py-8 px-4">
-        <div className="mb-6 md:mb-8">
-          <Button
-            variant="ghost"
-            onClick={() => navigate(`/exigencias/${id}`)}
-            className="mb-4"
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Voltar as Exigencias
-          </Button>
-
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div className="flex items-start md:items-center">
-              <ClipboardCheck className="h-8 w-8 md:h-12 md:w-12 text-primary mr-2 md:mr-3 flex-shrink-0 mt-1 md:mt-0" />
-              <div>
-                <h1 className="text-2xl md:text-4xl font-bold text-foreground">
-                  Check Lists de Renovacao
-                </h1>
-                <p className="text-sm md:text-lg text-muted-foreground mt-1">
-                  {company.razao_social}
-                </p>
-              </div>
-            </div>
-            <Button
-              onClick={handleFinalizeChecklist}
-              disabled={isPersistingChecklist}
-              size="lg"
-              className="w-full md:w-auto"
-            >
-              {isFinalizingChecklist ? (
-                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              ) : (
-                <Save className="mr-2 h-5 w-5" />
-              )}
-              Finalizar Checklist
-            </Button>
-          </div>
-        </div>
+    <FirePageShell>
+        <FirePageHeader
+          icon={ClipboardCheck}
+          eyebrow="execucao operacional"
+          title="Check Lists de Renovacao"
+          description={`Acompanhe a execucao por frente, equipamento e pendencia para ${company.razao_social}.`}
+          actions={
+            <>
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={() => navigate(`/exigencias/${id}`)}
+              >
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Voltar as Exigencias
+              </Button>
+              <Button
+                onClick={handleFinalizeChecklist}
+                disabled={isPersistingChecklist}
+                size="lg"
+              >
+                {isFinalizingChecklist ? (
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                ) : (
+                  <Save className="mr-2 h-5 w-5" />
+                )}
+                Finalizar Checklist
+              </Button>
+            </>
+          }
+          stats={[
+            { value: String(visibleModels.length), label: "frentes visiveis" },
+            { value: String(extinguisherSummary.total), label: "extintores" },
+            { value: String(hydrantSummary.total), label: "hidrantes" },
+            { value: String(luminaireSummary.total), label: "luminarias" },
+          ]}
+        />
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-8">
           {visibleModels.map((inspection) => {
@@ -3887,8 +3886,7 @@ const CompanyChecklists = () => {
             />
           </>
         )}
-      </div>
-    </div>
+    </FirePageShell>
   );
 };
 

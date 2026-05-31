@@ -490,7 +490,7 @@ export function CompanyForm() {
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
       {/* Company Section */}
-      <Card>
+      <Card className="fire-app-surface">
         <CardHeader>
           <CardTitle>Empresa</CardTitle>
           <CardDescription>Informações básicas da empresa</CardDescription>
@@ -581,7 +581,7 @@ export function CompanyForm() {
       </Card>
 
       {/* Address Section */}
-      <Card>
+      <Card className="fire-app-surface">
         <CardHeader>
           <CardTitle>Endereço</CardTitle>
           <CardDescription>Localização da empresa</CardDescription>
@@ -654,7 +654,7 @@ export function CompanyForm() {
       </Card>
 
       {/* Other Data Section */}
-      <Card>
+      <Card className="fire-app-surface">
         <CardHeader>
           <CardTitle>Outros Dados</CardTitle>
           <CardDescription>Classificação e informações técnicas</CardDescription>
@@ -797,7 +797,7 @@ export function CompanyForm() {
       </Card>
 
       {isSystemAdmin ? (
-        <Card>
+        <Card className="fire-app-surface">
           <CardHeader>
             <CardTitle>Primeiro Usuario da Empresa</CardTitle>
             <CardDescription>

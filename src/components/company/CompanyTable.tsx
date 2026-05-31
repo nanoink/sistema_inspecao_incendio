@@ -169,7 +169,7 @@ export const CompanyTable = () => {
 
   if (companies.length === 0) {
     return (
-      <Card>
+      <Card className="fire-app-surface">
         <CardContent className="py-12">
           <p className="text-center text-muted-foreground">
             {isSystemAdmin
@@ -183,7 +183,7 @@ export const CompanyTable = () => {
 
   return (
     <>
-      <Card>
+      <Card className="fire-app-surface overflow-hidden">
         <CardHeader>
           <CardTitle className="text-lg md:text-xl">Empresas Cadastradas ({companies.length})</CardTitle>
         </CardHeader>
@@ -198,7 +198,7 @@ export const CompanyTable = () => {
                   <TableHead className="whitespace-nowrap hidden md:table-cell">Responsável</TableHead>
                   <TableHead className="whitespace-nowrap hidden lg:table-cell">Telefone</TableHead>
                   <TableHead className="whitespace-nowrap hidden lg:table-cell">Grau de Risco</TableHead>
-                  <TableHead className="text-right whitespace-nowrap sticky right-0 bg-background">Ações</TableHead>
+                  <TableHead className="sticky right-0 whitespace-nowrap bg-slate-50/95 text-right backdrop-blur">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -210,7 +210,7 @@ export const CompanyTable = () => {
                     <TableCell className="whitespace-nowrap hidden md:table-cell">{company.responsavel}</TableCell>
                     <TableCell className="whitespace-nowrap hidden lg:table-cell">{company.telefone}</TableCell>
                     <TableCell className="whitespace-nowrap hidden lg:table-cell">{company.grau_risco || "-"}</TableCell>
-                    <TableCell className="text-right sticky right-0 bg-background">
+                    <TableCell className="sticky right-0 bg-white/96 text-right backdrop-blur">
                       <div className="flex justify-end gap-1 md:gap-2">
                         {reportCompanyIds.has(company.id) && (
                           <Button
