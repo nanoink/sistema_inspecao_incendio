@@ -39,7 +39,18 @@ const canvasToJpegBlob = async (
 const TARGET_IMAGE_MAX_DIMENSION = 1280;
 const TARGET_IMAGE_MIN_DIMENSION = 360;
 const TARGET_IMAGE_MAX_BYTES = 480_000;
+const TARGET_CAMERA_IMAGE_MAX_BYTES = 360_000;
 const IMAGE_QUALITY_STEPS = [0.84, 0.74, 0.64, 0.54, 0.44, 0.34];
+const MOBILE_CAMERA_DRAFT_MAX_BYTES = 900_000;
+
+type NonConformityImageSource = "camera" | "gallery";
+
+interface MobileNonConformityDraft {
+  description?: string;
+  imageValue?: string;
+  cameraImageDataUrl?: string;
+  cameraImageFileName?: string;
+}
 
 const loadImageFromFile = (file: File) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
@@ -63,7 +74,10 @@ const loadImageFromFile = (file: File) =>
     image.src = objectUrl;
   });
 
-const prepareImageForUpload = async (file: File) => {
+const prepareImageForUpload = async (
+  file: File,
+  source: NonConformityImageSource,
+) => {
   if (typeof window === "undefined") {
     return file as Blob;
   }
@@ -88,6 +102,9 @@ const prepareImageForUpload = async (file: File) => {
   context.imageSmoothingQuality = "high";
 
   let fallbackBlob: Blob | null = null;
+  const targetMaxBytes = source === "camera"
+    ? TARGET_CAMERA_IMAGE_MAX_BYTES
+    : TARGET_IMAGE_MAX_BYTES;
 
   while (true) {
     canvas.width = width;
@@ -99,7 +116,7 @@ const prepareImageForUpload = async (file: File) => {
       const compressedBlob = await canvasToJpegBlob(canvas, quality);
       fallbackBlob = compressedBlob;
 
-      if (compressedBlob.size <= TARGET_IMAGE_MAX_BYTES) {
+      if (compressedBlob.size <= targetMaxBytes) {
         return new File(
           [compressedBlob],
           `nao-conformidade-${Date.now()}.jpg`,
@@ -132,6 +149,43 @@ const prepareImageForUpload = async (file: File) => {
 const normalizeOptionalString = (value?: string | null) => {
   const trimmed = value?.trim() || "";
   return trimmed || "";
+};
+
+const blobToDataUrl = (blob: Blob) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () =>
+      resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+
+const dataUrlToFile = (dataUrl: string, fileName: string) => {
+  const [header, encodedBody] = dataUrl.split(",", 2);
+
+  if (!header || !encodedBody) {
+    return null;
+  }
+
+  const mimeTypeMatch = header.match(/^data:(.*?);base64$/i);
+  const mimeType = mimeTypeMatch?.[1] || "image/jpeg";
+
+  try {
+    const binary = window.atob(encodedBody);
+    const bytes = new Uint8Array(binary.length);
+
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+
+    return new File([bytes], fileName, {
+      type: mimeType,
+      lastModified: Date.now(),
+    });
+  } catch {
+    return null;
+  }
 };
 
 const canPersistImageValueInDraft = (value?: string | null) => {
@@ -235,12 +289,20 @@ export const ChecklistNonConformityDialog = ({
   const persistDraft = useCallback((
     nextDescription: string,
     nextImageValue: string,
+    options?: {
+      cameraImageDataUrl?: string | null;
+      cameraImageFileName?: string | null;
+    },
   ) => {
     if (!isMobile || typeof window === "undefined") {
       return;
     }
 
     try {
+      const currentDraftRaw = window.sessionStorage.getItem(draftStorageKey);
+      const currentDraft = currentDraftRaw
+        ? (JSON.parse(currentDraftRaw) as MobileNonConformityDraft)
+        : null;
       window.sessionStorage.setItem(
         draftStorageKey,
         JSON.stringify({
@@ -248,6 +310,14 @@ export const ChecklistNonConformityDialog = ({
           imageValue: canPersistImageValueInDraft(nextImageValue)
             ? nextImageValue
             : "",
+          cameraImageDataUrl:
+            options?.cameraImageDataUrl !== undefined
+              ? options.cameraImageDataUrl || ""
+              : currentDraft?.cameraImageDataUrl || "",
+          cameraImageFileName:
+            options?.cameraImageFileName !== undefined
+              ? options.cameraImageFileName || ""
+              : currentDraft?.cameraImageFileName || "",
         }),
       );
     } catch (error) {
@@ -268,16 +338,15 @@ export const ChecklistNonConformityDialog = ({
 
     let restoredDescription = nextInitialDescription;
     let restoredImageValue = nextInitialImageValue;
+    let restoredCameraImageDataUrl = "";
+    let restoredCameraImageFileName = "";
 
     if (isMobile && typeof window !== "undefined") {
       try {
         const storedDraft = window.sessionStorage.getItem(draftStorageKey);
 
         if (storedDraft) {
-          const parsedDraft = JSON.parse(storedDraft) as {
-            description?: string;
-            imageValue?: string;
-          };
+          const parsedDraft = JSON.parse(storedDraft) as MobileNonConformityDraft;
 
           restoredDescription =
             normalizeOptionalString(parsedDraft.description) ||
@@ -286,6 +355,12 @@ export const ChecklistNonConformityDialog = ({
           restoredImageValue =
             normalizeOptionalString(parsedDraft.imageValue) ||
             nextInitialImageValue;
+          restoredCameraImageDataUrl = normalizeOptionalString(
+            parsedDraft.cameraImageDataUrl,
+          );
+          restoredCameraImageFileName = normalizeOptionalString(
+            parsedDraft.cameraImageFileName,
+          );
         }
       } catch (error) {
         console.error("Error restoring mobile non conformity draft:", error);
@@ -294,10 +369,20 @@ export const ChecklistNonConformityDialog = ({
     }
 
     setDescription(restoredDescription);
-    setImageValue(restoredImageValue);
     setPreviousImageValue(nextInitialImageValue);
-    setImageUploadFile(null);
-    applyPreviewUrl(nextInitialPreviewUrl);
+    if (restoredCameraImageDataUrl) {
+      const restoredCameraFile = dataUrlToFile(
+        restoredCameraImageDataUrl,
+        restoredCameraImageFileName || `nao-conformidade-${Date.now()}.jpg`,
+      );
+      setImageValue(restoredCameraFile ? "" : restoredCameraImageDataUrl);
+      setImageUploadFile(restoredCameraFile);
+      applyPreviewUrl(restoredCameraImageDataUrl);
+    } else {
+      setImageValue(restoredImageValue);
+      setImageUploadFile(null);
+      applyPreviewUrl(nextInitialPreviewUrl);
+    }
     setProcessingImage(false);
   }, [
     applyPreviewUrl,
@@ -359,6 +444,7 @@ export const ChecklistNonConformityDialog = ({
 
   const handleFileSelected = async (
     event: ChangeEvent<HTMLInputElement>,
+    source: NonConformityImageSource,
   ) => {
     const file = event.target.files?.[0];
     captureFlowInProgressRef.current = false;
@@ -369,11 +455,29 @@ export const ChecklistNonConformityDialog = ({
 
     try {
       setProcessingImage(true);
-      const preparedImageFile = await prepareImageForUpload(file);
+      const preparedImageFile = await prepareImageForUpload(file, source);
       setImageValue("");
       setImageUploadFile(preparedImageFile);
       applyPreviewBlob(preparedImageFile);
-      persistDraft(description, "");
+
+      if (
+        source === "camera" &&
+        preparedImageFile.size <= MOBILE_CAMERA_DRAFT_MAX_BYTES
+      ) {
+        const preparedImageDataUrl = await blobToDataUrl(preparedImageFile);
+        persistDraft(description, "", {
+          cameraImageDataUrl: preparedImageDataUrl,
+          cameraImageFileName:
+            preparedImageFile instanceof File
+              ? preparedImageFile.name
+              : `nao-conformidade-${Date.now()}.jpg`,
+        });
+      } else {
+        persistDraft(description, "", {
+          cameraImageDataUrl: "",
+          cameraImageFileName: "",
+        });
+      }
     } catch (error) {
       console.error("Error processing non conformity image:", error);
       toast({
@@ -420,7 +524,10 @@ export const ChecklistNonConformityDialog = ({
     setImageValue("");
     setImageUploadFile(null);
     applyPreviewUrl("");
-    persistDraft(description, "");
+    persistDraft(description, "", {
+      cameraImageDataUrl: "",
+      cameraImageFileName: "",
+    });
   };
 
   const handleDialogOpenChange = (nextOpen: boolean) => {
@@ -486,14 +593,14 @@ export const ChecklistNonConformityDialog = ({
                 accept="image/*"
                 capture="environment"
                 className="hidden"
-                onChange={handleFileSelected}
+                onChange={(event) => handleFileSelected(event, "camera")}
               />
               <input
                 ref={galleryInputRef}
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={handleFileSelected}
+                onChange={(event) => handleFileSelected(event, "gallery")}
               />
 
               <Button

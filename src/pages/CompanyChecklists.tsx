@@ -165,7 +165,7 @@ interface EquipmentChecklistProgressEntry {
 type ChecklistStatus = "C" | "NC" | "NA";
 type ChecklistPersistAction = "save" | "finalize";
 
-const ALWAYS_VISIBLE_CHECKLIST_CODES = new Set(["A.33"]);
+const ALWAYS_VISIBLE_CHECKLIST_CODES = new Set(["A.33", "A.41"]);
 
 const REQUIREMENT_TO_CHECKLIST_CODES: Record<string, string[]> = {
   "1.1": ["A.7"],

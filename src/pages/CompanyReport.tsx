@@ -30,6 +30,7 @@ import {
   buildChecklistSnapshot,
   formatChecklistItemAuditSummary,
   type ChecklistSnapshot,
+  type ChecklistSnapshotInspection,
   type ChecklistSnapshotItem,
 } from "@/lib/checklist";
 import {
@@ -2072,6 +2073,7 @@ const buildRequirementCorrectionPlanEntries = ({
 const REPORT_EXTINGUISHER_INSPECTION_CODE = "A.23";
 const REPORT_HYDRANT_INSPECTION_CODE = "A.25";
 const REPORT_LUMINAIRE_INSPECTION_CODE = "A.19";
+const REPORT_DEFERRED_CHECKLIST_CODES = new Set(["A.41"]);
 
 const REPORT_REQUIREMENT_TO_CHECKLIST_CODES: Record<string, string[]> = {
   "1.1": ["A.7"],
@@ -2211,6 +2213,49 @@ const buildGeneralChecklistLines = (
         { numeric: true, sensitivity: "base" },
       ),
     );
+
+const filterDeferredChecklistSnapshot = (
+  snapshot: ChecklistSnapshot,
+): ChecklistSnapshot => {
+  const inspections = snapshot.inspections.filter((inspection) => {
+    if (!REPORT_DEFERRED_CHECKLIST_CODES.has(inspection.codigo)) {
+      return true;
+    }
+
+    return inspection.itens.some((item) => item.status !== "P");
+  });
+
+  const overall = inspections.reduce<ChecklistSnapshot["overall"]>(
+    (summary, inspection) => {
+      summary.total += inspection.total;
+      summary.conforme += inspection.conforme;
+      summary.nao_conforme += inspection.nao_conforme;
+      summary.nao_aplicavel += inspection.nao_aplicavel;
+      summary.pendentes += inspection.pendentes;
+      return summary;
+    },
+    {
+      total: 0,
+      conforme: 0,
+      nao_conforme: 0,
+      nao_aplicavel: 0,
+      pendentes: 0,
+    },
+  );
+
+  const nonConformities = inspections.flatMap((inspection) =>
+    inspection.itens.filter((item) => item.status === "NC"),
+  );
+
+  return {
+    ...snapshot,
+    inspections: inspections.map(
+      (inspection): ChecklistSnapshotInspection => ({ ...inspection }),
+    ),
+    overall,
+    non_conformities: nonConformities,
+  };
+};
 
 const buildTechnicalSnapshotSummary = (
   snapshot: ChecklistSnapshot,
@@ -3214,10 +3259,12 @@ const CompanyReport = () => {
         const persistedSignatures = parseCompanyReportSignatures(
           persistedSignatureValue,
         );
-        const computedSnapshot = buildChecklistSnapshot(
+        const computedSnapshot = filterDeferredChecklistSnapshot(
+          buildChecklistSnapshot(
           checklistData.models,
           checklistData.groupsByModel,
           checklistData.responses,
+          ),
         );
         const persistedReportMatchesActiveCycle =
           Boolean(activeCycleResult) &&
@@ -3927,10 +3974,12 @@ const CompanyReport = () => {
 
       const latestSnapshot =
         latestChecklistDataResult
-          ? buildChecklistSnapshot(
+          ? filterDeferredChecklistSnapshot(
+              buildChecklistSnapshot(
               latestChecklistDataResult.models,
               latestChecklistDataResult.groupsByModel,
               latestChecklistDataResult.responses,
+              ),
             )
           : snapshot;
 
