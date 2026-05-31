@@ -36,6 +36,10 @@ const NON_CONFORMITY_IMAGE_STORAGE_PREFIX = "storage://";
 const SIGNED_URL_DURATION_SECONDS = 60 * 60 * 12;
 const STORAGE_UPLOAD_FALLBACK_CONTENT_TYPE = "image/jpeg";
 const INLINE_IMAGE_FALLBACK_MAX_BYTES = 700_000;
+const CHECKLIST_NON_CONFORMITY_SELECT_WITH_CYCLE =
+  "id, context_key, empresa_id, relatorio_ciclo_id, checklist_item_id, equipment_type, equipment_record_id, descricao, created_at, updated_at";
+const CHECKLIST_NON_CONFORMITY_SELECT_LEGACY =
+  "id, context_key, empresa_id, checklist_item_id, equipment_type, equipment_record_id, descricao, created_at, updated_at";
 
 interface BaseScope {
   companyId: string;
@@ -92,6 +96,39 @@ const normalizeOptionalString = (value?: string | null) => {
   const trimmed = value?.trim() || "";
   return trimmed || null;
 };
+
+const getChecklistNonConformityErrorMessage = (error: unknown) => {
+  if (error instanceof Error) {
+    const normalizedMessage = error.message.trim();
+    return normalizedMessage || null;
+  }
+
+  if (!error || typeof error !== "object") {
+    return null;
+  }
+
+  const candidate = error as {
+    message?: string;
+    details?: string | null;
+    hint?: string | null;
+    error_description?: string;
+  };
+  const parts = [
+    candidate.message,
+    candidate.details,
+    candidate.hint,
+    candidate.error_description,
+  ]
+    .map((value) => value?.trim() || "")
+    .filter(Boolean);
+
+  return parts.length > 0 ? parts.join(" ") : null;
+};
+
+const buildChecklistNonConformitySaveError = (
+  error: unknown,
+  fallbackMessage: string,
+) => new Error(getChecklistNonConformityErrorMessage(error) || fallbackMessage);
 
 const createClientSideId = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -318,6 +355,97 @@ const resolveChecklistNonConformityImageValueForSave = async (
     previousImageValue,
     uploadedImageValue,
   };
+};
+
+const upsertChecklistNonConformityRecord = async (
+  supabase: AppSupabaseClient,
+  {
+    companyId,
+    checklistItemId,
+    description,
+    imageValue,
+    equipmentType,
+    equipmentRecordId,
+  }: {
+    companyId: string;
+    checklistItemId: string;
+    description: string;
+    imageValue?: string | null;
+    equipmentType?: NonConformityEquipmentType | null;
+    equipmentRecordId?: string | null;
+  },
+) => {
+  let editableReportCycleId: string | null = null;
+
+  try {
+    editableReportCycleId = await resolveEditableReportCycleId(
+      supabase,
+      companyId,
+    );
+  } catch (cycleError) {
+    console.warn(
+      "Error resolving editable report cycle for checklist non conformity. Falling back to persistence without report cycle binding:",
+      cycleError,
+    );
+  }
+
+  const payload: ChecklistNonConformityPayload = {
+    relatorio_ciclo_id: editableReportCycleId ?? undefined,
+    context_key: buildChecklistNonConformityContextKey({
+      companyId,
+      reportCycleId: editableReportCycleId,
+      checklistItemId,
+      equipmentType,
+      equipmentRecordId,
+    }),
+    empresa_id: companyId,
+    checklist_item_id: checklistItemId,
+    equipment_type: equipmentType ?? null,
+    equipment_record_id: equipmentRecordId ?? null,
+    descricao: description.trim(),
+    imagem_data_url: imageValue ?? null,
+  };
+
+  const { data, error } = await supabase
+    .from("empresa_checklist_nao_conformidades")
+    .upsert(payload, { onConflict: "context_key" })
+    .select(CHECKLIST_NON_CONFORMITY_SELECT_WITH_CYCLE)
+    .maybeSingle();
+
+  if (!error) {
+    return data as ChecklistNonConformityRecord | null;
+  }
+
+  if (!isMissingColumnError(error, ["relatorio_ciclo_id"])) {
+    throw error;
+  }
+
+  const legacyPayload = {
+    context_key: buildChecklistNonConformityContextKey({
+      companyId,
+      checklistItemId,
+      equipmentType,
+      equipmentRecordId,
+    }),
+    empresa_id: companyId,
+    checklist_item_id: checklistItemId,
+    equipment_type: equipmentType ?? null,
+    equipment_record_id: equipmentRecordId ?? null,
+    descricao: description.trim(),
+    imagem_data_url: imageValue ?? null,
+  } satisfies ChecklistNonConformityPayload;
+
+  const legacyResult = await supabase
+    .from("empresa_checklist_nao_conformidades")
+    .upsert(legacyPayload, { onConflict: "context_key" })
+    .select(CHECKLIST_NON_CONFORMITY_SELECT_LEGACY)
+    .maybeSingle();
+
+  if (legacyResult.error) {
+    throw legacyResult.error;
+  }
+
+  return (legacyResult.data || null) as ChecklistNonConformityRecord | null;
 };
 
 const hydrateChecklistNonConformityImageRecord = async (
@@ -760,11 +888,11 @@ export const saveEquipmentQrNonConformity = async (
       );
     }
 
-    const savedRecord = (data?.[0] || null) as ChecklistNonConformityRecord | null;
+      const savedRecord = (data?.[0] || null) as ChecklistNonConformityRecord | null;
 
-    if (!savedRecord) {
-      return null;
-    }
+      if (!savedRecord) {
+        return null;
+      }
 
     const [hydratedRecord] = await hydrateChecklistNonConformityImageRecords(
       supabase,
@@ -776,13 +904,52 @@ export const saveEquipmentQrNonConformity = async (
       ],
     );
 
-    return hydratedRecord || null;
+      return hydratedRecord || null;
   } catch (error) {
+    if (
+      resolvedCompanyId &&
+      resolvedEquipmentType &&
+      resolvedEquipmentRecordId
+    ) {
+      try {
+        console.warn(
+          "Error saving QR non conformity through RPC. Retrying with direct checklist non conformity upsert:",
+          error,
+        );
+
+        return await saveChecklistNonConformity(supabase, {
+          companyId: resolvedCompanyId,
+          checklistItemId,
+          description,
+          imageValue: nextImageValue,
+          previousImageValue: normalizedPreviousImageValue,
+          imageFile: null,
+          equipmentType: resolvedEquipmentType,
+          equipmentRecordId: resolvedEquipmentRecordId,
+        });
+      } catch (fallbackError) {
+        if (uploadedImageValue) {
+          await removeChecklistNonConformityStoredImage(
+            supabase,
+            uploadedImageValue,
+          );
+        }
+
+        throw buildChecklistNonConformitySaveError(
+          fallbackError,
+          "Nao foi possivel registrar a descricao e a imagem desta nao conformidade.",
+        );
+      }
+    }
+
     if (uploadedImageValue) {
       await removeChecklistNonConformityStoredImage(supabase, uploadedImageValue);
     }
 
-    throw error;
+    throw buildChecklistNonConformitySaveError(
+      error,
+      "Nao foi possivel registrar a descricao e a imagem desta nao conformidade.",
+    );
   }
 };
 
@@ -799,10 +966,6 @@ export const saveChecklistNonConformity = async (
     equipmentRecordId,
   }: SaveChecklistNonConformityOptions,
 ) => {
-  const editableReportCycleId = await resolveEditableReportCycleId(
-    supabase,
-    companyId,
-  );
   const {
     nextImageValue,
     previousImageValue: normalizedPreviousImageValue,
@@ -816,88 +979,16 @@ export const saveChecklistNonConformity = async (
     previousImageValue,
     imageFile,
   });
-  const payload: ChecklistNonConformityPayload = {
-    relatorio_ciclo_id: editableReportCycleId ?? undefined,
-    context_key: buildChecklistNonConformityContextKey({
-      companyId,
-      reportCycleId: editableReportCycleId,
-      checklistItemId,
-      equipmentType,
-      equipmentRecordId,
-    }),
-    empresa_id: companyId,
-    checklist_item_id: checklistItemId,
-    equipment_type: equipmentType ?? null,
-    equipment_record_id: equipmentRecordId ?? null,
-    descricao: description.trim(),
-    imagem_data_url: nextImageValue,
-  };
 
   try {
-    const { data, error } = await supabase
-      .from("empresa_checklist_nao_conformidades")
-      .upsert(payload, { onConflict: "context_key" })
-      .select(
-        "id, context_key, empresa_id, relatorio_ciclo_id, checklist_item_id, equipment_type, equipment_record_id, descricao, created_at, updated_at",
-      )
-      .maybeSingle();
-
-    if (error && isMissingColumnError(error, ["relatorio_ciclo_id"])) {
-      const legacyPayload = {
-        context_key: buildChecklistNonConformityContextKey({
-          companyId,
-          checklistItemId,
-          equipmentType,
-          equipmentRecordId,
-        }),
-        empresa_id: companyId,
-        checklist_item_id: checklistItemId,
-        equipment_type: equipmentType ?? null,
-        equipment_record_id: equipmentRecordId ?? null,
-        descricao: description.trim(),
-        imagem_data_url: nextImageValue,
-      } satisfies ChecklistNonConformityPayload;
-
-      const legacyResult = await supabase
-        .from("empresa_checklist_nao_conformidades")
-        .upsert(legacyPayload, { onConflict: "context_key" })
-        .select(
-          "id, context_key, empresa_id, checklist_item_id, equipment_type, equipment_record_id, descricao, created_at, updated_at",
-        )
-        .maybeSingle();
-
-      if (legacyResult.error) {
-        throw legacyResult.error;
-      }
-
-      if (
-        normalizedPreviousImageValue &&
-        normalizedPreviousImageValue !== nextImageValue
-      ) {
-        await removeChecklistNonConformityStoredImage(
-          supabase,
-          normalizedPreviousImageValue,
-        );
-      }
-
-      if (!legacyResult.data) {
-        return null;
-      }
-
-      const [hydratedLegacyRecord] =
-        await hydrateChecklistNonConformityImageRecords(supabase, [
-          {
-            ...legacyResult.data,
-            imagem_data_url: nextImageValue,
-          } satisfies ChecklistNonConformityRecord,
-        ]);
-
-      return hydratedLegacyRecord || null;
-    }
-
-    if (error) {
-      throw error;
-    }
+    const data = await upsertChecklistNonConformityRecord(supabase, {
+      companyId,
+      checklistItemId,
+      description,
+      imageValue: nextImageValue,
+      equipmentType,
+      equipmentRecordId,
+    });
 
     if (
       normalizedPreviousImageValue &&
@@ -929,6 +1020,9 @@ export const saveChecklistNonConformity = async (
       await removeChecklistNonConformityStoredImage(supabase, uploadedImageValue);
     }
 
-    throw error;
+    throw buildChecklistNonConformitySaveError(
+      error,
+      "Nao foi possivel registrar a descricao e a imagem desta nao conformidade.",
+    );
   }
 };
