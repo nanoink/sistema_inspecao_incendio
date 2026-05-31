@@ -35,6 +35,7 @@ const NON_CONFORMITY_IMAGE_STORAGE_BUCKET =
 const NON_CONFORMITY_IMAGE_STORAGE_PREFIX = "storage://";
 const SIGNED_URL_DURATION_SECONDS = 60 * 60 * 12;
 const STORAGE_UPLOAD_FALLBACK_CONTENT_TYPE = "image/jpeg";
+const INLINE_IMAGE_FALLBACK_MAX_BYTES = 700_000;
 
 interface BaseScope {
   companyId: string;
@@ -268,7 +269,6 @@ const uploadChecklistNonConformityImage = async (
       contentType:
         normalizeOptionalString(imageFile.type) ||
         STORAGE_UPLOAD_FALLBACK_CONTENT_TYPE,
-      upsert: true,
     });
 
   if (error) {
@@ -302,6 +302,13 @@ const resolveChecklistNonConformityImageValueForSave = async (
         "Error uploading checklist non conformity image to storage. Falling back to inline image data:",
         uploadError,
       );
+
+      if (options.imageFile.size > INLINE_IMAGE_FALLBACK_MAX_BYTES) {
+        throw new Error(
+          "Nao foi possivel enviar a imagem da nao conformidade. A foto preparada ainda ficou acima do limite seguro para salvamento no celular/tablet.",
+        );
+      }
+
       nextImageValue = await blobToDataUrl(options.imageFile);
     }
   }

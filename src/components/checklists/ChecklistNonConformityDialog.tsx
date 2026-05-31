@@ -36,6 +36,11 @@ const canvasToJpegBlob = async (
   return blob;
 };
 
+const TARGET_IMAGE_MAX_DIMENSION = 1280;
+const TARGET_IMAGE_MIN_DIMENSION = 360;
+const TARGET_IMAGE_MAX_BYTES = 480_000;
+const IMAGE_QUALITY_STEPS = [0.84, 0.74, 0.64, 0.54, 0.44, 0.34];
+
 const loadImageFromFile = (file: File) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
@@ -64,14 +69,10 @@ const prepareImageForUpload = async (file: File) => {
   }
 
   const image = await loadImageFromFile(file);
-  const maxDimension = 1600;
-  const minDimension = 420;
-  const targetMaxBytes = 1_250_000;
-  const qualitySteps = [0.86, 0.76, 0.66, 0.56, 0.46, 0.36];
   const ratio = Math.min(
     1,
-    maxDimension / image.width,
-    maxDimension / image.height,
+    TARGET_IMAGE_MAX_DIMENSION / image.width,
+    TARGET_IMAGE_MAX_DIMENSION / image.height,
   );
   let width = Math.max(1, Math.round(image.width * ratio));
   let height = Math.max(1, Math.round(image.height * ratio));
@@ -94,25 +95,35 @@ const prepareImageForUpload = async (file: File) => {
     context.clearRect(0, 0, width, height);
     context.drawImage(image, 0, 0, width, height);
 
-    for (const quality of qualitySteps) {
+    for (const quality of IMAGE_QUALITY_STEPS) {
       const compressedBlob = await canvasToJpegBlob(canvas, quality);
       fallbackBlob = compressedBlob;
 
-      if (compressedBlob.size <= targetMaxBytes) {
-        return compressedBlob;
+      if (compressedBlob.size <= TARGET_IMAGE_MAX_BYTES) {
+        return new File(
+          [compressedBlob],
+          `nao-conformidade-${Date.now()}.jpg`,
+          {
+            type: "image/jpeg",
+            lastModified: Date.now(),
+          },
+        );
       }
     }
 
-    if (Math.max(width, height) <= minDimension) {
+    if (Math.max(width, height) <= TARGET_IMAGE_MIN_DIMENSION) {
       break;
     }
 
-    width = Math.max(1, Math.round(width * 0.8));
-    height = Math.max(1, Math.round(height * 0.8));
+    width = Math.max(1, Math.round(width * 0.76));
+    height = Math.max(1, Math.round(height * 0.76));
   }
 
   if (fallbackBlob) {
-    return fallbackBlob;
+    return new File([fallbackBlob], `nao-conformidade-${Date.now()}.jpg`, {
+      type: "image/jpeg",
+      lastModified: Date.now(),
+    });
   }
 
   return file as Blob;
@@ -359,9 +370,10 @@ export const ChecklistNonConformityDialog = ({
     try {
       setProcessingImage(true);
       const preparedImageFile = await prepareImageForUpload(file);
+      setImageValue("");
       setImageUploadFile(preparedImageFile);
       applyPreviewBlob(preparedImageFile);
-      persistDraft(description, imageValue);
+      persistDraft(description, "");
     } catch (error) {
       console.error("Error processing non conformity image:", error);
       toast({

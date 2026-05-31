@@ -679,10 +679,13 @@ const EquipmentChecklistPage = () => {
       setNonConformityDialogOpen(false);
     } catch (error) {
       console.error("Error saving equipment non conformity:", error);
+      const errorMessage =
+        error instanceof Error && error.message
+          ? error.message
+          : "Nao foi possivel registrar a descricao e a imagem desta nao conformidade.";
       toast({
         title: "Erro ao salvar nao conformidade",
-        description:
-          "Nao foi possivel registrar a descricao e a imagem desta nao conformidade.",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {

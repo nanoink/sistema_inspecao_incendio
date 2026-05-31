@@ -712,6 +712,45 @@ const addDaysToDate = (dateValue: string, days: number) => {
   return date.toISOString().slice(0, 10);
 };
 
+const addHoursToDate = (
+  dateValue: string,
+  hours: number,
+  timeValue?: string | null,
+) => {
+  const normalizedTime =
+    typeof timeValue === "string" && /^\d{2}:\d{2}$/.test(timeValue)
+      ? timeValue
+      : "00:00";
+  const date = new Date(`${dateValue}T${normalizedTime}:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return getToday();
+  }
+
+  date.setHours(date.getHours() + hours);
+  return date.toISOString().slice(0, 10);
+};
+
+const getSuggestedCorrectionDueDate = ({
+  startDate,
+  startTime,
+  riskLevel,
+}: {
+  startDate: string;
+  startTime?: string | null;
+  riskLevel: "ALTA" | "MEDIA" | "BAIXA";
+}) => {
+  if (riskLevel === "ALTA") {
+    return addHoursToDate(startDate, 26, startTime);
+  }
+
+  if (riskLevel === "MEDIA") {
+    return addDaysToDate(startDate, 15);
+  }
+
+  return addDaysToDate(startDate, 50);
+};
+
 const chunkArray = <T,>(items: T[], size: number) => {
   const chunks: T[][] = [];
   for (let index = 0; index < items.length; index += size) {
@@ -1742,10 +1781,14 @@ const buildReportNonConformityEntries = ({
           detailDescription: record.descricao,
         }),
         startDate,
-        dueDate: addDaysToDate(startDate, 30),
         riskLevel: riskAssessment.level,
         riskPriority: riskAssessment.priority,
         riskTone: riskAssessment.tone,
+        dueDate: getSuggestedCorrectionDueDate({
+          startDate,
+          startTime: form.horaInicio,
+          riskLevel: riskAssessment.level,
+        }),
       });
       return;
     }
@@ -1782,10 +1825,14 @@ const buildReportNonConformityEntries = ({
         detailDescription: record.descricao,
       }),
       startDate,
-      dueDate: addDaysToDate(startDate, 30),
       riskLevel: riskAssessment.level,
       riskPriority: riskAssessment.priority,
       riskTone: riskAssessment.tone,
+      dueDate: getSuggestedCorrectionDueDate({
+        startDate,
+        startTime: form.horaInicio,
+        riskLevel: riskAssessment.level,
+      }),
     });
   });
 
@@ -1853,10 +1900,14 @@ const buildSnapshotCorrectionPlanEntries = ({
       itemDisplay: item.item_exibicao || item.item_numero || "-",
       correctionAction: `Regularizar o item "${item.descricao}" no checklist principal.${item.observacoes ? ` Observacao registrada: ${item.observacoes}.` : " Validar novamente a conformidade apos a execucao."}`,
       startDate,
-      dueDate: addDaysToDate(startDate, 30),
       riskLevel: riskAssessment.level,
       riskPriority: riskAssessment.priority,
       riskTone: riskAssessment.tone,
+      dueDate: getSuggestedCorrectionDueDate({
+        startDate,
+        startTime: form.horaInicio,
+        riskLevel: riskAssessment.level,
+      }),
     });
   });
 
@@ -1884,10 +1935,14 @@ const buildSnapshotCorrectionPlanEntries = ({
           itemDisplay: item.item_exibicao || item.item_numero || "-",
           correctionAction: `Regularizar ${equipmentEntry.label.toLowerCase()} no item "${item.descricao}".${item.observacoes ? ` Observacao registrada: ${item.observacoes}.` : " Validar novamente a conformidade apos a execucao."}`,
           startDate,
-          dueDate: addDaysToDate(startDate, 30),
           riskLevel: riskAssessment.level,
           riskPriority: riskAssessment.priority,
           riskTone: riskAssessment.tone,
+          dueDate: getSuggestedCorrectionDueDate({
+            startDate,
+            startTime: form.horaInicio,
+            riskLevel: riskAssessment.level,
+          }),
         });
       });
   });
@@ -2002,10 +2057,14 @@ const buildRequirementCorrectionPlanEntries = ({
         itemDisplay: entry.name,
         correctionAction,
         startDate,
-        dueDate: addDaysToDate(startDate, 30),
         riskLevel: riskAssessment.level,
         riskPriority: riskAssessment.priority,
         riskTone: riskAssessment.tone,
+        dueDate: getSuggestedCorrectionDueDate({
+          startDate,
+          startTime: form.horaInicio,
+          riskLevel: riskAssessment.level,
+        }),
       } satisfies CorrectionPlanEntry;
     });
 };
@@ -4138,10 +4197,14 @@ const CompanyReport = () => {
       itemDisplay: "Cadastro",
       correctionAction: `${entry.detail} ${entry.correctionAction}`,
       startDate: form.dataInspecao || form.dataEmissao || getToday(),
-      dueDate: addDaysToDate(form.dataInspecao || form.dataEmissao || getToday(), 30),
       riskLevel: entry.riskLevel,
       riskPriority: entry.riskPriority,
       riskTone: entry.riskTone,
+      dueDate: getSuggestedCorrectionDueDate({
+        startDate: form.dataInspecao || form.dataEmissao || getToday(),
+        startTime: form.horaInicio,
+        riskLevel: entry.riskLevel,
+      }),
     }));
   const requirementCorrectionPlanEntries = buildRequirementCorrectionPlanEntries({
     requirementMeasureEntries,
