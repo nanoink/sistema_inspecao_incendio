@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Camera, ImagePlus, Loader2, Trash2 } from "lucide-react";
+import { Camera, Check, ImagePlus, Loader2, RefreshCcw, Trash2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -204,6 +204,35 @@ const canPersistImageValueInDraft = (value?: string | null) => {
   );
 };
 
+const isAndroidCameraFlowSupported = () => {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return (
+    /android/i.test(window.navigator.userAgent || "") &&
+    typeof window.navigator.mediaDevices?.getUserMedia === "function"
+  );
+};
+
+const getCameraAccessErrorMessage = (error: unknown) => {
+  if (error instanceof DOMException) {
+    if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
+      return "O navegador nao recebeu permissao para usar a camera. Libere a camera nas permissoes do site e tente novamente.";
+    }
+
+    if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
+      return "Nenhuma camera foi encontrada neste dispositivo.";
+    }
+
+    if (error.name === "NotReadableError" || error.name === "TrackStartError") {
+      return "A camera do dispositivo esta ocupada por outro aplicativo. Feche outros apps que usam a camera e tente novamente.";
+    }
+  }
+
+  return "Nao foi possivel abrir a camera do dispositivo. Tente novamente ou use a galeria.";
+};
+
 interface ChecklistNonConformityDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -240,13 +269,22 @@ export const ChecklistNonConformityDialog = ({
   const [previousImageValue, setPreviousImageValue] = useState("");
   const [imageUploadFile, setImageUploadFile] = useState<Blob | null>(null);
   const [processingImage, setProcessingImage] = useState(false);
+  const [inlineCameraOpen, setInlineCameraOpen] = useState(false);
+  const [startingInlineCamera, setStartingInlineCamera] = useState(false);
+  const [capturedInlineCameraBlob, setCapturedInlineCameraBlob] = useState<Blob | null>(null);
+  const [capturedInlineCameraPreviewUrl, setCapturedInlineCameraPreviewUrl] = useState("");
+  const [inlineCameraError, setInlineCameraError] = useState("");
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const inlineCameraVideoRef = useRef<HTMLVideoElement | null>(null);
+  const inlineCameraStreamRef = useRef<MediaStream | null>(null);
   const previewObjectUrlRef = useRef<string | null>(null);
+  const inlineCameraPreviewObjectUrlRef = useRef<string | null>(null);
   const captureFlowInProgressRef = useRef(false);
   const visibilityResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const inlineCameraRequestIdRef = useRef(0);
   const draftStorageKey = useMemo(
     () =>
       itemLabel
@@ -254,6 +292,7 @@ export const ChecklistNonConformityDialog = ({
         : "mobile-nc-draft:default",
     [itemLabel],
   );
+  const useInlineAndroidCamera = useMemo(() => isAndroidCameraFlowSupported(), []);
 
   const revokePreviewObjectUrl = useCallback(() => {
     if (previewObjectUrlRef.current) {
@@ -273,6 +312,41 @@ export const ChecklistNonConformityDialog = ({
     previewObjectUrlRef.current = objectUrl;
     setImagePreviewUrl(objectUrl);
   }, [revokePreviewObjectUrl]);
+
+  const revokeInlineCameraPreviewObjectUrl = useCallback(() => {
+    if (inlineCameraPreviewObjectUrlRef.current) {
+      URL.revokeObjectURL(inlineCameraPreviewObjectUrlRef.current);
+      inlineCameraPreviewObjectUrlRef.current = null;
+    }
+  }, []);
+
+  const applyInlineCameraPreviewBlob = useCallback((blob: Blob) => {
+    revokeInlineCameraPreviewObjectUrl();
+    const objectUrl = URL.createObjectURL(blob);
+    inlineCameraPreviewObjectUrlRef.current = objectUrl;
+    setCapturedInlineCameraPreviewUrl(objectUrl);
+  }, [revokeInlineCameraPreviewObjectUrl]);
+
+  const stopInlineCameraStream = useCallback(() => {
+    inlineCameraStreamRef.current?.getTracks().forEach((track) => {
+      track.stop();
+    });
+    inlineCameraStreamRef.current = null;
+
+    if (inlineCameraVideoRef.current) {
+      inlineCameraVideoRef.current.srcObject = null;
+    }
+  }, []);
+
+  const resetInlineCameraState = useCallback(() => {
+    stopInlineCameraStream();
+    revokeInlineCameraPreviewObjectUrl();
+    setInlineCameraOpen(false);
+    setStartingInlineCamera(false);
+    setCapturedInlineCameraBlob(null);
+    setCapturedInlineCameraPreviewUrl("");
+    setInlineCameraError("");
+  }, [revokeInlineCameraPreviewObjectUrl, stopInlineCameraStream]);
 
   const clearDraft = useCallback(() => {
     if (!isMobile || typeof window === "undefined") {
@@ -327,6 +401,7 @@ export const ChecklistNonConformityDialog = ({
 
   useEffect(() => {
     if (!open) {
+      resetInlineCameraState();
       return;
     }
 
@@ -393,6 +468,7 @@ export const ChecklistNonConformityDialog = ({
     initialImageValue,
     isMobile,
     open,
+    resetInlineCameraState,
   ]);
 
   useEffect(() => {
@@ -437,10 +513,104 @@ export const ChecklistNonConformityDialog = ({
 
   useEffect(
     () => () => {
+      stopInlineCameraStream();
+      revokeInlineCameraPreviewObjectUrl();
       revokePreviewObjectUrl();
     },
-    [revokePreviewObjectUrl],
+    [revokeInlineCameraPreviewObjectUrl, revokePreviewObjectUrl, stopInlineCameraStream],
   );
+
+  const startInlineCamera = useCallback(async () => {
+    if (!useInlineAndroidCamera || typeof window === "undefined") {
+      return false;
+    }
+
+    const requestId = inlineCameraRequestIdRef.current + 1;
+    inlineCameraRequestIdRef.current = requestId;
+
+    stopInlineCameraStream();
+    setInlineCameraError("");
+    setStartingInlineCamera(true);
+
+    try {
+      const stream = await window.navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 960 },
+        },
+      });
+
+      if (
+        inlineCameraRequestIdRef.current !== requestId ||
+        !inlineCameraOpen
+      ) {
+        stream.getTracks().forEach((track) => track.stop());
+        return false;
+      }
+
+      inlineCameraStreamRef.current = stream;
+
+      if (inlineCameraVideoRef.current) {
+        inlineCameraVideoRef.current.srcObject = stream;
+        await inlineCameraVideoRef.current.play().catch(() => undefined);
+      }
+
+      return true;
+    } catch (error) {
+      console.error("Error starting inline Android camera capture:", error);
+      setInlineCameraError(getCameraAccessErrorMessage(error));
+      return false;
+    } finally {
+      if (inlineCameraRequestIdRef.current === requestId) {
+        setStartingInlineCamera(false);
+      }
+    }
+  }, [inlineCameraOpen, stopInlineCameraStream, useInlineAndroidCamera]);
+
+  useEffect(() => {
+    if (!inlineCameraOpen || capturedInlineCameraBlob || !useInlineAndroidCamera) {
+      return;
+    }
+
+    void startInlineCamera();
+  }, [
+    capturedInlineCameraBlob,
+    inlineCameraOpen,
+    startInlineCamera,
+    useInlineAndroidCamera,
+  ]);
+
+  const applySelectedImage = useCallback(async (
+    file: File,
+    source: NonConformityImageSource,
+  ) => {
+    setProcessingImage(true);
+    const preparedImageFile = await prepareImageForUpload(file, source);
+    setImageValue("");
+    setImageUploadFile(preparedImageFile);
+    applyPreviewBlob(preparedImageFile);
+
+    if (
+      source === "camera" &&
+      preparedImageFile.size <= MOBILE_CAMERA_DRAFT_MAX_BYTES
+    ) {
+      const preparedImageDataUrl = await blobToDataUrl(preparedImageFile);
+      persistDraft(description, "", {
+        cameraImageDataUrl: preparedImageDataUrl,
+        cameraImageFileName:
+          preparedImageFile instanceof File
+            ? preparedImageFile.name
+            : `nao-conformidade-${Date.now()}.jpg`,
+      });
+    } else {
+      persistDraft(description, "", {
+        cameraImageDataUrl: "",
+        cameraImageFileName: "",
+      });
+    }
+  }, [applyPreviewBlob, description, persistDraft]);
 
   const handleFileSelected = async (
     event: ChangeEvent<HTMLInputElement>,
@@ -454,30 +624,7 @@ export const ChecklistNonConformityDialog = ({
     }
 
     try {
-      setProcessingImage(true);
-      const preparedImageFile = await prepareImageForUpload(file, source);
-      setImageValue("");
-      setImageUploadFile(preparedImageFile);
-      applyPreviewBlob(preparedImageFile);
-
-      if (
-        source === "camera" &&
-        preparedImageFile.size <= MOBILE_CAMERA_DRAFT_MAX_BYTES
-      ) {
-        const preparedImageDataUrl = await blobToDataUrl(preparedImageFile);
-        persistDraft(description, "", {
-          cameraImageDataUrl: preparedImageDataUrl,
-          cameraImageFileName:
-            preparedImageFile instanceof File
-              ? preparedImageFile.name
-              : `nao-conformidade-${Date.now()}.jpg`,
-        });
-      } else {
-        persistDraft(description, "", {
-          cameraImageDataUrl: "",
-          cameraImageFileName: "",
-        });
-      }
+      await applySelectedImage(file, source);
     } catch (error) {
       console.error("Error processing non conformity image:", error);
       toast({
@@ -511,6 +658,19 @@ export const ChecklistNonConformityDialog = ({
 
   const handleCameraClick = () => {
     persistDraft(description, imageValue);
+
+    // In some Android tablets the native capture flow opened by the file input
+    // hides or omits the confirm action, so we confirm the photo inside the app.
+    if (useInlineAndroidCamera) {
+      captureFlowInProgressRef.current = false;
+      revokeInlineCameraPreviewObjectUrl();
+      setCapturedInlineCameraBlob(null);
+      setCapturedInlineCameraPreviewUrl("");
+      setInlineCameraError("");
+      setInlineCameraOpen(true);
+      return;
+    }
+
     captureFlowInProgressRef.current = true;
     cameraInputRef.current?.click();
   };
@@ -530,6 +690,80 @@ export const ChecklistNonConformityDialog = ({
     });
   };
 
+  const handleInlineCameraCapture = async () => {
+    const video = inlineCameraVideoRef.current;
+
+    if (!video || video.videoWidth <= 0 || video.videoHeight <= 0) {
+      setInlineCameraError("A camera ainda esta inicializando. Aguarde um instante e tente capturar novamente.");
+      return;
+    }
+
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      const context = canvas.getContext("2d");
+
+      if (!context) {
+        throw new Error("Nao foi possivel preparar a foto capturada.");
+      }
+
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const capturedBlob = await canvasToJpegBlob(canvas, 0.92);
+      setCapturedInlineCameraBlob(capturedBlob);
+      applyInlineCameraPreviewBlob(capturedBlob);
+      stopInlineCameraStream();
+      setInlineCameraError("");
+    } catch (error) {
+      console.error("Error capturing inline Android camera image:", error);
+      setInlineCameraError(
+        error instanceof Error && error.message
+          ? error.message
+          : "Nao foi possivel capturar a foto tirada agora.",
+      );
+    }
+  };
+
+  const handleInlineCameraRetake = () => {
+    setCapturedInlineCameraBlob(null);
+    revokeInlineCameraPreviewObjectUrl();
+    setCapturedInlineCameraPreviewUrl("");
+    setInlineCameraError("");
+    void startInlineCamera();
+  };
+
+  const handleInlineCameraConfirm = async () => {
+    if (!capturedInlineCameraBlob) {
+      return;
+    }
+
+    try {
+      const capturedFile = new File(
+        [capturedInlineCameraBlob],
+        `nao-conformidade-${Date.now()}.jpg`,
+        {
+          type: "image/jpeg",
+          lastModified: Date.now(),
+        },
+      );
+
+      await applySelectedImage(capturedFile, "camera");
+      resetInlineCameraState();
+    } catch (error) {
+      console.error("Error processing captured inline Android camera image:", error);
+      toast({
+        title: "Erro ao processar a imagem",
+        description:
+          error instanceof Error && error.message
+            ? error.message
+            : "Nao foi possivel preparar a foto para salvar a nao conformidade.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleDialogOpenChange = (nextOpen: boolean) => {
     if (!nextOpen && isMobile && captureFlowInProgressRef.current) {
       return;
@@ -537,6 +771,7 @@ export const ChecklistNonConformityDialog = ({
 
     if (!nextOpen) {
       clearDraft();
+      resetInlineCameraState();
       revokePreviewObjectUrl();
     }
 
@@ -634,6 +869,88 @@ export const ChecklistNonConformityDialog = ({
               </Button>
             </div>
 
+            {inlineCameraOpen ? (
+              <div className="space-y-3 rounded-2xl border border-orange-200 bg-orange-50/80 p-3">
+                <div className="overflow-hidden rounded-xl bg-neutral-950">
+                  {capturedInlineCameraPreviewUrl ? (
+                    <img
+                      src={capturedInlineCameraPreviewUrl}
+                      alt="Foto capturada"
+                      className="aspect-[4/3] w-full object-cover"
+                    />
+                  ) : (
+                    <video
+                      ref={inlineCameraVideoRef}
+                      autoPlay
+                      muted
+                      playsInline
+                      className="aspect-[4/3] w-full object-cover"
+                    />
+                  )}
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  No Android, a confirmacao da foto acontece aqui dentro do sistema para evitar falhas do app nativo da camera.
+                </p>
+
+                {inlineCameraError ? (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {inlineCameraError}
+                  </div>
+                ) : null}
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-2xl"
+                    disabled={saving || loading || processingImage || startingInlineCamera}
+                    onClick={resetInlineCameraState}
+                  >
+                    Cancelar
+                  </Button>
+
+                  {capturedInlineCameraPreviewUrl ? (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-2xl"
+                        disabled={saving || loading || processingImage}
+                        onClick={handleInlineCameraRetake}
+                      >
+                        <RefreshCcw className="mr-2 h-4 w-4" />
+                        Tirar novamente
+                      </Button>
+                      <Button
+                        type="button"
+                        className="rounded-2xl bg-emerald-600 text-white hover:bg-emerald-700"
+                        disabled={saving || loading || processingImage}
+                        onClick={handleInlineCameraConfirm}
+                      >
+                        <Check className="mr-2 h-4 w-4" />
+                        Usar foto
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      type="button"
+                      className="rounded-2xl bg-neutral-900 text-white hover:bg-neutral-800"
+                      disabled={saving || loading || processingImage || startingInlineCamera}
+                      onClick={handleInlineCameraCapture}
+                    >
+                      {startingInlineCamera ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Camera className="mr-2 h-4 w-4" />
+                      )}
+                      {startingInlineCamera ? "Abrindo camera..." : "Capturar"}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ) : null}
+
             <div
               className={cn(
                 "overflow-hidden rounded-2xl border border-dashed bg-muted/20",
@@ -695,6 +1012,7 @@ export const ChecklistNonConformityDialog = ({
                 disabled={saving || loading || processingImage}
                 onClick={() => {
                   clearDraft();
+                  resetInlineCameraState();
                   onOpenChange(false);
                 }}
               >
