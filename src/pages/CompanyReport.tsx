@@ -370,6 +370,15 @@ const REPORT_ATTACHMENT_ALLOWED_EXTENSIONS = new Set([
   "doc",
   "docx",
 ]);
+const REPORT_ATTACHMENT_EXTENSION_TO_MIME_TYPE: Record<string, string> = {
+  pdf: "application/pdf",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+};
 const OPERATIONAL_LEGAL_NOTICE =
   "Documento de uso interno, sem validade tecnica legal. Este relatorio nao substitui inspecao tecnica realizada por profissional habilitado.";
 const TECHNICAL_LEGAL_NOTICE =
@@ -504,6 +513,39 @@ const isAllowedReportAttachmentFile = (file: File) => {
     REPORT_ATTACHMENT_ALLOWED_MIME_TYPES.has(normalizedMimeType) ||
     REPORT_ATTACHMENT_ALLOWED_EXTENSIONS.has(extension)
   );
+};
+
+const resolveReportAttachmentContentType = (file: File) => {
+  const extension = getFileExtension(file.name);
+  const normalizedMimeType = file.type.trim().toLowerCase();
+
+  return (
+    REPORT_ATTACHMENT_EXTENSION_TO_MIME_TYPE[extension] ||
+    (REPORT_ATTACHMENT_ALLOWED_MIME_TYPES.has(normalizedMimeType)
+      ? normalizedMimeType
+      : undefined)
+  );
+};
+
+const getErrorMessage = (error: unknown) => {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+
+  if (error && typeof error === "object") {
+    const message =
+      "message" in error && typeof error.message === "string"
+        ? error.message.trim()
+        : "";
+    const errorText =
+      "error" in error && typeof error.error === "string"
+        ? error.error.trim()
+        : "";
+
+    return message || errorText || "Erro desconhecido.";
+  }
+
+  return "Erro desconhecido.";
 };
 
 const getReportAttachmentPreviewKind = (
@@ -3556,8 +3598,7 @@ const CompanyReport = () => {
       const { error: uploadError } = await supabase.storage
         .from(REPORT_ATTACHMENT_STORAGE_BUCKET)
         .upload(uploadedFilePath, file, {
-          contentType: file.type || undefined,
-          upsert: true,
+          contentType: resolveReportAttachmentContentType(file),
         });
 
       if (uploadError) {
@@ -3609,10 +3650,13 @@ const CompanyReport = () => {
       }
 
       console.error("Error uploading report attachment:", error);
+      const errorMessage = getErrorMessage(error);
       toast({
         title: "Erro ao enviar anexo",
         description:
-          "Nao foi possivel anexar o documento. Verifique as permissoes do bucket empresa-relatorio-anexos.",
+          errorMessage === "Erro desconhecido."
+            ? "Nao foi possivel anexar o documento ao relatorio."
+            : `Nao foi possivel anexar o documento: ${errorMessage}`,
         variant: "destructive",
       });
     } finally {
