@@ -2613,7 +2613,7 @@ const PageFrame = ({
     className="report-page relative mx-auto overflow-hidden bg-white text-black shadow-[0_20px_50px_rgba(15,23,42,0.18)] print:shadow-none print:mx-0 print:my-0"
     style={{ width: "210mm", minHeight: "297mm", height: "297mm" }}
   >
-    <div className="box-border grid h-full grid-rows-[auto_minmax(0,1fr)_22px] gap-4 px-[15mm] pb-[14mm] pt-[11mm]">
+    <div className="report-page-inner box-border grid h-full grid-rows-[auto_minmax(0,1fr)_22px] gap-4 px-[15mm] pb-[14mm] pt-[11mm]">
       <header className="border-b border-zinc-300 pb-3 text-center">
         <div className="flex-1 text-center">
           <h1 className="text-[17px] font-semibold uppercase leading-tight tracking-[0.02em] text-zinc-800">
@@ -3066,23 +3066,23 @@ const ReportToolbar = ({
 }) => (
   <div className="report-controls flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
     <div className="flex flex-wrap items-center gap-2">
-      <Button variant="ghost" size="sm" onClick={navigateBack}>
+      <Button variant="ghost" size="sm" className="w-full sm:w-auto" onClick={navigateBack}>
         <ArrowLeft className="mr-2 h-4 w-4" />
         Voltar
       </Button>
       <Badge variant="outline">{statusLabel}</Badge>
       <Badge variant="outline">{snapshotIsCurrent ? "Checklist sincronizado" : "Checklist desatualizado"}</Badge>
     </div>
-    <div className="flex flex-wrap gap-2">
-      <Button variant="outline" onClick={onSync} disabled={saving}>
+    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+      <Button variant="outline" className="w-full sm:w-auto" onClick={onSync} disabled={saving}>
         <RefreshCcw className="mr-2 h-4 w-4" />
         Atualizar com checklist
       </Button>
-      <Button variant="outline" onClick={onPrint} disabled={saving}>
+      <Button variant="outline" className="w-full sm:w-auto" onClick={onPrint} disabled={saving}>
         <Printer className="mr-2 h-4 w-4" />
         Imprimir / PDF
       </Button>
-      <Button variant="outline" onClick={onSaveDraft} disabled={saving}>
+      <Button variant="outline" className="w-full sm:w-auto" onClick={onSaveDraft} disabled={saving}>
         {saving ? (
           <>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -3096,12 +3096,12 @@ const ReportToolbar = ({
         )}
       </Button>
       {showStartNewCycle ? (
-        <Button variant="outline" onClick={onStartNewCycle} disabled={saving}>
+        <Button variant="outline" className="w-full sm:w-auto" onClick={onStartNewCycle} disabled={saving}>
           <RefreshCcw className="mr-2 h-4 w-4" />
           Encerrar ciclo e iniciar novo
         </Button>
       ) : null}
-      <Button onClick={onFinalize} disabled={saving}>
+      <Button className="w-full sm:w-auto" onClick={onFinalize} disabled={saving}>
         {saving ? (
           <>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -3133,12 +3133,14 @@ const CompanyReport = () => {
   const [reportStatus, setReportStatus] = useState<ReportStatus>("rascunho");
   const [reportStorageAvailable, setReportStorageAvailable] = useState(true);
   const [nonConformityRecords, setNonConformityRecords] = useState<NonConformityRow[]>([]);
+  const [nonConformityImagesLoaded, setNonConformityImagesLoaded] = useState(false);
   const [extinguishers, setExtinguishers] = useState<ExtinguisherRow[]>([]);
   const [hydrants, setHydrants] = useState<HydrantRow[]>([]);
   const [luminaires, setLuminaires] = useState<LuminaireRow[]>([]);
   const [reportSignatures, setReportSignatures] = useState<CompanyReportSignatureRow[]>([]);
   const [activeReportCycleId, setActiveReportCycleId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [previewReady, setPreviewReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingArt, setUploadingArt] = useState(false);
   const [uploadingReportAttachment, setUploadingReportAttachment] = useState(false);
@@ -3165,6 +3167,8 @@ const CompanyReport = () => {
 
       try {
         setLoading(true);
+        setPreviewReady(false);
+        setNonConformityImagesLoaded(false);
         clearActiveReportCycleCache(id);
 
         const [
@@ -3203,7 +3207,9 @@ const CompanyReport = () => {
             `)
             .eq("empresa_id", id),
           loadChecklistData(supabase, id),
-          loadAllChecklistNonConformitiesForActiveCycle(supabase, id),
+          loadAllChecklistNonConformitiesForActiveCycle(supabase, id, {
+            includeImageData: false,
+          }),
           supabase
             .from("empresa_extintores")
             .select(
@@ -3346,6 +3352,7 @@ const CompanyReport = () => {
         setForm(buildDefaultForm(companyData, reportData));
         setCompanyMembers(companyMembersResult || []);
         setNonConformityRecords(nonConformitiesData || []);
+        setNonConformityImagesLoaded((nonConformitiesData || []).length === 0);
         setExtinguishers(extinguishersResult.data || []);
         setHydrants(hydrantsResult.data || []);
         setLuminaires(luminairesResult.data || []);
@@ -3375,6 +3382,57 @@ const CompanyReport = () => {
 
     fetchData();
   }, [id, toast]);
+
+  useEffect(() => {
+    if (loading || !company || !snapshot) {
+      setPreviewReady(false);
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      setPreviewReady(true);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [company, loading, snapshot]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const hydrateNonConformityImages = async () => {
+      if (!id || loading || nonConformityImagesLoaded) {
+        return;
+      }
+
+      try {
+        const hydratedRecords = await loadAllChecklistNonConformitiesForActiveCycle(
+          supabase,
+          id,
+          { includeImageData: true },
+        );
+
+        if (isCancelled) {
+          return;
+        }
+
+        setNonConformityRecords(hydratedRecords as NonConformityRow[]);
+      } catch (error) {
+        console.error("Error hydrating report non conformity images:", error);
+      } finally {
+        if (!isCancelled) {
+          setNonConformityImagesLoaded(true);
+        }
+      }
+    };
+
+    void hydrateNonConformityImages();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [id, loading, nonConformityImagesLoaded]);
 
   useEffect(() => {
     const gestor = reportSignatures.find((signer) => signer.is_gestor);
@@ -4532,7 +4590,8 @@ const CompanyReport = () => {
 
   const pages: ReactNode[] = [];
 
-  const renderSignatureCard = (signer: CompanyReportSignatureRow) => {
+  if (previewReady) {
+    const renderSignatureCard = (signer: CompanyReportSignatureRow) => {
     const signerExecutionLines = buildCompactSignatureExecutionLines(
       signer.executed_checklists,
     );
@@ -4612,9 +4671,9 @@ const CompanyReport = () => {
         </div>
       </div>
     );
-  };
+    };
 
-  pages.push(
+    pages.push(
     <div className="space-y-8">
       <section className="space-y-3">
         <SectionHeading index="1" title="Objetivo e Aplicacao da Inspecao" />
@@ -5766,7 +5825,7 @@ const CompanyReport = () => {
               <object
                 data={attachment.signedUrl}
                 type="application/pdf"
-                className="h-[720px] w-full"
+                className="report-attachment-embed h-[720px] w-full"
               >
                 <div className="space-y-3 py-16 text-center text-[12.5px] text-zinc-700">
                   <p>Nao foi possivel renderizar este PDF no navegador atual.</p>
@@ -5828,7 +5887,7 @@ const CompanyReport = () => {
     );
   });
 
-  if (shouldRenderArtPages) {
+    if (shouldRenderArtPages) {
     pages.push(
       <div className="space-y-6">
         <SectionHeading
@@ -5860,7 +5919,7 @@ const CompanyReport = () => {
             <object
               data={artSignedUrl}
               type="application/pdf"
-              className="h-[760px] w-full"
+              className="report-art-embed h-[760px] w-full"
             >
               <div className="space-y-3 text-center text-[12.5px] text-zinc-700">
                 <p>Nao foi possivel renderizar o PDF da ART neste navegador.</p>
@@ -5882,11 +5941,56 @@ const CompanyReport = () => {
         </div>
       </div>,
     );
+    }
   }
 
   return (
     <FirePageShell className="bg-transparent">
       <style>{`
+        .report-page {
+          content-visibility: auto;
+          contain-intrinsic-size: 1123px 794px;
+        }
+
+        @media (max-width: 1100px) {
+          .report-print-wrapper {
+            max-width: 100% !important;
+          }
+
+          .report-page {
+            width: 100% !important;
+            min-height: auto !important;
+            height: auto !important;
+            border-radius: 24px;
+          }
+
+          .report-page-inner {
+            display: grid;
+            height: auto !important;
+            grid-template-rows: auto minmax(0, 1fr) auto;
+            gap: 12px;
+            padding: 16px 14px 18px;
+          }
+
+          .report-page table {
+            display: block;
+            width: 100%;
+            max-width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          .report-page img,
+          .report-page object {
+            max-width: 100%;
+          }
+
+          .report-attachment-embed,
+          .report-art-embed {
+            height: min(60vh, 540px) !important;
+          }
+        }
+
         @page {
           size: A4;
           margin: 0;
@@ -5921,11 +6025,22 @@ const CompanyReport = () => {
           .report-page {
             box-sizing: border-box;
             overflow: hidden;
+            content-visibility: visible;
+            contain-intrinsic-size: auto;
             break-after: page;
             page-break-after: always;
             break-inside: avoid;
             page-break-inside: avoid;
             margin: 0 auto !important;
+          }
+
+          .report-page-inner {
+            box-sizing: border-box;
+            display: grid;
+            height: 100%;
+            grid-template-rows: auto minmax(0, 1fr) 22px;
+            gap: 4mm;
+            padding: 11mm 15mm 14mm;
           }
 
           .report-page:last-child {
@@ -5946,6 +6061,7 @@ const CompanyReport = () => {
             <Button
               variant="outline"
               size="lg"
+              className="w-full sm:w-auto"
               onClick={() => navigate(`/checklists/${id}`)}
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
@@ -6270,23 +6386,45 @@ const CompanyReport = () => {
         </div>
 
         <div className="report-pages space-y-8">
-          {pages.map((page, index) => (
-            <PageFrame
-              key={`report-page-${index + 1}`}
-              pageNumber={index + 1}
-              totalPages={pages.length}
-              title={reportTitle}
-              subtitle={reportSubtitle}
-              legalNotice={reportLegalNotice}
-            >
-              {page}
-            </PageFrame>
-          ))}
+          {previewReady ? (
+            pages.map((page, index) => (
+              <PageFrame
+                key={`report-page-${index + 1}`}
+                pageNumber={index + 1}
+                totalPages={pages.length}
+                title={reportTitle}
+                subtitle={reportSubtitle}
+                legalNotice={reportLegalNotice}
+              >
+                {page}
+              </PageFrame>
+            ))
+          ) : (
+            <Card className="overflow-hidden border-dashed">
+              <CardContent className="flex min-h-[220px] flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-foreground">
+                    Montando visualizacao do relatorio
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Os dados principais ja foram carregados. O preview completo esta sendo preparado para evitar travamentos no dispositivo.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
-        <div className="report-editor flex items-center justify-between text-sm text-muted-foreground">
+        <div className="report-editor flex flex-col gap-2 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
           <span>{report ? `Relatorio salvo no banco com status ${reportStatus}.` : "Relatorio ainda nao salvo no banco."}</span>
-          <span>Snapshot em {formatDateTime(snapshot.generated_at)} | {snapshotIsCurrent ? "Atual" : "Defasado em relacao ao checklist"}</span>
+          <span>
+            {nonConformityImagesLoaded
+              ? "Imagens das nao conformidades sincronizadas."
+              : "Carregando imagens detalhadas das nao conformidades em segundo plano..."}{" "}
+            Snapshot em {formatDateTime(snapshot.generated_at)} |{" "}
+            {snapshotIsCurrent ? "Atual" : "Defasado em relacao ao checklist"}
+          </span>
         </div>
       </div>
     </FirePageShell>

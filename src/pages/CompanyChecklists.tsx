@@ -166,6 +166,7 @@ type ChecklistStatus = "C" | "NC" | "NA";
 type ChecklistPersistAction = "save" | "finalize";
 
 const ALWAYS_VISIBLE_CHECKLIST_CODES = new Set(["A.33", "A.41"]);
+const CHECKLIST_PERSIST_TIMEOUT_MS = 45_000;
 
 const REQUIREMENT_TO_CHECKLIST_CODES: Record<string, string[]> = {
   "1.1": ["A.7"],
@@ -409,6 +410,27 @@ const buildChecklistProgressSummary = (
     total: safeTotal,
     isComplete: safeTotal > 0 && safeCompleted === safeTotal,
   };
+};
+
+const withChecklistPersistTimeout = async <T,>(
+  operation: Promise<T>,
+  message: string,
+) => {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(message));
+    }, CHECKLIST_PERSIST_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([operation, timeoutPromise]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
 };
 
 const getInspectionItemRows = (
@@ -1101,6 +1123,34 @@ const CompanyChecklists = () => {
       }, 3000);
     },
     [clearCardLongPress, openEquipmentProgressDialog],
+  );
+
+  const getChecklistSaveScope = useCallback(
+    (inspectionId?: string | null) => {
+      if (!inspectionId) {
+        return null;
+      }
+
+      const inspection = visibleModels.find((model) => model.id === inspectionId);
+
+      if (!inspection) {
+        return null;
+      }
+
+      const itemIds = new Set<string>();
+
+      (rowsByInspection.get(inspection.id) || []).forEach((row) => {
+        if (row.type === "item") {
+          itemIds.add(row.itemId);
+        }
+      });
+
+      return {
+        inspection,
+        itemIds,
+      };
+    },
+    [rowsByInspection, visibleModels],
   );
 
   const handleInspectionCardPointerEnd = useCallback(() => {
@@ -2270,17 +2320,31 @@ const CompanyChecklists = () => {
 
   const saveChecklistAndEnsureReport = async (
     action: ChecklistPersistAction,
+    options?: {
+      inspectionId?: string | null;
+    },
   ) => {
     if (!id) {
       return false;
     }
 
     try {
+      const saveScope = getChecklistSaveScope(options?.inspectionId);
+      const scopedEvaluableItemIds =
+        saveScope && saveScope.itemIds.size > 0
+          ? saveScope.itemIds
+          : evaluableItemIds;
+      const touchedInspectionCodesToPersist = new Set(
+        Array.from(touchedInspectionExecutionsRef.current.keys()).filter(
+          (inspectionCode) =>
+            !saveScope || inspectionCode === saveScope.inspection.codigo,
+        ),
+      );
       await saveChecklistResponses({
         supabase,
         companyId: id,
         responses: mergedResponses,
-        evaluableIds: evaluableItemIds,
+        evaluableIds: scopedEvaluableItemIds,
       });
 
       const checklistSnapshot = buildChecklistSnapshot(
@@ -2289,10 +2353,19 @@ const CompanyChecklists = () => {
         mergedResponses,
       );
       const touchedInspections = Array.from(
-        touchedInspectionExecutionsRef.current.values(),
-      );
+        touchedInspectionExecutionsRef.current.entries(),
+      )
+        .filter(([inspectionCode]) =>
+          touchedInspectionCodesToPersist.has(inspectionCode),
+        )
+        .map(([, inspection]) => inspection);
+      const shouldSyncEquipmentSnapshots =
+        !equipmentSchemaPending &&
+        (!saveScope ||
+          action === "finalize" ||
+          isEquipmentInspectionCode(saveScope.inspection.codigo));
 
-      if (!equipmentSchemaPending) {
+      if (shouldSyncEquipmentSnapshots) {
         const synced = await syncEquipmentChecklistSnapshots(supabase, {
           companyId: id,
           luminaireSnapshot: equipmentChecklistTemplates.luminaria,
@@ -2323,7 +2396,9 @@ const CompanyChecklists = () => {
           ),
         );
 
-        touchedInspectionExecutionsRef.current.clear();
+        touchedInspectionCodesToPersist.forEach((inspectionCode) => {
+          touchedInspectionExecutionsRef.current.delete(inspectionCode);
+        });
 
         const rejected = results.find(
           (result): result is PromiseRejectedResult => result.status === "rejected",
@@ -2405,7 +2480,12 @@ const CompanyChecklists = () => {
     try {
       setSavingAction("save");
 
-      const saved = await saveChecklistAndEnsureReport("save");
+      const saved = await withChecklistPersistTimeout(
+        saveChecklistAndEnsureReport("save", {
+          inspectionId: openInspection,
+        }),
+        "O salvamento demorou mais que o esperado. Verifique sua conexao e tente novamente.",
+      );
       if (!saved) {
         return;
       }
@@ -2413,6 +2493,16 @@ const CompanyChecklists = () => {
       toast({
         title: "Checklist salvo",
         description: "As respostas atuais foram salvas com sucesso.",
+      });
+    } catch (error) {
+      console.error("Checklist save timeout or unexpected error:", error);
+      toast({
+        title: "Erro ao salvar",
+        description:
+          error instanceof Error && error.message
+            ? error.message
+            : "Nao foi possivel salvar o checklist.",
+        variant: "destructive",
       });
     } finally {
       setSavingAction(null);
@@ -2427,7 +2517,10 @@ const CompanyChecklists = () => {
     try {
       setSavingAction("finalize");
 
-      const saved = await saveChecklistAndEnsureReport("finalize");
+      const saved = await withChecklistPersistTimeout(
+        saveChecklistAndEnsureReport("finalize"),
+        "A finalizacao demorou mais que o esperado. Verifique sua conexao e tente novamente.",
+      );
       if (!saved) {
         return;
       }
@@ -2438,6 +2531,16 @@ const CompanyChecklists = () => {
       });
 
       navigate(`/relatorios/${id}`);
+    } catch (error) {
+      console.error("Checklist finalize timeout or unexpected error:", error);
+      toast({
+        title: "Erro ao finalizar",
+        description:
+          error instanceof Error && error.message
+            ? error.message
+            : "Nao foi possivel finalizar o checklist.",
+        variant: "destructive",
+      });
     } finally {
       setSavingAction(null);
     }

@@ -734,12 +734,16 @@ export const loadEquipmentChecklistNonConformitiesByType = async (
 export const loadAllChecklistNonConformitiesForActiveCycle = async (
   supabase: AppSupabaseClient,
   companyId: string,
+  options?: {
+    includeImageData?: boolean;
+  },
 ) => {
+  const includeImageData = options?.includeImageData ?? true;
   const activeReportCycleId = await resolveActiveReportCycleId(supabase, companyId);
 
   let query = supabase
     .from("empresa_checklist_nao_conformidades")
-    .select("*")
+    .select(includeImageData ? "*" : LIGHTWEIGHT_NON_CONFORMITY_COLUMNS)
     .eq("empresa_id", companyId)
     .order("updated_at", { ascending: false });
 
@@ -752,7 +756,11 @@ export const loadAllChecklistNonConformitiesForActiveCycle = async (
   if (error && isMissingColumnError(error, ["relatorio_ciclo_id"])) {
     const fallbackResult = await supabase
       .from("empresa_checklist_nao_conformidades")
-      .select("*")
+      .select(
+        includeImageData
+          ? "*"
+          : LIGHTWEIGHT_NON_CONFORMITY_COLUMNS.replace("relatorio_ciclo_id, ", ""),
+      )
       .eq("empresa_id", companyId)
       .order("updated_at", { ascending: false });
 
@@ -760,20 +768,37 @@ export const loadAllChecklistNonConformitiesForActiveCycle = async (
       throw fallbackResult.error;
     }
 
-    return hydrateChecklistNonConformityImageRecords(
-      supabase,
-      (fallbackResult.data || []) as ChecklistNonConformityRecord[],
+    const fallbackRecords = ((fallbackResult.data || []) as ChecklistNonConformityRecord[]).map(
+      (record) =>
+        includeImageData
+          ? record
+          : ({
+              ...record,
+              imagem_data_url: null,
+            } satisfies ChecklistNonConformityRecord),
     );
+
+    return includeImageData
+      ? hydrateChecklistNonConformityImageRecords(supabase, fallbackRecords)
+      : fallbackRecords;
   }
 
   if (error) {
     throw error;
   }
 
-  return hydrateChecklistNonConformityImageRecords(
-    supabase,
-    (data || []) as ChecklistNonConformityRecord[],
+  const records = ((data || []) as ChecklistNonConformityRecord[]).map((record) =>
+    includeImageData
+      ? record
+      : ({
+          ...record,
+          imagem_data_url: null,
+        } satisfies ChecklistNonConformityRecord),
   );
+
+  return includeImageData
+    ? hydrateChecklistNonConformityImageRecords(supabase, records)
+    : records;
 };
 
 export const loadEquipmentQrNonConformities = async (

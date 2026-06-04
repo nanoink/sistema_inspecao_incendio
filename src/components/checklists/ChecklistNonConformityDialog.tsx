@@ -761,6 +761,8 @@ export const ChecklistNonConformityDialog = ({
             : "Nao foi possivel preparar a foto para salvar a nao conformidade.",
         variant: "destructive",
       });
+    } finally {
+      setProcessingImage(false);
     }
   };
 
