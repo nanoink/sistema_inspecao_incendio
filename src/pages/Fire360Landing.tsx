@@ -28,6 +28,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import fireTetraedroLogo from "@/assets/firetetraedro-logo.svg";
+import fire360OfficialLogo from "@/assets/fire360-logo-oficial.png";
 
 const pageFontStyles = `
   @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap');
@@ -452,6 +453,14 @@ const Fire360Landing = () => {
 
         <div className="relative mx-auto grid max-w-7xl gap-12 lg:grid-cols-[1.04fr_0.96fr] lg:items-center">
           <div className="max-w-3xl">
+            <div className="mb-6 inline-flex rounded-[1.35rem] border border-white/12 bg-[rgba(7,22,47,0.88)] px-4 py-3 shadow-[0_22px_58px_rgba(255,91,31,0.20)] ring-1 ring-white/10">
+              <img
+                src={fire360OfficialLogo}
+                alt="Fire 360"
+                className="h-10 w-auto md:h-14"
+              />
+            </div>
+
             <p className="text-sm font-semibold uppercase tracking-[0.28em] text-white/62">
               Plataforma de gestão contínua de segurança contra incêndio
             </p>
@@ -535,9 +544,13 @@ const Fire360Landing = () => {
                   <span className="rounded-full border border-[var(--fire-orange)]/28 bg-[var(--fire-orange)]/12 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--fire-orange)]">
                     ciclo ativo 360
                   </span>
-                  <p className="fire360-display mt-6 text-5xl font-bold tracking-[-0.06em] md:text-6xl">
-                    FIRE 360
-                  </p>
+                  <div className="mt-6 rounded-2xl border border-white/12 bg-[rgba(7,22,47,0.88)] px-4 py-3 shadow-[0_18px_44px_rgba(255,91,31,0.18)]">
+                    <img
+                      src={fire360OfficialLogo}
+                      alt="Fire 360"
+                      className="h-10 w-auto md:h-12"
+                    />
+                  </div>
                   <p className="mt-4 max-w-xs text-sm leading-7 text-white/72 md:text-base">
                     A única plataforma que conecta o extintor físico à decisão
                     de diretoria em um único encadeamento.

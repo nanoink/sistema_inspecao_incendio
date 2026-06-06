@@ -40,6 +40,7 @@ import {
   fetchAlturaOptions,
   getAlturaSelectionState,
   getSafeAlturaSelectValue,
+  getStoredAlturaSelectionState,
   type AlturaOption,
 } from "@/lib/altura-options";
 import { cn } from "@/lib/utils";
@@ -219,6 +220,40 @@ const EditCompanyPage = () => {
 
     void fetchCompany();
   }, [form, id, toast]);
+
+  useEffect(() => {
+    if (!company) {
+      return;
+    }
+
+    const currentAlturaTipo = form.getValues("altura_tipo");
+    const originalAlturaTipo = company.altura_tipo || "";
+
+    if (currentAlturaTipo && currentAlturaTipo !== originalAlturaTipo) {
+      return;
+    }
+
+    const selection = getStoredAlturaSelectionState(
+      {
+        tipo: company.altura_tipo,
+        denominacao: company.altura_denominacao,
+        descricao: company.altura_descricao,
+        alturaRealM: company.altura_real_m,
+      },
+      alturaOptions,
+    );
+
+    if (!selection.tipo) {
+      return;
+    }
+
+    form.setValue("altura_tipo", selection.tipo, {
+      shouldDirty: false,
+      shouldValidate: false,
+    });
+    setAlturaDenominacao(selection.denominacao);
+    setAlturaDescricao(selection.descricao);
+  }, [alturaOptions, company, form]);
 
   const calculateRiskGrade = (carga: number, ocupantes: number) => {
     let risco = "baixo";

@@ -4476,8 +4476,9 @@ const CompanyReport = () => {
     previewKind: getReportAttachmentPreviewKind(attachment),
     signedUrl: reportAttachmentSignedUrls[attachment.id] || null,
   }));
-  const reportAttachmentSectionIndex = shouldRenderArtPages ? "12" : "11";
-  const artSignatureSectionIndex = "11";
+  const reportAttachmentSectionIndex = "11";
+  const artSignatureSectionIndex =
+    reportAttachmentEntries.length > 0 ? "12" : "11";
   const artDocumentSectionIndex =
     reportAttachmentEntries.length > 0 ? "13" : "12";
   const checklistPrintSections = buildChecklistPrintSections({
@@ -5779,6 +5780,11 @@ const CompanyReport = () => {
   });
 
   reportAttachmentEntries.forEach((attachment, attachmentIndex) => {
+    const pdfPreviewUrl =
+      attachment.previewKind === "pdf" && attachment.signedUrl
+        ? `${attachment.signedUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`
+        : null;
+
     pages.push(
       <div className="space-y-5">
         <SectionHeading
@@ -5821,28 +5827,30 @@ const CompanyReport = () => {
                   className="max-h-[650px] max-w-full object-contain"
                 />
               </div>
-            ) : attachment.previewKind === "pdf" && attachment.signedUrl ? (
-              <object
-                data={attachment.signedUrl}
-                type="application/pdf"
-                className="report-attachment-embed h-[720px] w-full"
-              >
-                <div className="space-y-3 py-16 text-center text-[12.5px] text-zinc-700">
-                  <p>Nao foi possivel renderizar este PDF no navegador atual.</p>
-                  <a
-                    href={attachment.signedUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-semibold text-blue-700 underline"
-                  >
-                    Abrir anexo em nova aba
-                  </a>
+            ) : pdfPreviewUrl ? (
+              <div className="space-y-3">
+                <div className="overflow-hidden border border-zinc-200 bg-zinc-50">
+                  <iframe
+                    title={`Anexo do relatorio - ${attachment.title}`}
+                    src={pdfPreviewUrl}
+                    className="report-attachment-embed h-[720px] w-full border-0 bg-white"
+                  />
                 </div>
-              </object>
+                <div className="rounded-sm border border-blue-100 bg-blue-50 px-3 py-2 text-[10.5px] leading-5 text-blue-900">
+                  <p className="font-semibold uppercase tracking-[0.08em]">
+                    PDF incorporado ao relatorio
+                  </p>
+                  <p>
+                    Se o navegador nao renderizar o PDF nesta pagina durante a
+                    impressao, use o link abaixo para abrir o anexo completo.
+                  </p>
+                </div>
+              </div>
             ) : (
               <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 border border-dashed border-zinc-300 bg-zinc-50 px-6 text-center text-[12px] text-zinc-600">
+                <FileCheck className="h-10 w-10 text-zinc-400" />
                 <p className="font-semibold uppercase text-zinc-800">
-                  Visualizacao incorporada indisponivel
+                  Documento anexado ao relatorio
                 </p>
                 <p>
                   O arquivo permanece vinculado ao relatorio e pode ser aberto
@@ -5882,6 +5890,21 @@ const CompanyReport = () => {
               <p className="mt-1 text-zinc-900">{formatFileSize(attachment.sizeBytes)}</p>
             </div>
           </div>
+          {attachment.signedUrl ? (
+            <div className="border-t border-zinc-300 bg-white px-3 py-2 text-[10.5px] leading-5 text-zinc-700">
+              <p className="font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                Link do arquivo anexado
+              </p>
+              <a
+                href={attachment.signedUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 block break-all font-semibold text-blue-700 underline"
+              >
+                {attachment.signedUrl}
+              </a>
+            </div>
+          ) : null}
         </div>
       </div>,
     );
@@ -5981,7 +6004,8 @@ const CompanyReport = () => {
           }
 
           .report-page img,
-          .report-page object {
+          .report-page object,
+          .report-page iframe {
             max-width: 100%;
           }
 

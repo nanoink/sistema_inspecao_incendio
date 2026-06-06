@@ -10,6 +10,13 @@ export interface AlturaOption {
 const normalizeText = (value: unknown) =>
   typeof value === "string" ? value.trim() : "";
 
+const normalizeComparableText = (value: unknown) =>
+  normalizeText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+
 const normalizeNullableNumber = (value: unknown): number | null => {
   if (value === null || value === undefined || value === "") {
     return null;
@@ -105,20 +112,99 @@ export const findAlturaOption = (
   return options.find((option) => option.tipo === normalizedTipo) ?? null;
 };
 
+const findAlturaOptionByText = (
+  options: AlturaOption[],
+  values: Array<string | null | undefined>,
+) => {
+  const normalizedValues = values
+    .map((value) => normalizeComparableText(value))
+    .filter(Boolean);
+
+  if (normalizedValues.length === 0) {
+    return null;
+  }
+
+  return (
+    options.find((option) => {
+      const normalizedCandidates = [
+        option.tipo,
+        option.denominacao,
+        describeAlturaOption(option),
+        `${option.tipo} - ${option.denominacao}`,
+        `${option.tipo} — ${option.denominacao}`,
+      ].map((candidate) => normalizeComparableText(candidate));
+
+      return normalizedValues.some((value) =>
+        normalizedCandidates.some((candidate) => candidate === value),
+      );
+    }) ?? null
+  );
+};
+
+const findAlturaOptionByRealHeight = (
+  options: AlturaOption[],
+  alturaRealM: unknown,
+) => {
+  const normalizedHeight = normalizeNullableNumber(alturaRealM);
+
+  if (normalizedHeight === null) {
+    return null;
+  }
+
+  return (
+    options.find((option) => {
+      if (option.h_min_m === null && option.h_max_m === null) {
+        return false;
+      }
+
+      if (option.h_min_m === null && option.h_max_m !== null) {
+        return normalizedHeight <= option.h_max_m;
+      }
+
+      if (option.h_min_m !== null && option.h_max_m === null) {
+        return normalizedHeight > option.h_min_m;
+      }
+
+      if (option.h_min_m !== null && option.h_max_m !== null) {
+        return (
+          normalizedHeight > option.h_min_m &&
+          normalizedHeight <= option.h_max_m
+        );
+      }
+
+      return false;
+    }) ?? null
+  );
+};
+
 export const getSafeAlturaSelectValue = (
   tipo: string | null | undefined,
   options: AlturaOption[],
-) => findAlturaOption(options, tipo)?.tipo ?? "";
+) => {
+  const normalizedTipo = normalizeText(tipo);
+
+  if (!normalizedTipo) {
+    return "";
+  }
+
+  // Preserve the form value while the async catalog is still loading.
+  if (options.length === 0) {
+    return normalizedTipo;
+  }
+
+  return findAlturaOption(options, normalizedTipo)?.tipo ?? "";
+};
 
 export const getAlturaSelectionState = (
   tipo: string | null | undefined,
   options: AlturaOption[],
 ) => {
+  const normalizedTipo = normalizeText(tipo);
   const selected = findAlturaOption(options, tipo);
 
   if (!selected) {
     return {
-      tipo: "",
+      tipo: normalizedTipo,
       denominacao: "",
       descricao: "",
     };
@@ -128,5 +214,39 @@ export const getAlturaSelectionState = (
     tipo: selected.tipo,
     denominacao: selected.denominacao,
     descricao: describeAlturaOption(selected),
+  };
+};
+
+export const getStoredAlturaSelectionState = (
+  values: {
+    tipo?: string | null;
+    denominacao?: string | null;
+    descricao?: string | null;
+    alturaRealM?: number | string | null;
+  },
+  options: AlturaOption[],
+) => {
+  const directSelection = getAlturaSelectionState(values.tipo, options);
+
+  if (directSelection.tipo && directSelection.denominacao) {
+    return directSelection;
+  }
+
+  const matchedByText = findAlturaOptionByText(options, [
+    values.tipo,
+    values.denominacao,
+    values.descricao,
+  ]);
+  const matchedByHeight =
+    matchedByText ?? findAlturaOptionByRealHeight(options, values.alturaRealM);
+
+  if (matchedByHeight) {
+    return getAlturaSelectionState(matchedByHeight.tipo, options);
+  }
+
+  return {
+    tipo: directSelection.tipo,
+    denominacao: normalizeText(values.denominacao),
+    descricao: normalizeText(values.descricao),
   };
 };
