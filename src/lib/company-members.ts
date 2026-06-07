@@ -156,6 +156,7 @@ const createCompanyUserViaEdgeFunction = async (
       : "";
   const edgeFunctionMarkedAsTechnicalResponsible =
     responseData?.is_responsavel_tecnico === true;
+  const usesTemporaryPassword = responseData?.temporary_password !== false;
 
   if (!userId) {
     throw new Error("Nao foi possivel identificar o usuario criado.");
@@ -171,7 +172,7 @@ const createCompanyUserViaEdgeFunction = async (
     papel: targetRole,
     is_responsavel_tecnico: edgeFunctionMarkedAsTechnicalResponsible,
     pode_executar_checklists: true,
-    temporary_password: true,
+    temporary_password: usesTemporaryPassword,
   } as CreatedCompanyUserSummary;
 };
 

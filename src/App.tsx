@@ -16,6 +16,7 @@ const CompanyRequirements = lazy(() => import("./pages/CompanyRequirements"));
 const CompanyChecklists = lazy(() => import("./pages/CompanyChecklists"));
 const CompanyReport = lazy(() => import("./pages/CompanyReport"));
 const CompanyAnalyticsDashboard = lazy(() => import("./pages/CompanyAnalyticsDashboard"));
+const ManagerAssignmentsPage = lazy(() => import("./pages/ManagerAssignmentsPage"));
 const Fire360Landing = lazy(() => import("./pages/Fire360Landing"));
 const Auth = lazy(() => import("./pages/Auth"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -49,6 +50,7 @@ const App = () => (
             <Route path="/fire360" element={<Fire360Landing />} />
             <Route path="/apresentacao/fire360" element={<Fire360Landing />} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/gestores" element={<ProtectedRoute><ManagerAssignmentsPage /></ProtectedRoute>} />
             <Route path="/cadastro" element={<ProtectedRoute><Index /></ProtectedRoute>} />
             <Route path="/empresas/:id/editar" element={<ProtectedRoute><EditCompanyPage /></ProtectedRoute>} />
             <Route path="/empresas/:companyId/usuarios/:userId/editar" element={<ProtectedRoute><EditCompanyUserPage /></ProtectedRoute>} />

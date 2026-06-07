@@ -47,10 +47,17 @@ const pageFontStyles = `
     --fire-line: rgba(115, 231, 255, 0.2);
     color: var(--fire-ink);
     background:
-      radial-gradient(circle at 16% 9%, rgba(255, 91, 31, 0.18), transparent 28rem),
-      radial-gradient(circle at 86% 4%, rgba(115, 231, 255, 0.2), transparent 31rem),
-      linear-gradient(180deg, #07162f 0%, #081d3a 30rem, #f7f9fc 30rem, #f7f9fc 100%);
+      radial-gradient(circle at 16% 4%, rgba(255, 91, 31, 0.14), transparent 28rem),
+      radial-gradient(circle at 86% 2%, rgba(115, 231, 255, 0.14), transparent 31rem),
+      #f7f9fc;
     font-family: 'Manrope', sans-serif;
+  }
+
+  .fire360-hero {
+    background:
+      radial-gradient(circle at 12% 20%, rgba(255, 91, 31, 0.22), transparent 30rem),
+      radial-gradient(circle at 88% 12%, rgba(115, 231, 255, 0.2), transparent 34rem),
+      linear-gradient(180deg, #07162f 0%, #081d3a 100%);
   }
 
   .fire360-display {
@@ -346,7 +353,7 @@ export default function Fire360Landing() {
                 className="h-8 w-auto"
               />
             </span>
-            <span className="hidden rounded-full bg-white px-4 py-2 shadow-[0_10px_28px_rgba(115,231,255,0.12)] sm:inline-flex">
+            <span className="fire360-logo-chip fire360-logo-chip--pill hidden sm:inline-flex">
               <img src={fire360OfficialLogo} alt="Fire 360" className="h-8 w-auto" />
             </span>
           </a>
@@ -373,17 +380,17 @@ export default function Fire360Landing() {
         </nav>
       </header>
 
-      <section id="hero" className="relative overflow-hidden px-4 pb-16 pt-32 text-white md:pb-24 md:pt-40">
+      <section id="hero" className="fire360-hero relative overflow-hidden px-4 pb-16 pt-32 text-white md:pb-24 md:pt-40">
         <div className="fire360-grid absolute inset-0 opacity-70" />
         <div className="fire360-pulse absolute left-[8%] top-28 h-60 w-60 rounded-full bg-[#ff5b1f]/18 blur-3xl" />
         <div className="fire360-pulse absolute right-[10%] top-20 h-72 w-72 rounded-full bg-[#73e7ff]/18 blur-3xl" />
 
         <div className="relative mx-auto grid max-w-7xl items-center gap-10 lg:grid-cols-[0.95fr_1.05fr]">
           <div>
-            <div className="inline-flex items-center gap-3 rounded-full border border-white/10 bg-white px-4 py-2 text-[#07162f] shadow-[0_18px_45px_rgba(0,0,0,0.22)]">
+            <div className="fire360-logo-chip fire360-logo-chip--pill gap-3">
               <img src={fire360OfficialLogo} alt="Fire 360" className="h-9 w-auto" />
-              <span className="hidden h-8 w-px bg-slate-200 sm:block" />
-              <span className="hidden text-xs font-extrabold uppercase tracking-[0.2em] text-slate-600 sm:block">
+              <span className="hidden h-8 w-px bg-white/20 sm:block" />
+              <span className="hidden text-xs font-extrabold uppercase tracking-[0.2em] text-white/75 sm:block">
                 Fire Safety Compliance
               </span>
             </div>
@@ -780,7 +787,7 @@ export default function Fire360Landing() {
                 className="h-8 w-auto"
               />
             </span>
-            <span className="rounded-full bg-white px-4 py-2">
+            <span className="fire360-logo-chip fire360-logo-chip--pill">
               <img src={fire360OfficialLogo} alt="Fire 360" className="h-8 w-auto" />
             </span>
           </div>

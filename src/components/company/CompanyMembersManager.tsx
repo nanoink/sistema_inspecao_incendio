@@ -177,10 +177,14 @@ export const CompanyMembersManager = ({
 
       resetCreationForm();
       await fetchMembers();
+      const reusedExistingUser = createdUser.temporary_password === false;
       toast({
-        title: "Usuario criado",
-        description:
-          creationRole === "gestor"
+        title: reusedExistingUser ? "Usuario vinculado" : "Usuario criado",
+        description: reusedExistingUser
+          ? isTechnicalResponsible
+            ? "O usuario existente foi vinculado a empresa e definido como responsavel tecnico."
+            : "O usuario existente foi vinculado a empresa."
+          : creationRole === "gestor"
             ? isTechnicalResponsible
               ? "O primeiro usuario da empresa foi criado como gestor e responsavel tecnico."
               : "O primeiro usuario da empresa foi criado como gestor."

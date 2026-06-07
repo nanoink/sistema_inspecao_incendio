@@ -188,8 +188,95 @@ Deno.serve(async (request) => {
   }
 
   if (existingProfile) {
-    return jsonResponse(409, {
-      error: "Ja existe um usuario cadastrado com este e-mail.",
+    if (!isSystemAdmin) {
+      return jsonResponse(409, {
+        error: "Ja existe um usuario cadastrado com este e-mail.",
+      });
+    }
+
+    const { error: profileUpdateError } = await adminClient
+      .from("profiles")
+      .update({
+        nome,
+        email,
+        cpf: cpf || null,
+        cargo: cargo || null,
+        crea: crea || null,
+      })
+      .eq("id", existingProfile.id);
+
+    if (profileUpdateError) {
+      return jsonResponse(500, {
+        error: "Nao foi possivel atualizar os dados do usuario existente.",
+      });
+    }
+
+    if (role === "gestor") {
+      const { error: demoteGestorError } = await adminClient
+        .from("empresa_usuarios")
+        .update({
+          papel: "membro",
+          is_responsavel_tecnico: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("empresa_id", companyId)
+        .eq("papel", "gestor")
+        .neq("user_id", existingProfile.id);
+
+      if (demoteGestorError) {
+        return jsonResponse(500, {
+          error: "Nao foi possivel ajustar o gestor atual da empresa.",
+        });
+      }
+    }
+
+    if (isTechnicalResponsible) {
+      const { error: clearTechnicalResponsibleError } = await adminClient
+        .from("empresa_usuarios")
+        .update({
+          is_responsavel_tecnico: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("empresa_id", companyId);
+
+      if (clearTechnicalResponsibleError) {
+        return jsonResponse(500, {
+          error:
+            "Nao foi possivel preparar a troca do responsavel tecnico da empresa.",
+        });
+      }
+    }
+
+    const { error: membershipUpsertError } = await adminClient
+      .from("empresa_usuarios")
+      .upsert(
+        {
+          empresa_id: companyId,
+          user_id: existingProfile.id,
+          papel: role,
+          is_responsavel_tecnico: isTechnicalResponsible,
+          pode_executar_checklists: true,
+        },
+        { onConflict: "empresa_id,user_id" },
+      );
+
+    if (membershipUpsertError) {
+      return jsonResponse(500, {
+        error: "Nao foi possivel vincular o usuario existente a empresa.",
+      });
+    }
+
+    return jsonResponse(200, {
+      user_id: existingProfile.id,
+      nome,
+      email,
+      cpf: cpf || null,
+      cargo: cargo || null,
+      crea: crea || null,
+      papel: role,
+      is_responsavel_tecnico: isTechnicalResponsible,
+      temporary_password: false,
+      reused_existing_user: true,
     });
   }
 
@@ -221,7 +308,11 @@ Deno.serve(async (request) => {
   if (role === "gestor") {
     const { error: demoteGestorError } = await adminClient
       .from("empresa_usuarios")
-      .update({ papel: "membro" })
+      .update({
+        papel: "membro",
+        is_responsavel_tecnico: false,
+        updated_at: new Date().toISOString(),
+      })
       .eq("empresa_id", companyId)
       .eq("papel", "gestor")
       .neq("user_id", createdUser.id);

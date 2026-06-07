@@ -858,7 +858,7 @@ const EquipmentChecklistPage = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="w-fit rounded-2xl border border-white/30 bg-white px-3 py-2">
+                  <div className="fire360-logo-chip fire360-logo-chip--compact w-fit">
                     <img
                       src={fire360OfficialLogo}
                       alt="Fire 360"

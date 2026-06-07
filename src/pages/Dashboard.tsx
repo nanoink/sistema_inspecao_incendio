@@ -4,7 +4,7 @@ import { CompanyTable } from "@/components/company/CompanyTable";
 import { FirePageHeader, FirePageShell } from "@/components/branding/FirePageShell";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Shield, Plus, LogOut, KeyRound } from "lucide-react";
+import { Shield, Plus, LogOut, KeyRound, Users } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { ChangePasswordDialog } from "@/components/auth/ChangePasswordDialog";
@@ -42,10 +42,16 @@ const Dashboard = () => {
         actions={
           <>
             {isSystemAdmin ? (
-              <Button onClick={() => navigate("/cadastro")} size="lg">
-                <Plus className="mr-2 h-5 w-5" />
-                Nova Empresa
-              </Button>
+              <>
+                <Button onClick={() => navigate("/gestores")} variant="outline" size="lg">
+                  <Users className="mr-2 h-5 w-5" />
+                  Gestores
+                </Button>
+                <Button onClick={() => navigate("/cadastro")} size="lg">
+                  <Plus className="mr-2 h-5 w-5" />
+                  Nova Empresa
+                </Button>
+              </>
             ) : null}
             <Button
               onClick={() => setPasswordDialogOpen(true)}
@@ -62,7 +68,7 @@ const Dashboard = () => {
           </>
         }
         stats={[
-          { value: isSystemAdmin ? "Global" : "Empresa", label: "escopo de acesso" },
+          { value: isSystemAdmin ? "Global" : "Empresas", label: "escopo de acesso" },
           { value: "Fire 360", label: "camada operacional" },
         ]}
       />

@@ -53,7 +53,7 @@ export const FirePageHeader = ({
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         {eyebrow ? <div className="fire-app-hero__eyebrow">{eyebrow}</div> : null}
-        <div className="rounded-2xl border border-white/30 bg-white px-3 py-2 shadow-[0_16px_40px_rgba(0,0,0,0.18)]">
+        <div className="fire360-logo-chip fire360-logo-chip--compact">
           <img
             src={fire360OfficialLogo}
             alt="Fire 360"

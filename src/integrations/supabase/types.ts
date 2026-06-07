@@ -1212,6 +1212,20 @@ export type Database = {
           user_id: string
         }[]
       }
+      list_gestor_empresa_vinculos: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          cargo: string | null
+          cpf: string | null
+          crea: string | null
+          email: string
+          empresas: Json
+          nome: string
+          total_empresas: number
+          updated_at: string | null
+          user_id: string
+        }[]
+      }
       normalize_divisao_codigo: {
         Args: { p_value: string | null }
         Returns: string | null
@@ -1322,6 +1336,23 @@ export type Database = {
           papel: string
           pode_executar_checklists: boolean
           updated_at: string
+          user_id: string
+        }[]
+      }
+      set_gestor_empresas: {
+        Args: {
+          p_empresa_ids?: string[]
+          p_user_id: string
+        }
+        Returns: {
+          cargo: string | null
+          cpf: string | null
+          crea: string | null
+          email: string
+          empresas: Json
+          nome: string
+          total_empresas: number
+          updated_at: string | null
           user_id: string
         }[]
       }

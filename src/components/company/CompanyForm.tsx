@@ -801,8 +801,8 @@ export function CompanyForm() {
           <CardHeader>
             <CardTitle>Primeiro Usuario da Empresa</CardTitle>
             <CardDescription>
-              Esse usuario sera criado com senha provisoria e assumira o papel de
-              gestor da empresa.
+              Esse usuario assumira o papel de gestor da empresa. Se o e-mail ja
+              existir, a conta sera apenas vinculada a esta nova unidade.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -868,6 +868,9 @@ export function CompanyForm() {
                   onChange={(event) => setFirstUserPassword(event.target.value)}
                   placeholder="No minimo 6 caracteres"
                 />
+                <p className="text-xs text-muted-foreground">
+                  Para usuario existente, a senha atual nao sera alterada.
+                </p>
               </div>
             </div>
           </CardContent>

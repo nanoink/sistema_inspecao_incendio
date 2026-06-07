@@ -126,7 +126,7 @@ export default function Auth() {
                     className="h-11 w-auto"
                   />
                 </div>
-                <div className="rounded-[1.5rem] border border-white/40 bg-white px-4 py-3 shadow-[0_18px_44px_rgba(115,231,255,0.12)]">
+                <div className="fire360-logo-chip">
                   <img
                     src={fire360OfficialLogo}
                     alt="Fire 360"

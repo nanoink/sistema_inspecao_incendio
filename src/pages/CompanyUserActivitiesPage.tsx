@@ -154,7 +154,7 @@ const CompanyUserActivitiesPage = () => {
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <div className="w-fit rounded-2xl border bg-white px-3 py-2 shadow-sm">
+            <div className="fire360-logo-chip fire360-logo-chip--compact w-fit">
               <img
                 src={fire360OfficialLogo}
                 alt="Fire 360"
