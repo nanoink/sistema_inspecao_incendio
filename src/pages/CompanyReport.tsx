@@ -383,6 +383,9 @@ const OPERATIONAL_LEGAL_NOTICE =
   "Documento de uso interno, sem validade tecnica legal. Este relatorio nao substitui inspecao tecnica realizada por profissional habilitado.";
 const TECHNICAL_LEGAL_NOTICE =
   "Documento tecnico oficial condicionado a responsavel tecnico habilitado, ART/RRT vinculada e rastreabilidade completa da inspecao.";
+const INITIAL_REPORT_PREVIEW_PAGE_COUNT = 4;
+const REPORT_PREVIEW_PAGE_BATCH_SIZE = 4;
+const PRINT_REPORT_PREVIEW_PAGE_COUNT = 200;
 
 const getDefaultReportTitle = (mode: ReportMode) =>
   mode === "tecnico" ? TECHNICAL_REPORT_TITLE : OPERATIONAL_REPORT_TITLE;
@@ -3047,6 +3050,7 @@ const ReportToolbar = ({
   onFinalize,
   onStartNewCycle,
   saving,
+  printing = false,
   snapshotIsCurrent,
   statusLabel,
   finalizeLabel,
@@ -3059,6 +3063,7 @@ const ReportToolbar = ({
   onFinalize: () => void;
   onStartNewCycle?: () => void;
   saving: boolean;
+  printing?: boolean;
   snapshotIsCurrent: boolean;
   statusLabel: string;
   finalizeLabel: string;
@@ -3078,9 +3083,18 @@ const ReportToolbar = ({
         <RefreshCcw className="mr-2 h-4 w-4" />
         Atualizar com checklist
       </Button>
-      <Button variant="outline" className="w-full sm:w-auto" onClick={onPrint} disabled={saving}>
-        <Printer className="mr-2 h-4 w-4" />
-        Imprimir / PDF
+      <Button variant="outline" className="w-full sm:w-auto" onClick={onPrint} disabled={saving || printing}>
+        {printing ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Preparando PDF
+          </>
+        ) : (
+          <>
+            <Printer className="mr-2 h-4 w-4" />
+            Imprimir / PDF
+          </>
+        )}
       </Button>
       <Button variant="outline" className="w-full sm:w-auto" onClick={onSaveDraft} disabled={saving}>
         {saving ? (
@@ -3141,6 +3155,10 @@ const CompanyReport = () => {
   const [activeReportCycleId, setActiveReportCycleId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [previewReady, setPreviewReady] = useState(false);
+  const [visiblePreviewPageCount, setVisiblePreviewPageCount] = useState(
+    INITIAL_REPORT_PREVIEW_PAGE_COUNT,
+  );
+  const [isPreparingPrint, setIsPreparingPrint] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingArt, setUploadingArt] = useState(false);
   const [uploadingReportAttachment, setUploadingReportAttachment] = useState(false);
@@ -3158,6 +3176,7 @@ const CompanyReport = () => {
     Record<string, string | null>
   >({});
   const reportAttachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const totalReportPageCountRef = useRef(0);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -3386,8 +3405,12 @@ const CompanyReport = () => {
   useEffect(() => {
     if (loading || !company || !snapshot) {
       setPreviewReady(false);
+      setVisiblePreviewPageCount(INITIAL_REPORT_PREVIEW_PAGE_COUNT);
       return;
     }
+
+    setPreviewReady(false);
+    setVisiblePreviewPageCount(INITIAL_REPORT_PREVIEW_PAGE_COUNT);
 
     const frameId = window.requestAnimationFrame(() => {
       setPreviewReady(true);
@@ -3397,6 +3420,55 @@ const CompanyReport = () => {
       window.cancelAnimationFrame(frameId);
     };
   }, [company, loading, snapshot]);
+
+  useEffect(() => {
+    if (!previewReady || isPreparingPrint) {
+      return;
+    }
+
+    const totalReportPages = totalReportPageCountRef.current;
+
+    if (totalReportPages > 0 && visiblePreviewPageCount >= totalReportPages) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setVisiblePreviewPageCount((current) => {
+        const knownTotalPages = totalReportPageCountRef.current;
+        const nextPageCount = current + REPORT_PREVIEW_PAGE_BATCH_SIZE;
+
+        return knownTotalPages > 0
+          ? Math.min(nextPageCount, knownTotalPages)
+          : Math.min(nextPageCount, PRINT_REPORT_PREVIEW_PAGE_COUNT);
+      });
+    }, 160);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [isPreparingPrint, previewReady, visiblePreviewPageCount]);
+
+  useEffect(() => {
+    const handleBeforePrint = () => {
+      setIsPreparingPrint(true);
+      setPreviewReady(true);
+      setVisiblePreviewPageCount(
+        totalReportPageCountRef.current || PRINT_REPORT_PREVIEW_PAGE_COUNT,
+      );
+    };
+
+    const handleAfterPrint = () => {
+      setIsPreparingPrint(false);
+    };
+
+    window.addEventListener("beforeprint", handleBeforePrint);
+    window.addEventListener("afterprint", handleAfterPrint);
+
+    return () => {
+      window.removeEventListener("beforeprint", handleBeforePrint);
+      window.removeEventListener("afterprint", handleAfterPrint);
+    };
+  }, []);
 
   useEffect(() => {
     let isCancelled = false;
@@ -3969,7 +4041,20 @@ const CompanyReport = () => {
   };
 
   const handlePrint = () => {
-    window.print();
+    setIsPreparingPrint(true);
+    setPreviewReady(true);
+    setVisiblePreviewPageCount(
+      totalReportPageCountRef.current || PRINT_REPORT_PREVIEW_PAGE_COUNT,
+    );
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        window.print();
+        window.setTimeout(() => {
+          setIsPreparingPrint(false);
+        }, 800);
+      });
+    });
   };
 
   const handleStartNewCycle = async () => {
@@ -5967,6 +6052,17 @@ const CompanyReport = () => {
     }
   }
 
+  const totalReportPages = pages.length;
+  totalReportPageCountRef.current = totalReportPages;
+  const visibleReportPages =
+    previewReady && !isPreparingPrint
+      ? pages.slice(0, Math.min(visiblePreviewPageCount, totalReportPages))
+      : pages;
+  const hasDeferredReportPages =
+    previewReady &&
+    !isPreparingPrint &&
+    totalReportPages > visibleReportPages.length;
+
   return (
     <FirePageShell className="bg-transparent">
       <style>{`
@@ -5975,7 +6071,7 @@ const CompanyReport = () => {
           contain-intrinsic-size: 1123px 794px;
         }
 
-        @media (max-width: 1100px) {
+        @media screen and (max-width: 1100px) {
           .report-print-wrapper {
             max-width: 100% !important;
           }
@@ -6048,14 +6144,37 @@ const CompanyReport = () => {
 
           .report-page {
             box-sizing: border-box;
+            width: 210mm !important;
+            min-height: 297mm !important;
+            height: 297mm !important;
             overflow: hidden;
             content-visibility: visible;
             contain-intrinsic-size: auto;
+            border-radius: 0 !important;
             break-after: page;
             page-break-after: always;
             break-inside: avoid;
             page-break-inside: avoid;
             margin: 0 auto !important;
+          }
+
+          .report-page table {
+            display: table !important;
+            overflow: visible !important;
+          }
+
+          .report-page img,
+          .report-page object,
+          .report-page iframe {
+            max-width: 100% !important;
+          }
+
+          .report-attachment-embed {
+            height: 720px !important;
+          }
+
+          .report-art-embed {
+            height: 760px !important;
           }
 
           .report-page-inner {
@@ -6110,6 +6229,7 @@ const CompanyReport = () => {
           onFinalize={() => void handleSave("finalizado")}
           onStartNewCycle={() => void handleStartNewCycle()}
           saving={saving}
+          printing={isPreparingPrint}
           snapshotIsCurrent={snapshotIsCurrent}
           statusLabel={statusMeta.label}
           showStartNewCycle={canManageReportCycles && reportStatus === "finalizado"}
@@ -6411,18 +6531,48 @@ const CompanyReport = () => {
 
         <div className="report-pages space-y-8">
           {previewReady ? (
-            pages.map((page, index) => (
-              <PageFrame
-                key={`report-page-${index + 1}`}
-                pageNumber={index + 1}
-                totalPages={pages.length}
-                title={reportTitle}
-                subtitle={reportSubtitle}
-                legalNotice={reportLegalNotice}
-              >
-                {page}
-              </PageFrame>
-            ))
+            <>
+              {visibleReportPages.map((page, index) => (
+                <PageFrame
+                  key={`report-page-${index + 1}`}
+                  pageNumber={index + 1}
+                  totalPages={totalReportPages}
+                  title={reportTitle}
+                  subtitle={reportSubtitle}
+                  legalNotice={reportLegalNotice}
+                >
+                  {page}
+                </PageFrame>
+              ))}
+
+              {hasDeferredReportPages ? (
+                <Card className="report-controls overflow-hidden border-dashed">
+                  <CardContent className="flex min-h-[160px] flex-col items-center justify-center gap-3 px-6 py-8 text-center">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-foreground">
+                        Carregando paginas restantes do preview
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {visibleReportPages.length} de {totalReportPages} paginas montadas.
+                        O PDF final sempre usa o relatorio completo.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() =>
+                        setVisiblePreviewPageCount((current) =>
+                          Math.min(current + REPORT_PREVIEW_PAGE_BATCH_SIZE, totalReportPages),
+                        )
+                      }
+                    >
+                      Carregar mais paginas
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : null}
+            </>
           ) : (
             <Card className="overflow-hidden border-dashed">
               <CardContent className="flex min-h-[220px] flex-col items-center justify-center gap-3 px-6 py-10 text-center">
