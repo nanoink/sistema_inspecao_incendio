@@ -24,6 +24,7 @@ import {
   type CompanyMemberSummary,
   updateCompanyUser,
 } from "@/lib/company-members";
+import fire360OfficialLogo from "@/assets/fire360-logo-oficial.png";
 
 type CompanySummary = Pick<Database["public"]["Tables"]["empresa"]["Row"], "id" | "razao_social">;
 
@@ -216,7 +217,14 @@ const EditCompanyUserPage = () => {
             </p>
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="w-fit rounded-2xl border bg-white px-3 py-2 shadow-sm">
+              <img
+                src={fire360OfficialLogo}
+                alt="Fire 360"
+                className="h-8 w-auto"
+              />
+            </div>
             <Button
               type="button"
               variant="outline"

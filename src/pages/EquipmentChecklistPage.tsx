@@ -66,6 +66,7 @@ import { EquipmentQrLoginDialog } from "@/components/auth/EquipmentQrLoginDialog
 import { ChecklistNonConformityDialog } from "@/components/checklists/ChecklistNonConformityDialog";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
+import fire360OfficialLogo from "@/assets/fire360-logo-oficial.png";
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -834,26 +835,35 @@ const EquipmentChecklistPage = () => {
           <div className="space-y-6">
             <Card className="overflow-hidden border-none shadow-sm">
               <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700 p-6 text-white">
-                <div className="flex items-start gap-4">
-                  <div className="rounded-2xl bg-white/10 p-3">
-                    <Icon className="h-7 w-7" />
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-sm uppercase tracking-[0.24em] text-white/70">
-                      Ficha do equipamento
-                    </p>
-                    <h1 className="text-2xl font-bold md:text-3xl">
-                      {record.titulo}
-                    </h1>
-                    <p className="text-sm text-white/80">{record.subtitulo}</p>
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      <Badge className="border-white/20 bg-white/10 text-white hover:bg-white/10">
-                        {record.empresa_razao_social}
-                      </Badge>
-                      <Badge className="border-white/20 bg-white/10 text-white hover:bg-white/10">
-                        {record.localizacao}
-                      </Badge>
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex items-start gap-4">
+                    <div className="rounded-2xl bg-white/10 p-3">
+                      <Icon className="h-7 w-7" />
                     </div>
+                    <div className="space-y-2">
+                      <p className="text-sm uppercase tracking-[0.24em] text-white/70">
+                        Ficha do equipamento
+                      </p>
+                      <h1 className="text-2xl font-bold md:text-3xl">
+                        {record.titulo}
+                      </h1>
+                      <p className="text-sm text-white/80">{record.subtitulo}</p>
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <Badge className="border-white/20 bg-white/10 text-white hover:bg-white/10">
+                          {record.empresa_razao_social}
+                        </Badge>
+                        <Badge className="border-white/20 bg-white/10 text-white hover:bg-white/10">
+                          {record.localizacao}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="w-fit rounded-2xl border border-white/30 bg-white px-3 py-2">
+                    <img
+                      src={fire360OfficialLogo}
+                      alt="Fire 360"
+                      className="h-8 w-auto md:h-10"
+                    />
                   </div>
                 </div>
               </div>

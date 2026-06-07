@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import fireTetraedroLogo from "@/assets/firetetraedro-logo.svg";
+import fire360OfficialLogo from "@/assets/fire360-logo-oficial.png";
 import { FirePageShell } from "@/components/branding/FirePageShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -117,17 +118,26 @@ export default function Auth() {
         <section className="fire-app-hero flex flex-col justify-between overflow-hidden">
           <div>
             <div className="mb-8 flex items-center justify-between gap-4">
-              <div className="rounded-[1.5rem] bg-white px-4 py-3 shadow-[0_18px_44px_rgba(255,91,31,0.18)]">
-                <img
-                  src={fireTetraedroLogo}
-                  alt="Fire Tetraedro"
-                  className="h-11 w-auto"
-                />
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="rounded-[1.5rem] bg-white px-4 py-3 shadow-[0_18px_44px_rgba(255,91,31,0.18)]">
+                  <img
+                    src={fireTetraedroLogo}
+                    alt="Fire Tetraedro"
+                    className="h-11 w-auto"
+                  />
+                </div>
+                <div className="rounded-[1.5rem] border border-white/40 bg-white px-4 py-3 shadow-[0_18px_44px_rgba(115,231,255,0.12)]">
+                  <img
+                    src={fire360OfficialLogo}
+                    alt="Fire 360"
+                    className="h-9 w-auto"
+                  />
+                </div>
               </div>
 
               <Link
                 to="/"
-                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/6 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/10"
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/10"
               >
                 Voltar ao site
                 <ArrowRight className="h-4 w-4" />
@@ -153,7 +163,7 @@ export default function Auth() {
                 return (
                   <div
                     key={item.title}
-                    className="rounded-[1.45rem] border border-white/10 bg-white/6 p-4 shadow-[0_18px_38px_rgba(0,0,0,0.15)]"
+                    className="rounded-[1.45rem] border border-white/10 bg-white/[0.06] p-4 shadow-[0_18px_38px_rgba(0,0,0,0.15)]"
                   >
                     <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-primary">
                       <Icon className="h-5 w-5" />
@@ -161,7 +171,7 @@ export default function Auth() {
                     <h2 className="fire-display mt-4 text-xl font-bold text-white">
                       {item.title}
                     </h2>
-                    <p className="mt-2 text-sm leading-6 text-white/72">
+                    <p className="mt-2 text-sm leading-6 text-white/70">
                       {item.description}
                     </p>
                   </div>
