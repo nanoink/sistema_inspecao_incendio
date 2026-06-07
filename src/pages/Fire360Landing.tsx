@@ -67,31 +67,25 @@ const pageFontStyles = `
 
   .fire360-visual {
     position: relative;
+    aspect-ratio: 16 / 9;
     overflow: hidden;
     border: 1px solid rgba(7, 22, 47, 0.08);
     border-radius: 2rem;
-    background:
-      linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(235, 244, 255, 0.86)),
-      #ffffff;
+    background: #07162f;
     box-shadow: 0 28px 80px rgba(7, 22, 47, 0.16);
   }
 
   .fire360-visual::after {
-    content: "";
-    position: absolute;
-    inset: auto 0 0;
-    height: 4.5rem;
-    pointer-events: none;
-    background: linear-gradient(180deg, transparent, rgba(7, 22, 47, 0.06));
+    display: none;
   }
 
   .fire360-proof-image {
+    display: block;
     width: 100%;
     height: 100%;
-    object-fit: cover;
-    object-position: center top;
-    transform: scale(1.055);
-    transform-origin: top center;
+    object-fit: contain;
+    object-position: center;
+    transform: none;
   }
 
   .fire360-float {
@@ -394,10 +388,10 @@ export default function Fire360Landing() {
               </span>
             </div>
 
-            <h1 className="fire360-display mt-8 max-w-4xl text-5xl font-bold tracking-[-0.07em] md:text-7xl">
+            <h1 className="fire360-display mt-8 max-w-4xl text-4xl font-bold tracking-[-0.06em] sm:text-5xl md:text-6xl xl:text-7xl">
               Transforme inspeção em inteligência operacional recorrente.
             </h1>
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-white/80 md:text-xl">
+            <p className="mt-6 max-w-2xl text-base leading-8 text-white/80 md:text-lg">
               O Fire 360 é a plataforma da Fire Tetraedro para gestão contínua
               de segurança contra incêndio: campo, compliance, equipamentos,
               não conformidades e relatórios conectados em uma única operação.
@@ -436,14 +430,14 @@ export default function Fire360Landing() {
             </div>
           </div>
 
-          <div className="relative">
+          <div>
             <VisualFrame
               src={heroVisual}
               alt="Visão conceitual do Fire 360 conectando campo, compliance e gestão"
               priority
-              className="fire360-float h-[25rem] md:h-[34rem]"
+              className="fire360-float"
             />
-            <div className="absolute -bottom-5 left-5 right-5 rounded-[1.6rem] border border-white/10 bg-[#07162f]/[0.88] p-5 text-white shadow-[0_24px_55px_rgba(0,0,0,0.25)] backdrop-blur-xl md:left-auto md:w-80">
+            <div className="mt-4 rounded-[1.6rem] border border-white/10 bg-[#07162f]/[0.88] p-5 text-white shadow-[0_24px_55px_rgba(0,0,0,0.25)] backdrop-blur-xl md:ml-auto md:w-80">
               <p className="text-xs font-extrabold uppercase tracking-[0.22em] text-[#73e7ff]">
                 Visão 360
               </p>
@@ -460,7 +454,7 @@ export default function Fire360Landing() {
           <VisualFrame
             src={problemVisual}
             alt="Diagrama sobre o custo oculto da dispersão técnica"
-            className="h-[22rem] md:h-[31rem]"
+            className="w-full"
           />
           <div>
             <SectionHeader
@@ -525,7 +519,7 @@ export default function Fire360Landing() {
             <VisualFrame
               src={paradigmVisual}
               alt="Comparativo visual entre checklist pontual e gestão contínua Fire 360"
-              className="h-[22rem] md:h-[33rem]"
+              className="w-full"
             />
           </div>
         </div>
@@ -542,7 +536,7 @@ export default function Fire360Landing() {
             <VisualFrame
               src={motorVisual}
               alt="Motor circular com as etapas da operação Fire 360"
-              className="h-[21rem] md:h-[29rem]"
+              className="w-full"
             />
           </div>
           <div className="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -563,7 +557,7 @@ export default function Fire360Landing() {
           <VisualFrame
             src={cycleVisual}
             alt="Ciclo inteligente de gestão de risco no Fire 360"
-            className="h-[22rem] border-white/10 bg-[#0d2345] md:h-[33rem]"
+            className="w-full border-white/10 bg-[#0d2345]"
           />
           <div>
             <p className="text-xs font-extrabold uppercase tracking-[0.28em] text-[#73e7ff]">
@@ -607,7 +601,7 @@ export default function Fire360Landing() {
             <VisualFrame
               src={traceabilityVisual}
               alt="Encadeamento de rastreabilidade da operação Fire 360"
-              className="h-[22rem] md:h-[31rem]"
+              className="w-full"
             />
             <div className="grid gap-4 sm:grid-cols-2">
               {traceabilityItems.map((item) => (
@@ -634,7 +628,7 @@ export default function Fire360Landing() {
             <VisualFrame
               src={layersVisual}
               alt="Camadas de visibilidade da plataforma Fire 360"
-              className="h-[22rem] md:h-[31rem]"
+              className="w-full"
             />
           </div>
 
@@ -650,7 +644,7 @@ export default function Fire360Landing() {
                   <VisualFrame
                     src={layer.image}
                     alt={layer.title}
-                    className="h-56 rounded-none border-0 shadow-none"
+                    className="rounded-none border-0 shadow-none"
                   />
                   <div className="p-6">
                     <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#ff5b1f] text-white">
@@ -675,7 +669,7 @@ export default function Fire360Landing() {
           <VisualFrame
             src={socVisual}
             alt="Infraestrutura operacional do Fire 360 como SOC de segurança contra incêndio"
-            className="h-[22rem] md:h-[33rem]"
+            className="w-full"
           />
           <div>
             <SectionHeader
@@ -731,7 +725,7 @@ export default function Fire360Landing() {
             <VisualFrame
               src={scalabilityVisual}
               alt="Mapa de escalabilidade e maturidade do Fire 360"
-              className="h-[22rem] border-white/10 bg-[#0d2345] md:h-[34rem]"
+              className="w-full border-white/10 bg-[#0d2345]"
             />
           </div>
         </div>
@@ -771,7 +765,7 @@ export default function Fire360Landing() {
           <VisualFrame
             src={ctaVisual}
             alt="Chamada final do Fire 360 para gestão de risco sob controle"
-            className="min-h-[24rem] rounded-none border-0 shadow-none"
+            className="rounded-none border-0 shadow-none"
           />
         </div>
       </section>

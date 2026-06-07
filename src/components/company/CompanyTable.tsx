@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Pencil, Trash2, Loader2, ClipboardCheck, FileText } from "lucide-react";
+import { BarChart3, Pencil, Trash2, Loader2, ClipboardCheck, FileText } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { isMissingRelationError } from "@/lib/supabase-errors";
 import { useAuth } from "@/hooks/useAuth";
@@ -212,6 +212,14 @@ export const CompanyTable = () => {
                     <TableCell className="whitespace-nowrap hidden lg:table-cell">{company.grau_risco || "-"}</TableCell>
                     <TableCell className="sticky right-0 bg-white/96 text-right backdrop-blur">
                       <div className="flex justify-end gap-1 md:gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => navigate(`/analytics/${company.id}`)}
+                          title="Dashboard analítico"
+                        >
+                          <BarChart3 className="h-4 w-4" />
+                        </Button>
                         {reportCompanyIds.has(company.id) && (
                           <Button
                             variant="outline"

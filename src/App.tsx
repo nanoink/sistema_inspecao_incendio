@@ -15,6 +15,7 @@ const CompanyUserActivitiesPage = lazy(() => import("./pages/CompanyUserActiviti
 const CompanyRequirements = lazy(() => import("./pages/CompanyRequirements"));
 const CompanyChecklists = lazy(() => import("./pages/CompanyChecklists"));
 const CompanyReport = lazy(() => import("./pages/CompanyReport"));
+const CompanyAnalyticsDashboard = lazy(() => import("./pages/CompanyAnalyticsDashboard"));
 const Fire360Landing = lazy(() => import("./pages/Fire360Landing"));
 const Auth = lazy(() => import("./pages/Auth"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -55,6 +56,7 @@ const App = () => (
             <Route path="/exigencias/:id" element={<ProtectedRoute><CompanyRequirements /></ProtectedRoute>} />
             <Route path="/checklists/:id" element={<ProtectedRoute><CompanyChecklists /></ProtectedRoute>} />
             <Route path="/relatorios/:id" element={<ProtectedRoute><CompanyReport /></ProtectedRoute>} />
+            <Route path="/analytics/:id" element={<ProtectedRoute><CompanyAnalyticsDashboard /></ProtectedRoute>} />
             <Route path="/equipamentos/:kind/:token" element={<EquipmentChecklistPage />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
