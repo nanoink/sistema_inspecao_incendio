@@ -18,19 +18,19 @@ import {
 
 import fireTetraedroLogo from "@/assets/firetetraedro-logo.svg";
 import fire360OfficialLogo from "@/assets/fire360-logo-oficial.png";
-import heroVisual from "@/assets/fire360-frontend-hero.jpg";
-import problemVisual from "@/assets/fire360-frontend-problema.jpg";
-import paradigmVisual from "@/assets/fire360-frontend-paradigma.jpg";
-import motorVisual from "@/assets/fire360-frontend-motor.jpg";
-import cycleVisual from "@/assets/fire360-frontend-ciclo.jpg";
-import traceabilityVisual from "@/assets/fire360-frontend-rastreabilidade.jpg";
-import layersVisual from "@/assets/fire360-frontend-camadas.jpg";
-import fieldVisual from "@/assets/fire360-frontend-campo.jpg";
-import complianceVisual from "@/assets/fire360-frontend-compliance.jpg";
-import managementVisual from "@/assets/fire360-frontend-gestao.jpg";
-import socVisual from "@/assets/fire360-frontend-soc.jpg";
-import scalabilityVisual from "@/assets/fire360-frontend-escalabilidade.jpg";
-import ctaVisual from "@/assets/fire360-frontend-cta.jpg";
+import heroVisual from "@/assets/fire360-operational-slide-01.webp";
+import problemVisual from "@/assets/fire360-operational-slide-02.webp";
+import paradigmVisual from "@/assets/fire360-operational-slide-03.webp";
+import motorVisual from "@/assets/fire360-operational-slide-04.webp";
+import cycleVisual from "@/assets/fire360-operational-slide-05.webp";
+import traceabilityVisual from "@/assets/fire360-operational-slide-05.webp";
+import layersVisual from "@/assets/fire360-operational-slide-06.webp";
+import fieldVisual from "@/assets/fire360-operational-slide-04.webp";
+import complianceVisual from "@/assets/fire360-operational-slide-06.webp";
+import managementVisual from "@/assets/fire360-operational-slide-08.webp";
+import socVisual from "@/assets/fire360-operational-slide-07.webp";
+import scalabilityVisual from "@/assets/fire360-operational-slide-08.webp";
+import ctaVisual from "@/assets/fire360-operational-slide-09.webp";
 
 const pageFontStyles = `
   @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
