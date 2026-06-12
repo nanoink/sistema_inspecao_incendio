@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -61,6 +61,7 @@ import {
   isMissingFunctionError,
   isMissingRelationError,
 } from "@/lib/supabase-errors";
+import { renderPdfPreviewImages } from "@/lib/pdf-preview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -281,6 +282,12 @@ interface ReportAttachmentMetadata {
 
 type ReportAttachmentPreviewKind = "pdf" | "image" | "link";
 
+interface PdfPreviewDocumentState {
+  status: "idle" | "loading" | "ready" | "error";
+  pageCount: number;
+  images: string[];
+}
+
 interface GeneralChecklistReportLine {
   code: string;
   name: string;
@@ -385,7 +392,45 @@ const TECHNICAL_LEGAL_NOTICE =
   "Documento tecnico oficial condicionado a responsavel tecnico habilitado, ART/RRT vinculada e rastreabilidade completa da inspecao.";
 const INITIAL_REPORT_PREVIEW_PAGE_COUNT = 4;
 const REPORT_PREVIEW_PAGE_BATCH_SIZE = 4;
+const TABLET_REPORT_PREVIEW_PAGE_COUNT = 2;
+const MOBILE_REPORT_PREVIEW_PAGE_COUNT = 1;
 const PRINT_REPORT_PREVIEW_PAGE_COUNT = 200;
+const FIRE_TETRAEDRO_CNPJ =
+  import.meta.env.VITE_FIRE_TETRAEDRO_CNPJ?.trim() || "35.432.936/0001-76";
+
+const getReportPreviewPagination = () => {
+  if (typeof window === "undefined") {
+    return {
+      initial: INITIAL_REPORT_PREVIEW_PAGE_COUNT,
+      batch: REPORT_PREVIEW_PAGE_BATCH_SIZE,
+    };
+  }
+
+  if (window.matchMedia("(max-width: 768px)").matches) {
+    return {
+      initial: MOBILE_REPORT_PREVIEW_PAGE_COUNT,
+      batch: MOBILE_REPORT_PREVIEW_PAGE_COUNT,
+    };
+  }
+
+  if (window.matchMedia("(max-width: 1100px)").matches) {
+    return {
+      initial: TABLET_REPORT_PREVIEW_PAGE_COUNT,
+      batch: TABLET_REPORT_PREVIEW_PAGE_COUNT,
+    };
+  }
+
+  return {
+    initial: INITIAL_REPORT_PREVIEW_PAGE_COUNT,
+    batch: REPORT_PREVIEW_PAGE_BATCH_SIZE,
+  };
+};
+
+const EMPTY_PDF_PREVIEW_STATE: PdfPreviewDocumentState = {
+  status: "idle",
+  pageCount: 0,
+  images: [],
+};
 
 const getDefaultReportTitle = (mode: ReportMode) =>
   mode === "tecnico" ? TECHNICAL_REPORT_TITLE : OPERATIONAL_REPORT_TITLE;
@@ -2848,6 +2893,7 @@ const ChecklistDigitalSignatureStamp = ({
 
 const TechnicalResponsibleArtSignatureSheet = ({
   company,
+  fireCompanyCnpj,
   signerName,
   signerCpf,
   signerCargo,
@@ -2857,6 +2903,7 @@ const TechnicalResponsibleArtSignatureSheet = ({
   technicalValidationUrl,
 }: {
   company: Company;
+  fireCompanyCnpj: string;
   signerName: string;
   signerCpf?: string | null;
   signerCargo: string;
@@ -2934,7 +2981,7 @@ const TechnicalResponsibleArtSignatureSheet = ({
               {signerName} - CPF: {formatCpf(signerCpf)}
             </div>
             <div className="break-words border-b border-zinc-400 pb-1 text-center text-[11.5px] font-semibold uppercase tracking-[0.02em] text-zinc-900">
-              {company.razao_social} - CNPJ: {formatCnpj(company.cnpj)}
+              FIRE TETRAEDRO - CNPJ: {formatCnpj(fireCompanyCnpj)}
             </div>
           </div>
         </div>
@@ -3155,8 +3202,9 @@ const CompanyReport = () => {
   const [activeReportCycleId, setActiveReportCycleId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [previewReady, setPreviewReady] = useState(false);
+  const [previewPagination, setPreviewPagination] = useState(getReportPreviewPagination);
   const [visiblePreviewPageCount, setVisiblePreviewPageCount] = useState(
-    INITIAL_REPORT_PREVIEW_PAGE_COUNT,
+    () => getReportPreviewPagination().initial,
   );
   const [isPreparingPrint, setIsPreparingPrint] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -3175,8 +3223,17 @@ const CompanyReport = () => {
   const [reportAttachmentSignedUrls, setReportAttachmentSignedUrls] = useState<
     Record<string, string | null>
   >({});
+  const [reportAttachmentPdfPreviews, setReportAttachmentPdfPreviews] = useState<
+    Record<string, PdfPreviewDocumentState>
+  >({});
+  const [artPdfPreview, setArtPdfPreview] = useState<PdfPreviewDocumentState>(
+    EMPTY_PDF_PREVIEW_STATE,
+  );
   const reportAttachmentInputRef = useRef<HTMLInputElement | null>(null);
   const totalReportPageCountRef = useRef(0);
+  const printRequestedRef = useRef(false);
+  const reportAttachmentPdfPreviewsRef = useRef<Record<string, PdfPreviewDocumentState>>({});
+  const artPdfPreviewRef = useRef<PdfPreviewDocumentState>(EMPTY_PDF_PREVIEW_STATE);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -3403,14 +3460,27 @@ const CompanyReport = () => {
   }, [id, toast]);
 
   useEffect(() => {
+    const syncPreviewPagination = () => {
+      setPreviewPagination(getReportPreviewPagination());
+    };
+
+    syncPreviewPagination();
+    window.addEventListener("resize", syncPreviewPagination);
+
+    return () => {
+      window.removeEventListener("resize", syncPreviewPagination);
+    };
+  }, []);
+
+  useEffect(() => {
     if (loading || !company || !snapshot) {
       setPreviewReady(false);
-      setVisiblePreviewPageCount(INITIAL_REPORT_PREVIEW_PAGE_COUNT);
+      setVisiblePreviewPageCount(previewPagination.initial);
       return;
     }
 
     setPreviewReady(false);
-    setVisiblePreviewPageCount(INITIAL_REPORT_PREVIEW_PAGE_COUNT);
+    setVisiblePreviewPageCount(previewPagination.initial);
 
     const frameId = window.requestAnimationFrame(() => {
       setPreviewReady(true);
@@ -3419,7 +3489,7 @@ const CompanyReport = () => {
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [company, loading, snapshot]);
+  }, [company, loading, previewPagination.initial, snapshot]);
 
   useEffect(() => {
     if (!previewReady || isPreparingPrint) {
@@ -3435,7 +3505,7 @@ const CompanyReport = () => {
     const timeoutId = window.setTimeout(() => {
       setVisiblePreviewPageCount((current) => {
         const knownTotalPages = totalReportPageCountRef.current;
-        const nextPageCount = current + REPORT_PREVIEW_PAGE_BATCH_SIZE;
+        const nextPageCount = current + previewPagination.batch;
 
         return knownTotalPages > 0
           ? Math.min(nextPageCount, knownTotalPages)
@@ -3446,7 +3516,7 @@ const CompanyReport = () => {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [isPreparingPrint, previewReady, visiblePreviewPageCount]);
+  }, [isPreparingPrint, previewPagination.batch, previewReady, visiblePreviewPageCount]);
 
   useEffect(() => {
     const handleBeforePrint = () => {
@@ -3458,6 +3528,7 @@ const CompanyReport = () => {
     };
 
     const handleAfterPrint = () => {
+      printRequestedRef.current = false;
       setIsPreparingPrint(false);
     };
 
@@ -3472,9 +3543,10 @@ const CompanyReport = () => {
 
   useEffect(() => {
     let isCancelled = false;
+    let timeoutId: number | null = null;
 
     const hydrateNonConformityImages = async () => {
-      if (!id || loading || nonConformityImagesLoaded) {
+      if (!id || loading || nonConformityImagesLoaded || !previewReady) {
         return;
       }
 
@@ -3499,12 +3571,17 @@ const CompanyReport = () => {
       }
     };
 
-    void hydrateNonConformityImages();
+    timeoutId = window.setTimeout(() => {
+      void hydrateNonConformityImages();
+    }, 320);
 
     return () => {
       isCancelled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
     };
-  }, [id, loading, nonConformityImagesLoaded]);
+  }, [id, loading, nonConformityImagesLoaded, previewReady]);
 
   useEffect(() => {
     const gestor = reportSignatures.find((signer) => signer.is_gestor);
@@ -3577,6 +3654,14 @@ const CompanyReport = () => {
   }, [artFilePath, report?.updated_at]);
 
   useEffect(() => {
+    reportAttachmentPdfPreviewsRef.current = reportAttachmentPdfPreviews;
+  }, [reportAttachmentPdfPreviews]);
+
+  useEffect(() => {
+    artPdfPreviewRef.current = artPdfPreview;
+  }, [artPdfPreview]);
+
+  useEffect(() => {
     let isCancelled = false;
 
     const refreshReportAttachmentSignedUrls = async () => {
@@ -3639,6 +3724,198 @@ const CompanyReport = () => {
   );
   const canUploadArt = Boolean(isSystemAdmin || isCurrentUserTechnicalResponsible);
   const canManageReportAttachments = Boolean(isSystemAdmin || currentUserMember);
+  const reportAttachmentEntries = useMemo(
+    () =>
+      reportAttachments.map((attachment) => ({
+        ...attachment,
+        previewKind: getReportAttachmentPreviewKind(attachment),
+        signedUrl: reportAttachmentSignedUrls[attachment.id] || null,
+      })),
+    [reportAttachmentSignedUrls, reportAttachments],
+  );
+  const pendingPdfPreviewCount = useMemo(() => {
+    const attachmentPendingCount = reportAttachmentEntries.reduce(
+      (total, attachment) => {
+        if (attachment.previewKind !== "pdf" || !attachment.signedUrl) {
+          return total;
+        }
+
+        const previewState =
+          reportAttachmentPdfPreviews[attachment.id] || EMPTY_PDF_PREVIEW_STATE;
+
+        return previewState.status === "ready" || previewState.status === "error"
+          ? total
+          : total + 1;
+      },
+      0,
+    );
+
+    const artPendingCount =
+      artSignedUrl &&
+      artPdfPreview.status !== "ready" &&
+      artPdfPreview.status !== "error"
+        ? 1
+        : 0;
+
+    return attachmentPendingCount + artPendingCount;
+  }, [artPdfPreview.status, artSignedUrl, reportAttachmentEntries, reportAttachmentPdfPreviews]);
+  const pdfPreviewScale = previewPagination.initial === MOBILE_REPORT_PREVIEW_PAGE_COUNT ? 1.08 : 1.32;
+
+  useEffect(() => {
+    const nextPdfAttachmentIds = new Set(
+      reportAttachmentEntries
+        .filter((attachment) => attachment.previewKind === "pdf" && attachment.signedUrl)
+        .map((attachment) => attachment.id),
+    );
+
+    setReportAttachmentPdfPreviews((current) => {
+      const filteredEntries = Object.entries(current).filter(([attachmentId]) =>
+        nextPdfAttachmentIds.has(attachmentId),
+      );
+
+      if (filteredEntries.length === Object.keys(current).length) {
+        return current;
+      }
+
+      return Object.fromEntries(filteredEntries);
+    });
+
+    if (!previewReady || nextPdfAttachmentIds.size === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const renderPdfAttachments = async () => {
+      for (const attachment of reportAttachmentEntries) {
+        if (
+          cancelled ||
+          attachment.previewKind !== "pdf" ||
+          !attachment.signedUrl
+        ) {
+          continue;
+        }
+
+        const currentPreview =
+          reportAttachmentPdfPreviewsRef.current[attachment.id];
+        if (currentPreview?.status === "ready" && currentPreview.images.length > 0) {
+          continue;
+        }
+
+        setReportAttachmentPdfPreviews((current) => ({
+          ...current,
+          [attachment.id]: {
+            status: "loading",
+            pageCount: current[attachment.id]?.pageCount || 0,
+            images: current[attachment.id]?.images || [],
+          },
+        }));
+
+        try {
+          const renderedPreview = await renderPdfPreviewImages(attachment.signedUrl, {
+            scale: pdfPreviewScale,
+          });
+
+          if (cancelled) {
+            return;
+          }
+
+          setReportAttachmentPdfPreviews((current) => ({
+            ...current,
+            [attachment.id]: {
+              status: "ready",
+              pageCount: renderedPreview.pageCount,
+              images: renderedPreview.images,
+            },
+          }));
+        } catch (error) {
+          console.error(
+            `Error rendering report attachment PDF preview ${attachment.id}:`,
+            error,
+          );
+
+          if (cancelled) {
+            return;
+          }
+
+          setReportAttachmentPdfPreviews((current) => ({
+            ...current,
+            [attachment.id]: {
+              status: "error",
+              pageCount: 0,
+              images: [],
+            },
+          }));
+        }
+      }
+    };
+
+    void renderPdfAttachments();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pdfPreviewScale, previewReady, reportAttachmentEntries]);
+
+  useEffect(() => {
+    if (!artSignedUrl) {
+      setArtPdfPreview(EMPTY_PDF_PREVIEW_STATE);
+      return;
+    }
+
+    if (!previewReady) {
+      return;
+    }
+
+    const currentArtPdfPreview = artPdfPreviewRef.current;
+
+    if (
+      currentArtPdfPreview.status === "ready" &&
+      currentArtPdfPreview.images.length > 0
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    setArtPdfPreview((current) => ({
+      status: "loading",
+      pageCount: current.pageCount,
+      images: current.images,
+    }));
+
+    void renderPdfPreviewImages(artSignedUrl, {
+      scale: pdfPreviewScale,
+    })
+      .then((renderedPreview) => {
+        if (cancelled) {
+          return;
+        }
+
+        setArtPdfPreview({
+          status: "ready",
+          pageCount: renderedPreview.pageCount,
+          images: renderedPreview.images,
+        });
+      })
+      .catch((error) => {
+        console.error("Error rendering ART PDF preview:", error);
+
+        if (cancelled) {
+          return;
+        }
+
+        setArtPdfPreview({
+          status: "error",
+          pageCount: 0,
+          images: [],
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [artSignedUrl, pdfPreviewScale, previewReady]);
 
   const handleReportAttachmentUpload = async () => {
     if (!id) {
@@ -4041,21 +4318,43 @@ const CompanyReport = () => {
   };
 
   const handlePrint = () => {
+    printRequestedRef.current = true;
     setIsPreparingPrint(true);
     setPreviewReady(true);
     setVisiblePreviewPageCount(
       totalReportPageCountRef.current || PRINT_REPORT_PREVIEW_PAGE_COUNT,
     );
 
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        window.print();
-        window.setTimeout(() => {
-          setIsPreparingPrint(false);
-        }, 800);
+    if (pendingPdfPreviewCount > 0) {
+      toast({
+        title: "Preparando PDF",
+        description:
+          "Os anexos e a ART estao sendo renderizados para garantir que aparecam no PDF final.",
       });
-    });
+    }
   };
+
+  useEffect(() => {
+    if (!isPreparingPrint || !printRequestedRef.current || pendingPdfPreviewCount > 0) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          window.print();
+          window.setTimeout(() => {
+            printRequestedRef.current = false;
+            setIsPreparingPrint(false);
+          }, 800);
+        });
+      });
+    }, 180);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [isPreparingPrint, pendingPdfPreviewCount]);
 
   const handleStartNewCycle = async () => {
     if (!id) {
@@ -4556,11 +4855,6 @@ const CompanyReport = () => {
   const shouldRenderArtPages = Boolean(
     isTechnicalReport && company.possui_responsavel_tecnico,
   );
-  const reportAttachmentEntries = reportAttachments.map((attachment) => ({
-    ...attachment,
-    previewKind: getReportAttachmentPreviewKind(attachment),
-    signedUrl: reportAttachmentSignedUrls[attachment.id] || null,
-  }));
   const reportAttachmentSectionIndex = "11";
   const artSignatureSectionIndex =
     reportAttachmentEntries.length > 0 ? "12" : "11";
@@ -5865,10 +6159,8 @@ const CompanyReport = () => {
   });
 
   reportAttachmentEntries.forEach((attachment, attachmentIndex) => {
-    const pdfPreviewUrl =
-      attachment.previewKind === "pdf" && attachment.signedUrl
-        ? `${attachment.signedUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`
-        : null;
+    const attachmentPdfPreview =
+      reportAttachmentPdfPreviews[attachment.id] || EMPTY_PDF_PREVIEW_STATE;
 
     pages.push(
       <div className="space-y-5">
@@ -5912,24 +6204,45 @@ const CompanyReport = () => {
                   className="max-h-[650px] max-w-full object-contain"
                 />
               </div>
-            ) : pdfPreviewUrl ? (
+            ) : attachment.previewKind === "pdf" ? (
               <div className="space-y-3">
-                <div className="overflow-hidden border border-zinc-200 bg-zinc-50">
-                  <iframe
-                    title={`Anexo do relatorio - ${attachment.title}`}
-                    src={pdfPreviewUrl}
-                    className="report-attachment-embed h-[720px] w-full border-0 bg-white"
-                  />
-                </div>
-                <div className="rounded-sm border border-blue-100 bg-blue-50 px-3 py-2 text-[10.5px] leading-5 text-blue-900">
-                  <p className="font-semibold uppercase tracking-[0.08em]">
-                    PDF incorporado ao relatorio
-                  </p>
-                  <p>
-                    Se o navegador nao renderizar o PDF nesta pagina durante a
-                    impressao, use o link abaixo para abrir o anexo completo.
-                  </p>
-                </div>
+                {attachmentPdfPreview.images.length > 0 ? (
+                  <div className="space-y-4">
+                    {attachmentPdfPreview.images.map((imageUrl, pageIndex) => (
+                      <div
+                        key={`${attachment.id}-pdf-page-${pageIndex + 1}`}
+                        className="overflow-hidden border border-zinc-200 bg-zinc-50 p-3"
+                      >
+                        <img
+                          src={imageUrl}
+                          alt={`${attachment.title} - pagina ${pageIndex + 1}`}
+                          className="mx-auto max-h-[1080px] w-full object-contain"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : attachmentPdfPreview.status === "loading" ? (
+                  <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 border border-zinc-200 bg-zinc-50 px-6 text-center text-[12px] text-zinc-600">
+                    <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
+                    <p className="font-semibold uppercase text-zinc-800">
+                      Renderizando PDF anexado
+                    </p>
+                    <p>
+                      O anexo esta sendo convertido para paginas do relatorio
+                      para melhorar a visualizacao e a impressao em tablet e celular.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-sm border border-blue-100 bg-blue-50 px-3 py-2 text-[10.5px] leading-5 text-blue-900">
+                    <p className="font-semibold uppercase tracking-[0.08em]">
+                      PDF incorporado ao relatorio
+                    </p>
+                    <p>
+                      O navegador nao concluiu a renderizacao interna deste PDF
+                      nesta pagina. Use o link abaixo para abrir o arquivo completo.
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 border border-dashed border-zinc-300 bg-zinc-50 px-6 text-center text-[12px] text-zinc-600">
@@ -6004,6 +6317,7 @@ const CompanyReport = () => {
         />
         <TechnicalResponsibleArtSignatureSheet
           company={company}
+          fireCompanyCnpj={FIRE_TETRAEDRO_CNPJ}
           signerName={technicalSignatureName}
           signerCpf={technicalSignatureCpf}
           signerCargo={technicalSignatureCargo}
@@ -6023,24 +6337,44 @@ const CompanyReport = () => {
         />
 
         <div className="rounded-sm border border-zinc-300 bg-white px-4 py-4">
-          {artSignedUrl ? (
-            <object
-              data={artSignedUrl}
-              type="application/pdf"
-              className="report-art-embed h-[760px] w-full"
-            >
-              <div className="space-y-3 text-center text-[12.5px] text-zinc-700">
-                <p>Nao foi possivel renderizar o PDF da ART neste navegador.</p>
-                <a
-                  href={artSignedUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-semibold text-blue-700 underline"
+          {artSignedUrl && artPdfPreview.images.length > 0 ? (
+            <div className="space-y-4">
+              {artPdfPreview.images.map((imageUrl, pageIndex) => (
+                <div
+                  key={`art-pdf-page-${pageIndex + 1}`}
+                  className="overflow-hidden border border-zinc-200 bg-zinc-50 p-3"
                 >
-                  Abrir arquivo da ART em nova aba
-                </a>
-              </div>
-            </object>
+                  <img
+                    src={imageUrl}
+                    alt={`ART - pagina ${pageIndex + 1}`}
+                    className="mx-auto max-h-[1120px] w-full object-contain"
+                  />
+                </div>
+              ))}
+            </div>
+          ) : artSignedUrl && artPdfPreview.status === "loading" ? (
+            <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 border border-zinc-200 bg-zinc-50 px-6 text-center text-[12px] text-zinc-600">
+              <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
+              <p className="font-semibold uppercase text-zinc-800">
+                Renderizando ART
+              </p>
+              <p>
+                O PDF da ART esta sendo preparado como paginas do relatorio para
+                melhorar a visualizacao e o download em dispositivos moveis.
+              </p>
+            </div>
+          ) : artSignedUrl ? (
+            <div className="space-y-3 text-center text-[12.5px] text-zinc-700">
+              <p>Nao foi possivel renderizar o PDF da ART neste navegador.</p>
+              <a
+                href={artSignedUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="font-semibold text-blue-700 underline"
+              >
+                Abrir arquivo da ART em nova aba
+              </a>
+            </div>
           ) : (
             <div className="py-20 text-center text-[13px] text-zinc-600">
               Nenhum arquivo de ART foi anexado para esta emissao.
@@ -6563,7 +6897,7 @@ const CompanyReport = () => {
                       variant="outline"
                       onClick={() =>
                         setVisiblePreviewPageCount((current) =>
-                          Math.min(current + REPORT_PREVIEW_PAGE_BATCH_SIZE, totalReportPages),
+                          Math.min(current + previewPagination.batch, totalReportPages),
                         )
                       }
                     >

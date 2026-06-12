@@ -118,7 +118,10 @@ export const EquipmentQrDialog = ({
 
       try {
         setLoadingQrCode(true);
-        const nextSvg = await generateEquipmentQrSvg(qrCodeUrl);
+        const nextSvg = await generateEquipmentQrSvg(qrCodeUrl, {
+          title: getEquipmentLabel(equipmentType, record),
+          subtitle: record.localizacao,
+        });
 
         if (!cancelled) {
           setQrCodeSvg(nextSvg);
@@ -141,7 +144,7 @@ export const EquipmentQrDialog = ({
     return () => {
       cancelled = true;
     };
-  }, [open, qrCodeUrl, record]);
+  }, [equipmentType, open, qrCodeUrl, record]);
 
   const handleDownloadJpg = async () => {
     if (!qrCodeSvg || downloading || loadingQrCode) {

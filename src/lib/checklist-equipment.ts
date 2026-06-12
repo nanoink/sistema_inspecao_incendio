@@ -596,15 +596,22 @@ const buildEquipmentMetadata = async ({
   existingToken,
   existingSnapshot,
   checklistSnapshot,
+  qrTitle,
+  qrSubtitle,
 }: {
   equipmentType: EquipmentType;
   existingToken?: string | null;
   existingSnapshot?: Json | null;
   checklistSnapshot?: EquipmentChecklistSnapshot;
+  qrTitle?: string | null;
+  qrSubtitle?: string | null;
 }) => {
   const publicToken = existingToken || crypto.randomUUID();
   const qrCodeUrl = buildEquipmentPublicUrl(equipmentType, publicToken);
-  const qrCodeSvg = await generateEquipmentQrSvg(qrCodeUrl);
+  const qrCodeSvg = await generateEquipmentQrSvg(qrCodeUrl, {
+    title: qrTitle,
+    subtitle: qrSubtitle,
+  });
   const nextChecklistSnapshot = checklistSnapshot
     ? mergeEquipmentChecklistSnapshotWithTemplate({
         existingSnapshot,
@@ -778,10 +785,56 @@ export const buildEquipmentPublicUrl = (
   return origin ? `${origin.replace(/\/$/, "")}${path}` : path;
 };
 
-export const generateEquipmentQrSvg = async (url: string) => {
-  const { toString } = await import("qrcode");
+const escapeSvgText = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 
-  return toString(url, {
+const buildSvgTextLines = (value?: string | null) => {
+  const normalized = (value || "").trim();
+
+  if (!normalized) {
+    return [];
+  }
+
+  const words = normalized.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let currentLine = "";
+
+  words.forEach((word) => {
+    const candidate = currentLine ? `${currentLine} ${word}` : word;
+
+    if (candidate.length <= 26) {
+      currentLine = candidate;
+      return;
+    }
+
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+
+    currentLine = word;
+  });
+
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  return lines.slice(0, 2);
+};
+
+export const generateEquipmentQrSvg = async (
+  url: string,
+  options?: {
+    title?: string | null;
+    subtitle?: string | null;
+  },
+) => {
+  const { toString } = await import("qrcode");
+  const rawSvg = await toString(url, {
     type: "svg",
     margin: 1,
     width: 256,
@@ -790,6 +843,35 @@ export const generateEquipmentQrSvg = async (url: string) => {
       light: "#FFFFFFFF",
     },
   });
+  const qrMarkup = rawSvg
+    .replace(/^<svg[^>]*>/i, "")
+    .replace(/<\/svg>\s*$/i, "");
+  const titleLines = buildSvgTextLines(options?.title);
+  const subtitleLines = buildSvgTextLines(options?.subtitle);
+  const titleMarkup = titleLines
+    .map(
+      (line, index) =>
+        `<text x="170" y="${326 + index * 16}" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#111827">${escapeSvgText(line)}</text>`,
+    )
+    .join("");
+  const subtitleMarkup = subtitleLines
+    .map(
+      (line, index) =>
+        `<text x="170" y="${358 + index * 13}" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="500" fill="#4b5563">${escapeSvgText(line)}</text>`,
+    )
+    .join("");
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 392" role="img" aria-label="${escapeSvgText(
+    options?.title?.trim() || "QR Code do equipamento",
+  )}">
+    <rect width="340" height="392" rx="28" fill="#ffffff"/>
+    <rect x="18" y="18" width="304" height="356" rx="24" fill="#ffffff" stroke="#d4d4d8" stroke-width="2"/>
+    <g transform="translate(42 38)">
+      ${qrMarkup}
+    </g>
+    ${titleMarkup}
+    ${subtitleMarkup}
+  </svg>`;
 };
 
 export const normalizeEquipmentChecklistSnapshot = (
@@ -1592,6 +1674,8 @@ export const saveLuminaire = async (
     existingToken: options.existingToken,
     existingSnapshot: options.existingSnapshot,
     checklistSnapshot: options.checklistSnapshot,
+    qrTitle: `Luminaria ${payload.numero}`,
+    qrSubtitle: payload.localizacao,
   });
   const nextPayload: LuminairePayload = {
     ...payload,
@@ -1680,6 +1764,8 @@ export const saveExtinguisher = async (
     existingToken: options.existingToken,
     existingSnapshot: options.existingSnapshot,
     checklistSnapshot: options.checklistSnapshot,
+    qrTitle: `Extintor ${payload.numero}`,
+    qrSubtitle: payload.localizacao,
   });
   const nextPayload: ExtinguisherPayload = {
     ...payload,
@@ -1768,6 +1854,8 @@ export const saveHydrant = async (
     existingToken: options.existingToken,
     existingSnapshot: options.existingSnapshot,
     checklistSnapshot: options.checklistSnapshot,
+    qrTitle: `Hidrante ${payload.numero}`,
+    qrSubtitle: payload.localizacao,
   });
   const nextPayload: HydrantPayload = {
     ...payload,

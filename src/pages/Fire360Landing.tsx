@@ -45,19 +45,20 @@ const pageFontStyles = `
     --fire-cream: #fff5ea;
     --fire-paper: #f7f9fc;
     --fire-line: rgba(115, 231, 255, 0.2);
-    color: var(--fire-ink);
+    color: #eef5ff;
     background:
-      radial-gradient(circle at 16% 4%, rgba(255, 91, 31, 0.14), transparent 28rem),
-      radial-gradient(circle at 86% 2%, rgba(115, 231, 255, 0.14), transparent 31rem),
-      #f7f9fc;
+      radial-gradient(circle at 14% 8%, rgba(255, 91, 31, 0.12), transparent 22rem),
+      radial-gradient(circle at 84% 5%, rgba(115, 231, 255, 0.12), transparent 28rem),
+      radial-gradient(circle at 50% 42%, rgba(35, 107, 255, 0.09), transparent 30rem),
+      linear-gradient(180deg, #061224 0%, #081a34 32%, #0a2140 68%, #0a1d38 100%);
     font-family: 'Manrope', sans-serif;
   }
 
   .fire360-hero {
     background:
-      radial-gradient(circle at 12% 20%, rgba(255, 91, 31, 0.22), transparent 30rem),
-      radial-gradient(circle at 88% 12%, rgba(115, 231, 255, 0.2), transparent 34rem),
-      linear-gradient(180deg, #07162f 0%, #081d3a 100%);
+      radial-gradient(circle at 12% 20%, rgba(255, 91, 31, 0.18), transparent 26rem),
+      radial-gradient(circle at 88% 12%, rgba(115, 231, 255, 0.16), transparent 30rem),
+      linear-gradient(180deg, rgba(6, 18, 36, 0.94) 0%, rgba(8, 28, 56, 0.82) 100%);
   }
 
   .fire360-display {
@@ -72,14 +73,42 @@ const pageFontStyles = `
     mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9), transparent);
   }
 
+  .fire360-band {
+    position: relative;
+  }
+
+  .fire360-band::before {
+    content: "";
+    position: absolute;
+    left: 1rem;
+    right: 1rem;
+    top: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(115, 231, 255, 0.18), transparent);
+  }
+
+  .fire360-panel {
+    border: 1px solid rgba(115, 231, 255, 0.12);
+    background: linear-gradient(180deg, rgba(11, 31, 60, 0.92) 0%, rgba(7, 21, 42, 0.92) 100%);
+    box-shadow: 0 22px 60px rgba(2, 9, 20, 0.28);
+    backdrop-filter: blur(18px);
+  }
+
+  .fire360-panel-soft {
+    border: 1px solid rgba(115, 231, 255, 0.1);
+    background: linear-gradient(180deg, rgba(13, 36, 70, 0.72) 0%, rgba(9, 24, 48, 0.76) 100%);
+    box-shadow: 0 18px 42px rgba(2, 9, 20, 0.22);
+    backdrop-filter: blur(16px);
+  }
+
   .fire360-visual {
     position: relative;
     aspect-ratio: 16 / 9;
     overflow: hidden;
-    border: 1px solid rgba(7, 22, 47, 0.08);
+    border: 1px solid rgba(115, 231, 255, 0.12);
     border-radius: 2rem;
-    background: #07162f;
-    box-shadow: 0 28px 80px rgba(7, 22, 47, 0.16);
+    background: #081a34;
+    box-shadow: 0 28px 80px rgba(2, 9, 20, 0.28);
   }
 
   .fire360-visual::after {
@@ -289,11 +318,11 @@ const SectionHeader = ({
     <p className="text-xs font-extrabold uppercase tracking-[0.28em] text-[#ff5b1f]">
       {eyebrow}
     </p>
-    <h2 className="fire360-display mt-4 text-4xl font-bold tracking-[-0.05em] text-[#07162f] md:text-6xl">
+    <h2 className="fire360-display mt-4 text-4xl font-bold tracking-[-0.05em] text-white md:text-6xl">
       {title}
     </h2>
     {description ? (
-      <p className="mt-5 text-lg leading-8 text-slate-600">{description}</p>
+      <p className="mt-5 text-lg leading-8 text-white/72">{description}</p>
     ) : null}
   </div>
 );
@@ -311,14 +340,14 @@ const VisualFrame = ({ src, alt, priority, className = "" }: VisualFrameProps) =
 );
 
 const IconCard = ({ icon: Icon, title, description }: IconCardProps) => (
-  <article className="rounded-[1.7rem] border border-slate-200 bg-white p-5 shadow-[0_18px_50px_rgba(7,22,47,0.08)]">
-    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#07162f] text-[#73e7ff]">
+  <article className="fire360-panel rounded-[1.7rem] p-5">
+    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/8 text-[#73e7ff]">
       <Icon className="h-5 w-5" />
     </div>
-    <h3 className="fire360-display mt-5 text-xl font-bold text-[#07162f]">
+    <h3 className="fire360-display mt-5 text-xl font-bold text-white">
       {title}
     </h3>
-    <p className="mt-3 text-sm leading-6 text-slate-600">{description}</p>
+    <p className="mt-3 text-sm leading-6 text-white/70">{description}</p>
   </article>
 );
 
@@ -456,7 +485,7 @@ export default function Fire360Landing() {
         </div>
       </section>
 
-      <section id="problema" className="px-4 py-20 md:py-28">
+      <section id="problema" className="fire360-band px-4 py-20 md:py-28">
         <div className="mx-auto grid max-w-7xl items-center gap-10 lg:grid-cols-[1.04fr_0.96fr]">
           <VisualFrame
             src={problemVisual}
@@ -473,10 +502,10 @@ export default function Fire360Landing() {
               {problemPoints.map((item) => (
                 <div
                   key={item}
-                  className="flex gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_12px_32px_rgba(7,22,47,0.06)]"
+                  className="fire360-panel-soft flex gap-3 rounded-2xl p-4"
                 >
                   <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#ff5b1f]" />
-                  <p className="text-sm leading-6 text-slate-600">{item}</p>
+                  <p className="text-sm leading-6 text-white/72">{item}</p>
                 </div>
               ))}
             </div>
@@ -484,7 +513,7 @@ export default function Fire360Landing() {
         </div>
       </section>
 
-      <section id="paradigma" className="bg-white px-4 py-20 md:py-28">
+      <section id="paradigma" className="fire360-band px-4 py-20 md:py-28">
         <div className="mx-auto max-w-7xl">
           <SectionHeader
             eyebrow="Mudança de paradigma"
@@ -497,15 +526,15 @@ export default function Fire360Landing() {
               {paradigmCards.map((card, index) => (
                 <article
                   key={card.title}
-                  className={`rounded-[1.8rem] border p-6 shadow-[0_18px_45px_rgba(7,22,47,0.08)] ${
+                  className={`rounded-[1.8rem] p-6 ${
                     index === 1
-                      ? "border-[#ff5b1f]/20 bg-[#07162f] text-white"
-                      : "border-slate-200 bg-slate-50 text-[#07162f]"
+                      ? "fire360-panel text-white"
+                      : "fire360-panel-soft text-white"
                   }`}
                 >
                   <p
                     className={`text-xs font-extrabold uppercase tracking-[0.22em] ${
-                      index === 1 ? "text-[#73e7ff]" : "text-slate-400"
+                      index === 1 ? "text-[#73e7ff]" : "text-white/48"
                     }`}
                   >
                     {index === 1 ? "Novo padrão" : "Padrão antigo"}
@@ -515,7 +544,7 @@ export default function Fire360Landing() {
                   </h3>
                   <p
                     className={`mt-3 leading-7 ${
-                      index === 1 ? "text-white/75" : "text-slate-600"
+                      index === 1 ? "text-white/75" : "text-white/68"
                     }`}
                   >
                     {card.description}
@@ -532,7 +561,7 @@ export default function Fire360Landing() {
         </div>
       </section>
 
-      <section id="motor" className="px-4 py-20 md:py-28">
+      <section id="motor" className="fire360-band px-4 py-20 md:py-28">
         <div className="mx-auto max-w-7xl">
           <div className="grid items-end gap-8 lg:grid-cols-[0.9fr_1.1fr]">
             <SectionHeader
@@ -559,7 +588,7 @@ export default function Fire360Landing() {
         </div>
       </section>
 
-      <section className="bg-[#07162f] px-4 py-20 text-white md:py-28">
+      <section className="fire360-band px-4 py-20 text-white md:py-28">
         <div className="mx-auto grid max-w-7xl items-center gap-10 lg:grid-cols-[1.08fr_0.92fr]">
           <VisualFrame
             src={cycleVisual}
@@ -596,7 +625,7 @@ export default function Fire360Landing() {
         </div>
       </section>
 
-      <section className="px-4 py-20 md:py-28">
+      <section className="fire360-band px-4 py-20 md:py-28">
         <div className="mx-auto max-w-7xl">
           <SectionHeader
             eyebrow="Rastreabilidade"
@@ -624,7 +653,7 @@ export default function Fire360Landing() {
         </div>
       </section>
 
-      <section id="camadas" className="bg-white px-4 py-20 md:py-28">
+      <section id="camadas" className="fire360-band px-4 py-20 md:py-28">
         <div className="mx-auto max-w-7xl">
           <div className="grid items-center gap-10 lg:grid-cols-[0.9fr_1.1fr]">
             <SectionHeader
@@ -646,7 +675,7 @@ export default function Fire360Landing() {
               return (
                 <article
                   key={layer.title}
-                  className="overflow-hidden rounded-[2rem] border border-slate-200 bg-[#f7f9fc] shadow-[0_22px_55px_rgba(7,22,47,0.08)]"
+                  className="fire360-panel overflow-hidden rounded-[2rem]"
                 >
                   <VisualFrame
                     src={layer.image}
@@ -654,13 +683,13 @@ export default function Fire360Landing() {
                     className="rounded-none border-0 shadow-none"
                   />
                   <div className="p-6">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#ff5b1f] text-white">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#ff5b1f]/14 text-[#ff8b5f]">
                       <Icon className="h-5 w-5" />
                     </div>
-                    <h3 className="fire360-display mt-5 text-2xl font-bold text-[#07162f]">
+                    <h3 className="fire360-display mt-5 text-2xl font-bold text-white">
                       {layer.title}
                     </h3>
-                    <p className="mt-3 leading-7 text-slate-600">
+                    <p className="mt-3 leading-7 text-white/70">
                       {layer.description}
                     </p>
                   </div>
@@ -671,7 +700,7 @@ export default function Fire360Landing() {
         </div>
       </section>
 
-      <section id="soc" className="px-4 py-20 md:py-28">
+      <section id="soc" className="fire360-band px-4 py-20 md:py-28">
         <div className="mx-auto grid max-w-7xl items-center gap-10 lg:grid-cols-[1.08fr_0.92fr]">
           <VisualFrame
             src={socVisual}
@@ -688,10 +717,10 @@ export default function Fire360Landing() {
               {socPillars.map((pillar) => (
                 <div
                   key={pillar}
-                  className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_12px_30px_rgba(7,22,47,0.06)]"
+                  className="fire360-panel-soft flex items-center gap-3 rounded-2xl p-4"
                 >
                   <Flame className="h-5 w-5 shrink-0 text-[#ff5b1f]" />
-                  <span className="font-semibold text-slate-700">{pillar}</span>
+                  <span className="font-semibold text-white/78">{pillar}</span>
                 </div>
               ))}
             </div>
@@ -699,7 +728,7 @@ export default function Fire360Landing() {
         </div>
       </section>
 
-      <section className="bg-[#07162f] px-4 py-20 text-white md:py-28">
+      <section className="fire360-band px-4 py-20 text-white md:py-28">
         <div className="mx-auto max-w-7xl">
           <div className="grid items-center gap-10 lg:grid-cols-[0.86fr_1.14fr]">
             <div>
@@ -738,17 +767,17 @@ export default function Fire360Landing() {
         </div>
       </section>
 
-      <section id="cta" className="relative px-4 py-20 md:py-28">
-        <div className="absolute inset-x-0 top-0 h-40 bg-[#07162f]" />
-        <div className="relative mx-auto grid max-w-7xl overflow-hidden rounded-[2.3rem] border border-slate-200 bg-white shadow-[0_32px_95px_rgba(7,22,47,0.16)] lg:grid-cols-[1fr_1fr]">
+      <section id="cta" className="fire360-band relative px-4 py-20 md:py-28">
+        <div className="absolute inset-x-0 top-0 h-40 bg-transparent" />
+        <div className="fire360-panel relative mx-auto grid max-w-7xl overflow-hidden rounded-[2.3rem] lg:grid-cols-[1fr_1fr]">
           <div className="p-7 md:p-12 lg:p-14">
-            <div className="inline-flex rounded-full bg-[#fff5ea] px-4 py-2 text-xs font-extrabold uppercase tracking-[0.22em] text-[#ff5b1f]">
+            <div className="inline-flex rounded-full bg-[#ff5b1f]/12 px-4 py-2 text-xs font-extrabold uppercase tracking-[0.22em] text-[#ff8b5f]">
               Proposta única de valor
             </div>
-            <h2 className="fire360-display mt-6 text-4xl font-bold tracking-[-0.05em] text-[#07162f] md:text-6xl">
+            <h2 className="fire360-display mt-6 text-4xl font-bold tracking-[-0.05em] text-white md:text-6xl">
               Risco sob controle permanente.
             </h2>
-            <p className="mt-5 text-lg leading-8 text-slate-600">
+            <p className="mt-5 text-lg leading-8 text-white/72">
               O Fire 360 conecta gestão, conformidade, operação e
               rastreabilidade em uma plataforma vertical para segurança contra
               incêndio e emergência.
@@ -763,7 +792,7 @@ export default function Fire360Landing() {
               </Link>
               <a
                 href="#hero"
-                className="inline-flex items-center justify-center gap-3 rounded-full border border-slate-200 bg-white px-7 py-4 text-base font-extrabold text-[#07162f] transition hover:-translate-y-1 hover:bg-slate-50"
+                className="inline-flex items-center justify-center gap-3 rounded-full border border-white/12 bg-white/[0.06] px-7 py-4 text-base font-extrabold text-white transition hover:-translate-y-1 hover:bg-white/[0.1]"
               >
                 Rever apresentação
               </a>
