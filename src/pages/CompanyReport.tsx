@@ -737,6 +737,22 @@ const formatCnpj = (value?: string | null) => {
   return digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
 };
 
+const normalizeComparableText = (value?: string | null) =>
+  value
+    ?.normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase() || "";
+
+const isFireTetraedroSignature = (value?: string | null) =>
+  normalizeComparableText(value).includes("fire tetraedro");
+
+const getSignerDocumentLabel = (signatureName?: string | null, cpf?: string | null) =>
+  isFireTetraedroSignature(signatureName)
+    ? `CNPJ: ${formatCnpj(FIRE_TETRAEDRO_CNPJ)}`
+    : `CPF: ${formatCpf(cpf)}`;
+
 const getDatePartsForArtSignature = (value?: string | null) => {
   if (!value) {
     return {
@@ -2880,7 +2896,7 @@ const ChecklistDigitalSignatureStamp = ({
         <div className="space-y-1 text-[9.8px] leading-[1.55] text-zinc-800">
           <p className="font-semibold text-zinc-900">{getDigitalSignatureHeading(signer, context)}:</p>
           <p className="font-semibold text-zinc-900 break-words">{signer.assinatura_nome}</p>
-          <p>CPF: {formatCpf(signer.cpf)}</p>
+          <p>{getSignerDocumentLabel(signer.assinatura_nome, signer.cpf)}</p>
           <p>Cargo: {signer.cargo || "Nao informado"}</p>
           <p>
             {getDigitalSignatureDateLabel(signer, context)}: {formatDateTime(timestamp)}
@@ -4988,7 +5004,8 @@ const CompanyReport = () => {
               {getSignatureRoleLabel(signer)} | {signer.email || "-"}
             </p>
             <p className="mt-1 break-words text-[10px] text-zinc-500">
-              CPF {formatCpf(signer.cpf)} | Cargo {signer.cargo || "-"}
+              {getSignerDocumentLabel(signer.assinatura_nome, signer.cpf)} | Cargo{" "}
+              {signer.cargo || "-"}
             </p>
           </div>
           <RequirementStatusBadge
@@ -6161,6 +6178,103 @@ const CompanyReport = () => {
   reportAttachmentEntries.forEach((attachment, attachmentIndex) => {
     const attachmentPdfPreview =
       reportAttachmentPdfPreviews[attachment.id] || EMPTY_PDF_PREVIEW_STATE;
+
+    if (attachment.previewKind === "pdf" && attachmentPdfPreview.images.length > 0) {
+      const totalAttachmentPages =
+        attachmentPdfPreview.pageCount || attachmentPdfPreview.images.length;
+
+      attachmentPdfPreview.images.forEach((imageUrl, pdfPageIndex) => {
+        const isFirstAttachmentPage = pdfPageIndex === 0;
+        const isLastAttachmentPage =
+          pdfPageIndex === attachmentPdfPreview.images.length - 1;
+
+        pages.push(
+          <div className="space-y-4">
+            <SectionHeading
+              index={reportAttachmentSectionIndex}
+              title={
+                attachmentIndex === 0 && isFirstAttachmentPage
+                  ? "Anexos Complementares do Relatorio"
+                  : "Anexos Complementares do Relatorio - Continuacao"
+              }
+            />
+
+            <div className="overflow-hidden rounded-sm border border-zinc-300 bg-white">
+              <div className="flex items-start justify-between gap-4 border-b border-zinc-300 bg-zinc-50 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="break-words text-[13px] font-semibold uppercase text-zinc-900">
+                    {attachment.title}
+                  </p>
+                  <p className="mt-1 break-words text-[10.5px] text-zinc-600">
+                    {attachment.fileName}
+                  </p>
+                </div>
+                <RequirementStatusBadge
+                  label={`PDF ${pdfPageIndex + 1}/${totalAttachmentPages}`}
+                  tone="neutral"
+                />
+              </div>
+
+              <div className="px-4 py-4">
+                <div className="flex min-h-[700px] items-center justify-center border border-zinc-200 bg-zinc-50 p-3">
+                  <img
+                    src={imageUrl}
+                    alt={`${attachment.title} - pagina ${pdfPageIndex + 1}`}
+                    className="max-h-[690px] w-full object-contain"
+                  />
+                </div>
+              </div>
+
+              {isLastAttachmentPage ? (
+                <>
+                  <div className="grid grid-cols-[1.3fr_0.9fr_0.8fr] gap-px border-t border-zinc-300 bg-zinc-300 text-[10.5px] text-zinc-700">
+                    <div className="bg-white px-3 py-2">
+                      <p className="font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                        Titulo do anexo
+                      </p>
+                      <p className="mt-1 break-words text-zinc-900">{attachment.title}</p>
+                    </div>
+                    <div className="bg-white px-3 py-2">
+                      <p className="font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                        Enviado em
+                      </p>
+                      <p className="mt-1 text-zinc-900">
+                        {formatDateTime(attachment.uploadedAt)}
+                      </p>
+                    </div>
+                    <div className="bg-white px-3 py-2">
+                      <p className="font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                        Tamanho
+                      </p>
+                      <p className="mt-1 text-zinc-900">
+                        {formatFileSize(attachment.sizeBytes)}
+                      </p>
+                    </div>
+                  </div>
+                  {attachment.signedUrl ? (
+                    <div className="border-t border-zinc-300 bg-white px-3 py-2 text-[10.5px] leading-5 text-zinc-700">
+                      <p className="font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                        Link do arquivo anexado
+                      </p>
+                      <a
+                        href={attachment.signedUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1 inline-block font-semibold text-blue-700 underline"
+                      >
+                        Abrir documento anexado
+                      </a>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+            </div>
+          </div>,
+        );
+      });
+
+      return;
+    }
 
     pages.push(
       <div className="space-y-5">
