@@ -9,25 +9,57 @@ export interface PdfPreviewRenderResult {
   images: string[];
 }
 
+export type PdfPreviewSource = string | Blob | ArrayBuffer | Uint8Array;
+
 let workerSrcPromise: Promise<string> | null = null;
 
 const getPdfWorkerSrc = async () => {
   if (!workerSrcPromise) {
-    workerSrcPromise = import("pdfjs-dist/build/pdf.worker.min.mjs?url").then(
-      (module) => module.default,
-    );
+    workerSrcPromise = import(
+      "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url"
+    ).then((module) => module.default);
   }
 
   return workerSrcPromise;
 };
 
+const readPdfBytes = async (source: PdfPreviewSource) => {
+  if (typeof source === "string") {
+    const normalizedUrl = source.trim();
+
+    if (!normalizedUrl) {
+      return null;
+    }
+
+    const response = await fetch(normalizedUrl, {
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      throw new Error(`Falha ao carregar o PDF (${response.status}).`);
+    }
+
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
+  if (source instanceof Blob) {
+    return new Uint8Array(await source.arrayBuffer());
+  }
+
+  if (source instanceof Uint8Array) {
+    return source;
+  }
+
+  return new Uint8Array(source);
+};
+
 export const renderPdfPreviewImages = async (
-  sourceUrl: string,
+  source: PdfPreviewSource,
   options: PdfPreviewRenderOptions = {},
 ): Promise<PdfPreviewRenderResult> => {
-  const normalizedUrl = sourceUrl.trim();
+  const pdfBytes = await readPdfBytes(source);
 
-  if (!normalizedUrl) {
+  if (!pdfBytes || pdfBytes.byteLength === 0) {
     return {
       pageCount: 0,
       images: [],
@@ -35,26 +67,17 @@ export const renderPdfPreviewImages = async (
   }
 
   const [{ getDocument, GlobalWorkerOptions }, workerSrc] = await Promise.all([
-    import("pdfjs-dist/build/pdf.mjs"),
+    import("pdfjs-dist/legacy/build/pdf.mjs"),
     getPdfWorkerSrc(),
   ]);
 
   GlobalWorkerOptions.workerSrc = workerSrc;
-
-  const response = await fetch(normalizedUrl, {
-    cache: "force-cache",
-  });
-
-  if (!response.ok) {
-    throw new Error(`Falha ao carregar o PDF (${response.status}).`);
-  }
-
-  const pdfBytes = await response.arrayBuffer();
-  const pdf = await getDocument({
+  const loadingTask = getDocument({
     data: pdfBytes,
     useWorkerFetch: false,
     isEvalSupported: false,
-  }).promise;
+  });
+  const pdf = await loadingTask.promise;
 
   try {
     const quality = options.quality ?? 0.88;
@@ -94,6 +117,6 @@ export const renderPdfPreviewImages = async (
       images,
     };
   } finally {
-    pdf.destroy();
+    await loadingTask.destroy();
   }
 };

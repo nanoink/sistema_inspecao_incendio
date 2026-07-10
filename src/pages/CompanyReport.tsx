@@ -2699,6 +2699,35 @@ const PageFrame = ({
   </article>
 );
 
+const waitForReportImagesToLoad = async () => {
+  const images = Array.from(
+    document.querySelectorAll<HTMLImageElement>(".report-pages img"),
+  );
+
+  if (images.length === 0) {
+    return;
+  }
+
+  const imageLoadPromise = Promise.all(
+    images.map(async (image) => {
+      if (image.complete && image.naturalWidth > 0) {
+        return;
+      }
+
+      try {
+        await image.decode();
+      } catch {
+        // A failed decorative image must not block the complete report download.
+      }
+    }),
+  );
+
+  await Promise.race([
+    imageLoadPromise,
+    new Promise<void>((resolve) => window.setTimeout(resolve, 12_000)),
+  ]);
+};
+
 const SectionHeading = ({
   index,
   title,
@@ -3752,7 +3781,7 @@ const CompanyReport = () => {
   const pendingPdfPreviewCount = useMemo(() => {
     const attachmentPendingCount = reportAttachmentEntries.reduce(
       (total, attachment) => {
-        if (attachment.previewKind !== "pdf" || !attachment.signedUrl) {
+        if (attachment.previewKind !== "pdf") {
           return total;
         }
 
@@ -3780,7 +3809,7 @@ const CompanyReport = () => {
   useEffect(() => {
     const nextPdfAttachmentIds = new Set(
       reportAttachmentEntries
-        .filter((attachment) => attachment.previewKind === "pdf" && attachment.signedUrl)
+        .filter((attachment) => attachment.previewKind === "pdf")
         .map((attachment) => attachment.id),
     );
 
@@ -3806,8 +3835,7 @@ const CompanyReport = () => {
       for (const attachment of reportAttachmentEntries) {
         if (
           cancelled ||
-          attachment.previewKind !== "pdf" ||
-          !attachment.signedUrl
+          attachment.previewKind !== "pdf"
         ) {
           continue;
         }
@@ -3828,9 +3856,32 @@ const CompanyReport = () => {
         }));
 
         try {
-          const renderedPreview = await renderPdfPreviewImages(attachment.signedUrl, {
-            scale: pdfPreviewScale,
-          });
+          const { data: attachmentBlob, error: downloadError } =
+            await supabase.storage
+              .from(attachment.fileBucket)
+              .download(attachment.filePath);
+
+          if (downloadError || !attachmentBlob) {
+            if (!attachment.signedUrl) {
+              throw downloadError || new Error("O arquivo do anexo nao foi localizado.");
+            }
+
+            console.warn(
+              `Authenticated download failed for report attachment ${attachment.id}; retrying with its signed URL.`,
+              downloadError,
+            );
+          }
+
+          const renderedPreview = await renderPdfPreviewImages(
+            attachmentBlob || attachment.signedUrl || "",
+            {
+              scale: pdfPreviewScale,
+            },
+          );
+
+          if (renderedPreview.images.length === 0) {
+            throw new Error("O PDF anexado nao possui paginas renderizaveis.");
+          }
 
           if (cancelled) {
             return;
@@ -4355,20 +4406,32 @@ const CompanyReport = () => {
       return;
     }
 
+    let cancelled = false;
+    let resetTimeoutId: number | null = null;
     const timeoutId = window.setTimeout(() => {
-      window.requestAnimationFrame(() => {
+      void waitForReportImagesToLoad().then(() => {
+        if (cancelled) {
+          return;
+        }
+
         window.requestAnimationFrame(() => {
-          window.print();
-          window.setTimeout(() => {
-            printRequestedRef.current = false;
-            setIsPreparingPrint(false);
-          }, 800);
+          window.requestAnimationFrame(() => {
+            window.print();
+            resetTimeoutId = window.setTimeout(() => {
+              printRequestedRef.current = false;
+              setIsPreparingPrint(false);
+            }, 800);
+          });
         });
       });
     }, 180);
 
     return () => {
+      cancelled = true;
       window.clearTimeout(timeoutId);
+      if (resetTimeoutId !== null) {
+        window.clearTimeout(resetTimeoutId);
+      }
     };
   }, [isPreparingPrint, pendingPdfPreviewCount]);
 
@@ -6185,8 +6248,6 @@ const CompanyReport = () => {
 
       attachmentPdfPreview.images.forEach((imageUrl, pdfPageIndex) => {
         const isFirstAttachmentPage = pdfPageIndex === 0;
-        const isLastAttachmentPage =
-          pdfPageIndex === attachmentPdfPreview.images.length - 1;
 
         pages.push(
           <div className="space-y-4">
@@ -6216,62 +6277,59 @@ const CompanyReport = () => {
               </div>
 
               <div className="px-4 py-4">
-                <div className="flex min-h-[700px] items-center justify-center border border-zinc-200 bg-zinc-50 p-3">
+                <div className="flex h-[760px] items-center justify-center border border-zinc-200 bg-zinc-50 p-2">
                   <img
                     src={imageUrl}
                     alt={`${attachment.title} - pagina ${pdfPageIndex + 1}`}
-                    className="max-h-[690px] w-full object-contain"
+                    className="h-full w-full object-contain"
                   />
                 </div>
               </div>
-
-              {isLastAttachmentPage ? (
-                <>
-                  <div className="grid grid-cols-[1.3fr_0.9fr_0.8fr] gap-px border-t border-zinc-300 bg-zinc-300 text-[10.5px] text-zinc-700">
-                    <div className="bg-white px-3 py-2">
-                      <p className="font-semibold uppercase tracking-[0.08em] text-zinc-500">
-                        Titulo do anexo
-                      </p>
-                      <p className="mt-1 break-words text-zinc-900">{attachment.title}</p>
-                    </div>
-                    <div className="bg-white px-3 py-2">
-                      <p className="font-semibold uppercase tracking-[0.08em] text-zinc-500">
-                        Enviado em
-                      </p>
-                      <p className="mt-1 text-zinc-900">
-                        {formatDateTime(attachment.uploadedAt)}
-                      </p>
-                    </div>
-                    <div className="bg-white px-3 py-2">
-                      <p className="font-semibold uppercase tracking-[0.08em] text-zinc-500">
-                        Tamanho
-                      </p>
-                      <p className="mt-1 text-zinc-900">
-                        {formatFileSize(attachment.sizeBytes)}
-                      </p>
-                    </div>
-                  </div>
-                  {attachment.signedUrl ? (
-                    <div className="border-t border-zinc-300 bg-white px-3 py-2 text-[10.5px] leading-5 text-zinc-700">
-                      <p className="font-semibold uppercase tracking-[0.08em] text-zinc-500">
-                        Link do arquivo anexado
-                      </p>
-                      <a
-                        href={attachment.signedUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-1 inline-block font-semibold text-blue-700 underline"
-                      >
-                        Abrir documento anexado
-                      </a>
-                    </div>
-                  ) : null}
-                </>
-              ) : null}
             </div>
           </div>,
         );
       });
+
+      return;
+    }
+
+    if (attachment.previewKind === "image" && attachment.signedUrl) {
+      pages.push(
+        <div className="space-y-4">
+          <SectionHeading
+            index={reportAttachmentSectionIndex}
+            title={
+              attachmentIndex === 0
+                ? "Anexos Complementares do Relatorio"
+                : "Anexos Complementares do Relatorio - Continuacao"
+            }
+          />
+
+          <div className="overflow-hidden rounded-sm border border-zinc-300 bg-white">
+            <div className="flex items-start justify-between gap-4 border-b border-zinc-300 bg-zinc-50 px-4 py-3">
+              <div className="min-w-0">
+                <p className="break-words text-[13px] font-semibold uppercase text-zinc-900">
+                  {attachment.title}
+                </p>
+                <p className="mt-1 break-words text-[10.5px] text-zinc-600">
+                  {attachment.fileName}
+                </p>
+              </div>
+              <RequirementStatusBadge label="Imagem" tone="neutral" />
+            </div>
+
+            <div className="px-4 py-4">
+              <div className="flex h-[760px] items-center justify-center border border-zinc-200 bg-zinc-50 p-3">
+                <img
+                  src={attachment.signedUrl}
+                  alt={attachment.title}
+                  className="h-full w-full object-contain"
+                />
+              </div>
+            </div>
+          </div>
+        </div>,
+      );
 
       return;
     }
@@ -6311,11 +6369,11 @@ const CompanyReport = () => {
 
           <div className="px-4 py-4">
             {attachment.previewKind === "image" && attachment.signedUrl ? (
-              <div className="flex min-h-[680px] items-center justify-center border border-zinc-200 bg-zinc-50 p-4">
+              <div className="flex h-[760px] items-center justify-center border border-zinc-200 bg-zinc-50 p-3">
                 <img
                   src={attachment.signedUrl}
                   alt={attachment.title}
-                  className="max-h-[650px] max-w-full object-contain"
+                  className="h-full w-full object-contain"
                 />
               </div>
             ) : attachment.previewKind === "pdf" ? (
@@ -6352,8 +6410,8 @@ const CompanyReport = () => {
                       PDF incorporado ao relatorio
                     </p>
                     <p>
-                      O navegador nao concluiu a renderizacao interna deste PDF
-                      nesta pagina. Use o link abaixo para abrir o arquivo completo.
+                      Nao foi possivel incorporar este PDF. Tente gerar o relatorio
+                      novamente; arquivos protegidos por senha devem ser enviados sem bloqueio.
                     </p>
                   </div>
                 )}
@@ -6402,7 +6460,7 @@ const CompanyReport = () => {
               <p className="mt-1 text-zinc-900">{formatFileSize(attachment.sizeBytes)}</p>
             </div>
           </div>
-          {attachment.signedUrl ? (
+          {attachment.previewKind === "link" && attachment.signedUrl ? (
             <div className="border-t border-zinc-300 bg-white px-3 py-2 text-[10.5px] leading-5 text-zinc-700">
               <p className="font-semibold uppercase tracking-[0.08em] text-zinc-500">
                 Link do arquivo anexado
