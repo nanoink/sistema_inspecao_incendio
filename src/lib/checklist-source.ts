@@ -31,6 +31,18 @@ interface LoadedChecklistData {
   responses: Map<string, ChecklistResponseShape>;
 }
 
+interface LoadedChecklistCatalog {
+  models: ChecklistModelShape[];
+  groupsByModel: Map<string, ChecklistGroupWithItems[]>;
+}
+
+const CHECKLIST_CATALOG_CACHE_DURATION_MS = 5 * 60 * 1000;
+let checklistCatalogCache: {
+  expiresAt: number;
+  value: LoadedChecklistCatalog;
+} | null = null;
+let checklistCatalogRequest: Promise<LoadedChecklistCatalog> | null = null;
+
 const buildResponsesMap = (
   rows: ChecklistResponseRow[] | null,
 ) => {
@@ -109,97 +121,131 @@ export const loadChecklistResponses = async (
   return buildResponsesMap(responsesResult.data as ChecklistResponseRow[] | null);
 };
 
+const loadChecklistCatalog = async (
+  supabase: AppSupabaseClient,
+): Promise<LoadedChecklistCatalog> => {
+  if (checklistCatalogCache && checklistCatalogCache.expiresAt > Date.now()) {
+    return checklistCatalogCache.value;
+  }
+
+  if (checklistCatalogRequest) {
+    return checklistCatalogRequest;
+  }
+
+  checklistCatalogRequest = (async () => {
+    const modelsResult = await supabase
+      .from("checklist_modelos")
+      .select("id, codigo, nome, titulo, tipo, ordem")
+      .eq("ativo", true)
+      .eq("tipo", "renovacao")
+      .order("ordem", { ascending: true });
+
+    if (modelsResult.error) {
+      throw modelsResult.error;
+    }
+
+    const models = (modelsResult.data || []).map((model) => ({
+      id: model.id,
+      codigo: model.codigo,
+      nome: model.nome,
+      titulo: model.titulo,
+      tipo: model.tipo,
+      ordem: model.ordem,
+    }));
+
+    if (models.length === 0) {
+      return {
+        models: [],
+        groupsByModel: new Map(),
+      };
+    }
+
+    const modelIds = models.map((model) => model.id);
+    const groupsResult = await supabase
+      .from("checklist_grupos")
+      .select("id, modelo_id, titulo, tipo, ordem")
+      .in("modelo_id", modelIds)
+      .order("ordem", { ascending: true });
+
+    if (groupsResult.error) {
+      throw groupsResult.error;
+    }
+
+    const groups = groupsResult.data || [];
+    const groupIds = groups.map((group) => group.id);
+    const itemsResult = groupIds.length
+      ? await supabase
+          .from("checklist_itens_modelo")
+          .select("id, grupo_id, numero_original, descricao, complemento, tipo, avaliavel, ordem")
+          .in("grupo_id", groupIds)
+          .order("ordem", { ascending: true })
+      : { data: [], error: null };
+
+    if (itemsResult.error) {
+      throw itemsResult.error;
+    }
+
+    const itemsByGroup = new Map<string, ChecklistItemShape[]>();
+    (itemsResult.data || []).forEach((item) => {
+      const current = itemsByGroup.get(item.grupo_id) || [];
+      current.push({
+        id: item.id,
+        groupId: item.grupo_id,
+        originalNumber: item.numero_original,
+        description: item.descricao,
+        complement: item.complemento,
+        kind: item.tipo,
+        evaluable: item.avaliavel,
+        order: item.ordem,
+      });
+      itemsByGroup.set(item.grupo_id, current);
+    });
+
+    const groupsByModel = new Map<string, ChecklistGroupWithItems[]>();
+    groups.forEach((group) => {
+      const current = groupsByModel.get(group.modelo_id) || [];
+      current.push({
+        id: group.id,
+        modelId: group.modelo_id,
+        title: group.titulo,
+        type: group.tipo,
+        order: group.ordem,
+        items: itemsByGroup.get(group.id) || [],
+      });
+      groupsByModel.set(group.modelo_id, current);
+    });
+
+    return {
+      models,
+      groupsByModel,
+    };
+  })();
+
+  try {
+    const value = await checklistCatalogRequest;
+    checklistCatalogCache = {
+      expiresAt: Date.now() + CHECKLIST_CATALOG_CACHE_DURATION_MS,
+      value,
+    };
+    return value;
+  } finally {
+    checklistCatalogRequest = null;
+  }
+};
+
 export const loadChecklistData = async (
   supabase: AppSupabaseClient,
   companyId?: string,
 ) : Promise<LoadedChecklistData> => {
-  const modelsResult = await supabase
-    .from("checklist_modelos")
-    .select("id, codigo, nome, titulo, tipo, ordem")
-    .eq("ativo", true)
-    .eq("tipo", "renovacao")
-    .order("ordem", { ascending: true });
-
-  if (modelsResult.error) {
-    throw modelsResult.error;
-  }
-
-  const models = (modelsResult.data || []).map((model) => ({
-    id: model.id,
-    codigo: model.codigo,
-    nome: model.nome,
-    titulo: model.titulo,
-    tipo: model.tipo,
-    ordem: model.ordem,
-  }));
-
-  if (models.length === 0) {
-    return {
-      models: [],
-      groupsByModel: new Map(),
-      responses: new Map(),
-    };
-  }
-
-  const modelIds = models.map((model) => model.id);
-  const groupsResult = await supabase
-    .from("checklist_grupos")
-    .select("id, modelo_id, titulo, tipo, ordem")
-    .in("modelo_id", modelIds)
-    .order("ordem", { ascending: true });
-
-  if (groupsResult.error) {
-    throw groupsResult.error;
-  }
-
-  const groups = groupsResult.data || [];
-  const groupIds = groups.map((group) => group.id);
-  const itemsResult = groupIds.length
-    ? await supabase
-        .from("checklist_itens_modelo")
-        .select("id, grupo_id, numero_original, descricao, complemento, tipo, avaliavel, ordem")
-        .in("grupo_id", groupIds)
-        .order("ordem", { ascending: true })
-    : { data: [], error: null };
-
-  if (itemsResult.error) {
-    throw itemsResult.error;
-  }
-
-  const itemsByGroup = new Map<string, ChecklistItemShape[]>();
-  (itemsResult.data || []).forEach((item) => {
-    const current = itemsByGroup.get(item.grupo_id) || [];
-    current.push({
-      id: item.id,
-      groupId: item.grupo_id,
-      originalNumber: item.numero_original,
-      description: item.descricao,
-      complement: item.complemento,
-      kind: item.tipo,
-      evaluable: item.avaliavel,
-      order: item.ordem,
-    });
-    itemsByGroup.set(item.grupo_id, current);
-  });
-
-  const groupsByModel = new Map<string, ChecklistGroupWithItems[]>();
-  groups.forEach((group) => {
-    const current = groupsByModel.get(group.modelo_id) || [];
-    current.push({
-      id: group.id,
-      modelId: group.modelo_id,
-      title: group.titulo,
-      type: group.tipo,
-      order: group.ordem,
-      items: itemsByGroup.get(group.id) || [],
-    });
-    groupsByModel.set(group.modelo_id, current);
-  });
+  const [catalog, responses] = await Promise.all([
+    loadChecklistCatalog(supabase),
+    loadChecklistResponses(supabase, companyId),
+  ]);
 
   return {
-    models,
-    groupsByModel,
-    responses: await loadChecklistResponses(supabase, companyId),
+    models: catalog.models,
+    groupsByModel: catalog.groupsByModel,
+    responses,
   };
 };
 

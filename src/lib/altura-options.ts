@@ -7,6 +7,45 @@ export interface AlturaOption {
   h_max_m: number | null;
 }
 
+const FALLBACK_ALTURA_OPTIONS: AlturaOption[] = [
+  {
+    tipo: "I",
+    denominacao: "Edificação Térrea",
+    h_min_m: null,
+    h_max_m: null,
+  },
+  {
+    tipo: "II",
+    denominacao: "Edificação de Baixa Altura",
+    h_min_m: null,
+    h_max_m: 6,
+  },
+  {
+    tipo: "III",
+    denominacao: "Edificação de Baixa-Média Altura",
+    h_min_m: 6,
+    h_max_m: 12,
+  },
+  {
+    tipo: "IV",
+    denominacao: "Edificação de Média Altura",
+    h_min_m: 12,
+    h_max_m: 30,
+  },
+  {
+    tipo: "V",
+    denominacao: "Edificação de Grande Altura",
+    h_min_m: 30,
+    h_max_m: null,
+  },
+];
+
+let alturaOptionsCache: AlturaOption[] | null = null;
+let alturaOptionsRequest: Promise<AlturaOption[]> | null = null;
+
+export const getFallbackAlturaOptions = (): AlturaOption[] =>
+  FALLBACK_ALTURA_OPTIONS.map((option) => ({ ...option }));
+
 const normalizeText = (value: unknown) =>
   typeof value === "string" ? value.trim() : "";
 
@@ -45,13 +84,14 @@ export const sanitizeAlturaOptions = (rows: unknown[]): AlturaOption[] => {
     const candidate = row as Record<string, unknown>;
     const tipo = normalizeText(candidate.tipo);
     const denominacao = normalizeText(candidate.denominacao);
+    const comparableTipo = normalizeComparableText(tipo);
 
     // Radix Select throws when an item value is empty; duplicates also create unstable UI.
-    if (!tipo || !denominacao || seenTipos.has(tipo)) {
+    if (!tipo || !denominacao || seenTipos.has(comparableTipo)) {
       return [];
     }
 
-    seenTipos.add(tipo);
+    seenTipos.add(comparableTipo);
 
     return [
       {
@@ -65,16 +105,36 @@ export const sanitizeAlturaOptions = (rows: unknown[]): AlturaOption[] => {
 };
 
 export const fetchAlturaOptions = async (): Promise<AlturaOption[]> => {
-  const { data, error } = await supabase
-    .from("altura_ref")
-    .select("tipo, denominacao, h_min_m, h_max_m")
-    .order("tipo");
-
-  if (error) {
-    throw error;
+  if (alturaOptionsCache) {
+    return alturaOptionsCache.map((option) => ({ ...option }));
   }
 
-  return sanitizeAlturaOptions(data ?? []);
+  if (!alturaOptionsRequest) {
+    alturaOptionsRequest = (async () => {
+      const { data, error } = await supabase
+        .from("altura_ref")
+        .select("tipo, denominacao, h_min_m, h_max_m")
+        .order("tipo");
+
+      if (error) {
+        throw error;
+      }
+
+      const options = sanitizeAlturaOptions(data ?? []);
+
+      if (options.length === 0) {
+        throw new Error("O catálogo de alturas retornou vazio ou inválido.");
+      }
+
+      alturaOptionsCache = options;
+      return options;
+    })().finally(() => {
+      alturaOptionsRequest = null;
+    });
+  }
+
+  const options = await alturaOptionsRequest;
+  return options.map((option) => ({ ...option }));
 };
 
 export const describeAlturaOption = (

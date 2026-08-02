@@ -61,7 +61,10 @@ import {
   isMissingFunctionError,
   isMissingRelationError,
 } from "@/lib/supabase-errors";
-import { renderPdfPreviewImages } from "@/lib/pdf-preview";
+import {
+  releasePdfPreviewImages,
+  renderPdfPreviewImages,
+} from "@/lib/pdf-preview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -280,12 +283,17 @@ interface ReportAttachmentMetadata {
   uploadedBy: string | null;
 }
 
-type ReportAttachmentPreviewKind = "pdf" | "image" | "link";
+type ReportAttachmentPreviewKind = "pdf" | "image" | "docx" | "link";
 
 interface PdfPreviewDocumentState {
   status: "idle" | "loading" | "ready" | "error";
   pageCount: number;
   images: string[];
+}
+
+interface TextDocumentPreviewState {
+  status: "idle" | "loading" | "ready" | "error";
+  pages: string[];
 }
 
 interface GeneralChecklistReportLine {
@@ -359,13 +367,12 @@ const MAX_ART_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 const REPORT_ATTACHMENT_STORAGE_BUCKET = "empresa-relatorio-anexos";
 const MAX_REPORT_ATTACHMENT_FILE_SIZE_BYTES = 20 * 1024 * 1024;
 const REPORT_ATTACHMENT_ACCEPT =
-  "application/pdf,image/png,image/jpeg,image/webp,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.png,.jpg,.jpeg,.webp,.doc,.docx";
+  "application/pdf,image/png,image/jpeg,image/webp,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.png,.jpg,.jpeg,.webp,.docx";
 const REPORT_ATTACHMENT_ALLOWED_MIME_TYPES = new Set([
   "application/pdf",
   "image/png",
   "image/jpeg",
   "image/webp",
-  "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
 const REPORT_ATTACHMENT_ALLOWED_EXTENSIONS = new Set([
@@ -374,7 +381,6 @@ const REPORT_ATTACHMENT_ALLOWED_EXTENSIONS = new Set([
   "jpg",
   "jpeg",
   "webp",
-  "doc",
   "docx",
 ]);
 const REPORT_ATTACHMENT_EXTENSION_TO_MIME_TYPE: Record<string, string> = {
@@ -383,7 +389,6 @@ const REPORT_ATTACHMENT_EXTENSION_TO_MIME_TYPE: Record<string, string> = {
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
   webp: "image/webp",
-  doc: "application/msword",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 };
 const OPERATIONAL_LEGAL_NOTICE =
@@ -431,6 +436,12 @@ const EMPTY_PDF_PREVIEW_STATE: PdfPreviewDocumentState = {
   pageCount: 0,
   images: [],
 };
+
+const EMPTY_TEXT_DOCUMENT_PREVIEW_STATE: TextDocumentPreviewState = {
+  status: "idle",
+  pages: [],
+};
+const DOCX_TEXT_PAGE_CHARACTER_LIMIT = 4_200;
 
 const getDefaultReportTitle = (mode: ReportMode) =>
   mode === "tecnico" ? TECHNICAL_REPORT_TITLE : OPERATIONAL_REPORT_TITLE;
@@ -616,7 +627,110 @@ const getReportAttachmentPreviewKind = (
     return "image";
   }
 
+  if (
+    normalizedMimeType ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    extension === "docx"
+  ) {
+    return "docx";
+  }
+
   return "link";
+};
+
+const chunkTextDocumentPages = (
+  value: string,
+  maxCharacters = DOCX_TEXT_PAGE_CHARACTER_LIMIT,
+) => {
+  const paragraphs = value
+    .replace(/\r\n/g, "\n")
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.replace(/\s*\n\s*/g, " ").trim())
+    .filter(Boolean);
+  const pages: string[] = [];
+  let currentPage = "";
+
+  const flushCurrentPage = () => {
+    if (currentPage.trim()) {
+      pages.push(currentPage.trim());
+      currentPage = "";
+    }
+  };
+
+  paragraphs.forEach((paragraph) => {
+    const remainingParts: string[] = [];
+    let remainingText = paragraph;
+
+    while (remainingText.length > maxCharacters) {
+      const candidateBreak = remainingText.lastIndexOf(" ", maxCharacters);
+      const breakAt =
+        candidateBreak >= Math.floor(maxCharacters * 0.6)
+          ? candidateBreak
+          : maxCharacters;
+      remainingParts.push(remainingText.slice(0, breakAt));
+      remainingText = remainingText.slice(breakAt).trimStart();
+    }
+    if (remainingText) {
+      remainingParts.push(remainingText);
+    }
+
+    remainingParts.forEach((part) => {
+      const normalizedPart = part.trim();
+      if (!normalizedPart) {
+        return;
+      }
+
+      const separator = currentPage ? "\n\n" : "";
+      if ((currentPage + separator + normalizedPart).length > maxCharacters) {
+        flushCurrentPage();
+      }
+
+      currentPage += `${currentPage ? "\n\n" : ""}${normalizedPart}`;
+    });
+  });
+  flushCurrentPage();
+
+  return pages.length > 0 ? pages : ["Documento sem conteúdo textual extraível."];
+};
+
+const extractDocxText = async (arrayBuffer: ArrayBuffer) => {
+  const { default: JSZip } = await import("jszip");
+  const archive = await JSZip.loadAsync(arrayBuffer);
+  const documentFile = archive.file("word/document.xml");
+
+  if (!documentFile) {
+    throw new Error("O arquivo DOCX nao possui o documento principal.");
+  }
+
+  const xml = await documentFile.async("string");
+  const documentXml = new DOMParser().parseFromString(xml, "application/xml");
+
+  if (documentXml.getElementsByTagName("parsererror").length > 0) {
+    throw new Error("O conteudo XML do DOCX e invalido.");
+  }
+
+  const extractNodeText = (node: Node): string => {
+    const localName = node.localName?.toLowerCase();
+
+    if (localName === "t") {
+      return node.textContent || "";
+    }
+
+    if (localName === "tab") {
+      return "\t";
+    }
+
+    if (localName === "br" || localName === "cr") {
+      return "\n";
+    }
+
+    return Array.from(node.childNodes).map(extractNodeText).join("");
+  };
+
+  return Array.from(documentXml.getElementsByTagNameNS("*", "p"))
+    .map((paragraph) => extractNodeText(paragraph).trim())
+    .filter(Boolean)
+    .join("\n\n");
 };
 
 const formatFileSize = (value?: number | null) => {
@@ -3247,6 +3361,7 @@ const CompanyReport = () => {
   const [activeReportCycleId, setActiveReportCycleId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [previewReady, setPreviewReady] = useState(false);
+  const [heavyPreviewHydrationReady, setHeavyPreviewHydrationReady] = useState(false);
   const [previewPagination, setPreviewPagination] = useState(getReportPreviewPagination);
   const [visiblePreviewPageCount, setVisiblePreviewPageCount] = useState(
     () => getReportPreviewPagination().initial,
@@ -3268,17 +3383,32 @@ const CompanyReport = () => {
   const [reportAttachmentSignedUrls, setReportAttachmentSignedUrls] = useState<
     Record<string, string | null>
   >({});
+  const [reportAttachmentLocalPreviewUrls, setReportAttachmentLocalPreviewUrls] = useState<
+    Record<string, string>
+  >({});
   const [reportAttachmentPdfPreviews, setReportAttachmentPdfPreviews] = useState<
     Record<string, PdfPreviewDocumentState>
   >({});
+  const [reportAttachmentTextPreviews, setReportAttachmentTextPreviews] = useState<
+    Record<string, TextDocumentPreviewState>
+  >({});
+  const [recentReportAttachmentId, setRecentReportAttachmentId] = useState<string | null>(null);
   const [artPdfPreview, setArtPdfPreview] = useState<PdfPreviewDocumentState>(
     EMPTY_PDF_PREVIEW_STATE,
   );
   const reportAttachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const reportLoadMoreRef = useRef<HTMLDivElement | null>(null);
   const totalReportPageCountRef = useRef(0);
   const printRequestedRef = useRef(false);
   const reportAttachmentPdfPreviewsRef = useRef<Record<string, PdfPreviewDocumentState>>({});
+  const reportAttachmentsRef = useRef<ReportAttachmentMetadata[]>([]);
+  const reportAttachmentLocalPreviewUrlsRef = useRef<Record<string, string>>({});
+  const reportAttachmentLocalFilesRef = useRef<Map<string, File>>(new Map());
+  const reportAttachmentPdfRenderJobsRef = useRef<Set<string>>(new Set());
+  const reportAttachmentTextRenderJobsRef = useRef<Set<string>>(new Set());
+  const reportAttachmentUploadInFlightRef = useRef(false);
   const artPdfPreviewRef = useRef<PdfPreviewDocumentState>(EMPTY_PDF_PREVIEW_STATE);
+  const artPdfPreviewSourceRef = useRef<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -3289,7 +3419,27 @@ const CompanyReport = () => {
       try {
         setLoading(true);
         setPreviewReady(false);
+        setHeavyPreviewHydrationReady(false);
         setNonConformityImagesLoaded(false);
+        Object.values(reportAttachmentPdfPreviewsRef.current).forEach((preview) => {
+          releasePdfPreviewImages(preview.images);
+        });
+        Object.values(reportAttachmentLocalPreviewUrlsRef.current).forEach((url) => {
+          URL.revokeObjectURL(url);
+        });
+        releasePdfPreviewImages(artPdfPreviewRef.current.images);
+        reportAttachmentPdfPreviewsRef.current = {};
+        reportAttachmentLocalPreviewUrlsRef.current = {};
+        reportAttachmentLocalFilesRef.current.clear();
+        reportAttachmentPdfRenderJobsRef.current.clear();
+        reportAttachmentTextRenderJobsRef.current.clear();
+        artPdfPreviewSourceRef.current = null;
+        setReportAttachmentPdfPreviews({});
+        setReportAttachmentTextPreviews({});
+        setReportAttachmentLocalPreviewUrls({});
+        setReportAttachmentSignedUrls({});
+        setRecentReportAttachmentId(null);
+        setArtPdfPreview(EMPTY_PDF_PREVIEW_STATE);
         clearActiveReportCycleCache(id);
 
         const [
@@ -3520,6 +3670,7 @@ const CompanyReport = () => {
   useEffect(() => {
     if (loading || !company || !snapshot) {
       setPreviewReady(false);
+      setHeavyPreviewHydrationReady(false);
       setVisiblePreviewPageCount(previewPagination.initial);
       return;
     }
@@ -3537,6 +3688,33 @@ const CompanyReport = () => {
   }, [company, loading, previewPagination.initial, snapshot]);
 
   useEffect(() => {
+    if (!previewReady) {
+      setHeavyPreviewHydrationReady(false);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setHeavyPreviewHydrationReady(true);
+    }, 450);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [previewReady]);
+
+  useEffect(() => {
+    if (!previewReady || !recentReportAttachmentId) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      document
+        .getElementById(`report-attachment-preview-${recentReportAttachmentId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [previewReady, recentReportAttachmentId]);
+
+  useEffect(() => {
     if (!previewReady || isPreparingPrint) {
       return;
     }
@@ -3547,7 +3725,7 @@ const CompanyReport = () => {
       return;
     }
 
-    const timeoutId = window.setTimeout(() => {
+    const loadNextBatch = () => {
       setVisiblePreviewPageCount((current) => {
         const knownTotalPages = totalReportPageCountRef.current;
         const nextPageCount = current + previewPagination.batch;
@@ -3556,10 +3734,26 @@ const CompanyReport = () => {
           ? Math.min(nextPageCount, knownTotalPages)
           : Math.min(nextPageCount, PRINT_REPORT_PREVIEW_PAGE_COUNT);
       });
-    }, 160);
+    };
+    const loadMoreElement = reportLoadMoreRef.current;
+
+    if (!loadMoreElement || !("IntersectionObserver" in window)) {
+      const timeoutId = window.setTimeout(loadNextBatch, 500);
+      return () => window.clearTimeout(timeoutId);
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          loadNextBatch();
+        }
+      },
+      { rootMargin: "600px 0px" },
+    );
+    observer.observe(loadMoreElement);
 
     return () => {
-      window.clearTimeout(timeoutId);
+      observer.disconnect();
     };
   }, [isPreparingPrint, previewPagination.batch, previewReady, visiblePreviewPageCount]);
 
@@ -3591,7 +3785,7 @@ const CompanyReport = () => {
     let timeoutId: number | null = null;
 
     const hydrateNonConformityImages = async () => {
-      if (!id || loading || nonConformityImagesLoaded || !previewReady) {
+      if (!id || loading || nonConformityImagesLoaded || !heavyPreviewHydrationReady) {
         return;
       }
 
@@ -3626,7 +3820,7 @@ const CompanyReport = () => {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [id, loading, nonConformityImagesLoaded, previewReady]);
+  }, [heavyPreviewHydrationReady, id, loading, nonConformityImagesLoaded]);
 
   useEffect(() => {
     const gestor = reportSignatures.find((signer) => signer.is_gestor);
@@ -3703,8 +3897,33 @@ const CompanyReport = () => {
   }, [reportAttachmentPdfPreviews]);
 
   useEffect(() => {
+    reportAttachmentsRef.current = reportAttachments;
+  }, [reportAttachments]);
+
+  useEffect(() => {
+    reportAttachmentLocalPreviewUrlsRef.current = reportAttachmentLocalPreviewUrls;
+  }, [reportAttachmentLocalPreviewUrls]);
+
+  useEffect(() => {
     artPdfPreviewRef.current = artPdfPreview;
   }, [artPdfPreview]);
+
+  useEffect(
+    () => () => {
+      Object.values(reportAttachmentPdfPreviewsRef.current).forEach((preview) => {
+        releasePdfPreviewImages(preview.images);
+      });
+      Object.values(reportAttachmentLocalPreviewUrlsRef.current).forEach((url) => {
+        URL.revokeObjectURL(url);
+      });
+      releasePdfPreviewImages(artPdfPreviewRef.current.images);
+      artPdfPreviewSourceRef.current = null;
+      reportAttachmentLocalFilesRef.current.clear();
+      reportAttachmentPdfRenderJobsRef.current.clear();
+      reportAttachmentTextRenderJobsRef.current.clear();
+    },
+    [],
+  );
 
   useEffect(() => {
     let isCancelled = false;
@@ -3715,23 +3934,35 @@ const CompanyReport = () => {
         return;
       }
 
-      const signedUrlEntries = await Promise.all(
-        reportAttachments.map(async (attachment) => {
+      const attachmentsByBucket = new Map<string, ReportAttachmentMetadata[]>();
+      reportAttachments.forEach((attachment) => {
+        const current = attachmentsByBucket.get(attachment.fileBucket) || [];
+        current.push(attachment);
+        attachmentsByBucket.set(attachment.fileBucket, current);
+      });
+      const signedUrlGroups = await Promise.all(
+        Array.from(attachmentsByBucket.entries()).map(async ([bucket, attachments]) => {
           const { data, error } = await supabase.storage
-            .from(attachment.fileBucket)
-            .createSignedUrl(attachment.filePath, 60 * 60);
+            .from(bucket)
+            .createSignedUrls(
+              attachments.map((attachment) => attachment.filePath),
+              60 * 60,
+            );
 
           if (error) {
             console.error(
-              `Error creating signed URL for report attachment ${attachment.id}:`,
+              `Error creating signed URLs for report attachment bucket ${bucket}:`,
               error,
             );
-            return [attachment.id, null] as const;
           }
 
-          return [attachment.id, data?.signedUrl || null] as const;
+          return attachments.map(
+            (attachment, index) =>
+              [attachment.id, error ? null : data?.[index]?.signedUrl || null] as const,
+          );
         }),
       );
+      const signedUrlEntries = signedUrlGroups.flat();
 
       if (isCancelled) {
         return;
@@ -3745,7 +3976,7 @@ const CompanyReport = () => {
     return () => {
       isCancelled = true;
     };
-  }, [reportAttachments, report?.updated_at]);
+  }, [reportAttachments]);
 
   const currentUserMember =
     companyMembers.find((member) => member.user_id === user?.id) || null;
@@ -3774,13 +4005,30 @@ const CompanyReport = () => {
       reportAttachments.map((attachment) => ({
         ...attachment,
         previewKind: getReportAttachmentPreviewKind(attachment),
-        signedUrl: reportAttachmentSignedUrls[attachment.id] || null,
+        signedUrl:
+          reportAttachmentLocalPreviewUrls[attachment.id] ||
+          reportAttachmentSignedUrls[attachment.id] ||
+          null,
       })),
-    [reportAttachmentSignedUrls, reportAttachments],
+    [
+      reportAttachmentLocalPreviewUrls,
+      reportAttachmentSignedUrls,
+      reportAttachments,
+    ],
   );
   const pendingPdfPreviewCount = useMemo(() => {
     const attachmentPendingCount = reportAttachmentEntries.reduce(
       (total, attachment) => {
+        if (attachment.previewKind === "docx") {
+          const previewState =
+            reportAttachmentTextPreviews[attachment.id] ||
+            EMPTY_TEXT_DOCUMENT_PREVIEW_STATE;
+
+          return previewState.status === "ready" || previewState.status === "error"
+            ? total
+            : total + 1;
+        }
+
         if (attachment.previewKind !== "pdf") {
           return total;
         }
@@ -3803,17 +4051,28 @@ const CompanyReport = () => {
         : 0;
 
     return attachmentPendingCount + artPendingCount;
-  }, [artPdfPreview.status, artSignedUrl, reportAttachmentEntries, reportAttachmentPdfPreviews]);
+  }, [
+    artPdfPreview.status,
+    artSignedUrl,
+    reportAttachmentEntries,
+    reportAttachmentPdfPreviews,
+    reportAttachmentTextPreviews,
+  ]);
   const pdfPreviewScale = previewPagination.initial === MOBILE_REPORT_PREVIEW_PAGE_COUNT ? 1.08 : 1.32;
 
   useEffect(() => {
-    const nextPdfAttachmentIds = new Set(
-      reportAttachmentEntries
-        .filter((attachment) => attachment.previewKind === "pdf")
-        .map((attachment) => attachment.id),
+    const pdfAttachments = reportAttachments.filter(
+      (attachment) => getReportAttachmentPreviewKind(attachment) === "pdf",
     );
+    const nextPdfAttachmentIds = new Set(pdfAttachments.map((attachment) => attachment.id));
 
     setReportAttachmentPdfPreviews((current) => {
+      const removedEntries = Object.entries(current).filter(
+        ([attachmentId]) => !nextPdfAttachmentIds.has(attachmentId),
+      );
+      removedEntries.forEach(([, preview]) => {
+        releasePdfPreviewImages(preview.images);
+      });
       const filteredEntries = Object.entries(current).filter(([attachmentId]) =>
         nextPdfAttachmentIds.has(attachmentId),
       );
@@ -3822,21 +4081,34 @@ const CompanyReport = () => {
         return current;
       }
 
-      return Object.fromEntries(filteredEntries);
+      const next = Object.fromEntries(filteredEntries);
+      reportAttachmentPdfPreviewsRef.current = next;
+      return next;
     });
 
-    if (!previewReady || nextPdfAttachmentIds.size === 0) {
+    if (!heavyPreviewHydrationReady || nextPdfAttachmentIds.size === 0) {
       return;
     }
 
-    let cancelled = false;
+    const updatePreview = (
+      attachmentId: string,
+      updater: (current: PdfPreviewDocumentState) => PdfPreviewDocumentState,
+    ) => {
+      setReportAttachmentPdfPreviews((current) => {
+        const next = {
+          ...current,
+          [attachmentId]: updater(
+            current[attachmentId] || EMPTY_PDF_PREVIEW_STATE,
+          ),
+        };
+        reportAttachmentPdfPreviewsRef.current = next;
+        return next;
+      });
+    };
 
     const renderPdfAttachments = async () => {
-      for (const attachment of reportAttachmentEntries) {
-        if (
-          cancelled ||
-          attachment.previewKind !== "pdf"
-        ) {
+      for (const attachment of pdfAttachments) {
+        if (reportAttachmentPdfRenderJobsRef.current.has(attachment.id)) {
           continue;
         }
 
@@ -3846,36 +4118,58 @@ const CompanyReport = () => {
           continue;
         }
 
-        setReportAttachmentPdfPreviews((current) => ({
-          ...current,
-          [attachment.id]: {
+        reportAttachmentPdfRenderJobsRef.current.add(attachment.id);
+        releasePdfPreviewImages(currentPreview?.images || []);
+        updatePreview(attachment.id, () => ({
             status: "loading",
-            pageCount: current[attachment.id]?.pageCount || 0,
-            images: current[attachment.id]?.images || [],
-          },
+            pageCount: 0,
+            images: [],
         }));
 
         try {
-          const { data: attachmentBlob, error: downloadError } =
-            await supabase.storage
-              .from(attachment.fileBucket)
-              .download(attachment.filePath);
+          let previewSource: File | Blob | string | null =
+            reportAttachmentLocalFilesRef.current.get(attachment.id) || null;
 
-          if (downloadError || !attachmentBlob) {
-            if (!attachment.signedUrl) {
-              throw downloadError || new Error("O arquivo do anexo nao foi localizado.");
+          if (!previewSource) {
+            const { data: attachmentBlob, error: downloadError } =
+              await supabase.storage
+                .from(attachment.fileBucket)
+                .download(attachment.filePath);
+
+            if (attachmentBlob) {
+              previewSource = attachmentBlob;
+            } else {
+              previewSource = reportAttachmentSignedUrls[attachment.id] || null;
+
+              if (!previewSource) {
+                throw downloadError || new Error("O arquivo do anexo nao foi localizado.");
+              }
+
+              console.warn(
+                `Authenticated download failed for report attachment ${attachment.id}; retrying with its signed URL.`,
+                downloadError,
+              );
             }
-
-            console.warn(
-              `Authenticated download failed for report attachment ${attachment.id}; retrying with its signed URL.`,
-              downloadError,
-            );
           }
 
           const renderedPreview = await renderPdfPreviewImages(
-            attachmentBlob || attachment.signedUrl || "",
+            previewSource,
             {
               scale: pdfPreviewScale,
+              onPageRendered: ({ imageUrl, pageCount, pageNumber }) => {
+                if (
+                  pageNumber !== 1 ||
+                  !reportAttachmentsRef.current.some((item) => item.id === attachment.id)
+                ) {
+                  return;
+                }
+
+                updatePreview(attachment.id, () => ({
+                  status: "loading",
+                  pageCount,
+                  images: [imageUrl],
+                }));
+              },
             },
           );
 
@@ -3883,17 +4177,15 @@ const CompanyReport = () => {
             throw new Error("O PDF anexado nao possui paginas renderizaveis.");
           }
 
-          if (cancelled) {
+          if (!reportAttachmentsRef.current.some((item) => item.id === attachment.id)) {
+            releasePdfPreviewImages(renderedPreview.images);
             return;
           }
 
-          setReportAttachmentPdfPreviews((current) => ({
-            ...current,
-            [attachment.id]: {
+          updatePreview(attachment.id, () => ({
               status: "ready",
               pageCount: renderedPreview.pageCount,
               images: renderedPreview.images,
-            },
           }));
         } catch (error) {
           console.error(
@@ -3901,42 +4193,159 @@ const CompanyReport = () => {
             error,
           );
 
-          if (cancelled) {
-            return;
+          if (reportAttachmentsRef.current.some((item) => item.id === attachment.id)) {
+            updatePreview(attachment.id, () => ({
+                status: "error",
+                pageCount: 0,
+                images: [],
+            }));
           }
-
-          setReportAttachmentPdfPreviews((current) => ({
-            ...current,
-            [attachment.id]: {
-              status: "error",
-              pageCount: 0,
-              images: [],
-            },
-          }));
+        } finally {
+          reportAttachmentLocalFilesRef.current.delete(attachment.id);
+          reportAttachmentPdfRenderJobsRef.current.delete(attachment.id);
         }
       }
     };
 
     void renderPdfAttachments();
+  }, [
+    pdfPreviewScale,
+    heavyPreviewHydrationReady,
+    reportAttachments,
+    reportAttachmentSignedUrls,
+  ]);
 
-    return () => {
-      cancelled = true;
+  useEffect(() => {
+    const docxAttachments = reportAttachments.filter(
+      (attachment) => getReportAttachmentPreviewKind(attachment) === "docx",
+    );
+    const nextDocxAttachmentIds = new Set(
+      docxAttachments.map((attachment) => attachment.id),
+    );
+
+    setReportAttachmentTextPreviews((current) => {
+      const filteredEntries = Object.entries(current).filter(([attachmentId]) =>
+        nextDocxAttachmentIds.has(attachmentId),
+      );
+
+      return filteredEntries.length === Object.keys(current).length
+        ? current
+        : Object.fromEntries(filteredEntries);
+    });
+
+    if (!heavyPreviewHydrationReady || docxAttachments.length === 0) {
+      return;
+    }
+
+    const renderDocxAttachments = async () => {
+      for (const attachment of docxAttachments) {
+        if (reportAttachmentTextRenderJobsRef.current.has(attachment.id)) {
+          continue;
+        }
+
+        const currentPreview =
+          reportAttachmentTextPreviews[attachment.id] ||
+          EMPTY_TEXT_DOCUMENT_PREVIEW_STATE;
+        if (currentPreview.status === "ready" && currentPreview.pages.length > 0) {
+          continue;
+        }
+
+        reportAttachmentTextRenderJobsRef.current.add(attachment.id);
+        setReportAttachmentTextPreviews((current) => ({
+          ...current,
+          [attachment.id]: {
+            status: "loading",
+            pages: [],
+          },
+        }));
+
+        try {
+          let sourceBlob: Blob | null =
+            reportAttachmentLocalFilesRef.current.get(attachment.id) || null;
+
+          if (!sourceBlob) {
+            const { data, error } = await supabase.storage
+              .from(attachment.fileBucket)
+              .download(attachment.filePath);
+
+            if (data) {
+              sourceBlob = data;
+            } else {
+              const signedUrl = reportAttachmentSignedUrls[attachment.id];
+              if (!signedUrl) {
+                throw error || new Error("O arquivo DOCX nao foi localizado.");
+              }
+
+              const response = await fetch(signedUrl, { cache: "no-store" });
+              if (!response.ok) {
+                throw new Error(`Falha ao carregar o DOCX (${response.status}).`);
+              }
+              sourceBlob = await response.blob();
+            }
+          }
+
+          const extractedText = await extractDocxText(
+            await sourceBlob.arrayBuffer(),
+          );
+          const pages = chunkTextDocumentPages(extractedText);
+
+          if (!reportAttachmentsRef.current.some((item) => item.id === attachment.id)) {
+            return;
+          }
+
+          setReportAttachmentTextPreviews((current) => ({
+            ...current,
+            [attachment.id]: {
+              status: "ready",
+              pages,
+            },
+          }));
+        } catch (error) {
+          console.error(
+            `Error rendering report attachment DOCX preview ${attachment.id}:`,
+            error,
+          );
+
+          if (reportAttachmentsRef.current.some((item) => item.id === attachment.id)) {
+            setReportAttachmentTextPreviews((current) => ({
+              ...current,
+              [attachment.id]: {
+                status: "error",
+                pages: [],
+              },
+            }));
+          }
+        } finally {
+          reportAttachmentLocalFilesRef.current.delete(attachment.id);
+          reportAttachmentTextRenderJobsRef.current.delete(attachment.id);
+        }
+      }
     };
-  }, [pdfPreviewScale, previewReady, reportAttachmentEntries]);
+
+    void renderDocxAttachments();
+  }, [
+    heavyPreviewHydrationReady,
+    reportAttachments,
+    reportAttachmentSignedUrls,
+    reportAttachmentTextPreviews,
+  ]);
 
   useEffect(() => {
     if (!artSignedUrl) {
+      releasePdfPreviewImages(artPdfPreviewRef.current.images);
+      artPdfPreviewSourceRef.current = null;
       setArtPdfPreview(EMPTY_PDF_PREVIEW_STATE);
       return;
     }
 
-    if (!previewReady) {
+    if (!heavyPreviewHydrationReady) {
       return;
     }
 
     const currentArtPdfPreview = artPdfPreviewRef.current;
 
     if (
+      artPdfPreviewSourceRef.current === artSignedUrl &&
       currentArtPdfPreview.status === "ready" &&
       currentArtPdfPreview.images.length > 0
     ) {
@@ -3944,18 +4353,32 @@ const CompanyReport = () => {
     }
 
     let cancelled = false;
+    releasePdfPreviewImages(currentArtPdfPreview.images);
+    artPdfPreviewSourceRef.current = artSignedUrl;
 
-    setArtPdfPreview((current) => ({
+    setArtPdfPreview(() => ({
       status: "loading",
-      pageCount: current.pageCount,
-      images: current.images,
+      pageCount: 0,
+      images: [],
     }));
 
     void renderPdfPreviewImages(artSignedUrl, {
       scale: pdfPreviewScale,
+      onPageRendered: ({ imageUrl, pageCount, pageNumber }) => {
+        if (cancelled || pageNumber !== 1) {
+          return;
+        }
+
+        setArtPdfPreview({
+          status: "loading",
+          pageCount,
+          images: [imageUrl],
+        });
+      },
     })
       .then((renderedPreview) => {
         if (cancelled) {
+          releasePdfPreviewImages(renderedPreview.images);
           return;
         }
 
@@ -3982,10 +4405,14 @@ const CompanyReport = () => {
     return () => {
       cancelled = true;
     };
-  }, [artSignedUrl, pdfPreviewScale, previewReady]);
+  }, [artSignedUrl, heavyPreviewHydrationReady, pdfPreviewScale]);
 
   const handleReportAttachmentUpload = async () => {
     if (!id) {
+      return;
+    }
+
+    if (reportAttachmentUploadInFlightRef.current) {
       return;
     }
 
@@ -4034,7 +4461,7 @@ const CompanyReport = () => {
       toast({
         title: "Arquivo invalido",
         description:
-          "Envie PDF, imagem, DOC ou DOCX para anexar ao relatorio.",
+          "Envie PDF, imagem ou DOCX para anexar ao relatorio. Converta arquivos DOC antigos para PDF.",
         variant: "destructive",
       });
       return;
@@ -4050,9 +4477,14 @@ const CompanyReport = () => {
     }
 
     let uploadedFilePath: string | null = null;
+    let optimisticAttachment: ReportAttachmentMetadata | null = null;
+    let optimisticLocalPreviewUrl: string | null = null;
+    const previousAttachments = reportAttachments;
 
     try {
+      reportAttachmentUploadInFlightRef.current = true;
       setUploadingReportAttachment(true);
+      setHeavyPreviewHydrationReady(true);
 
       const resolvedCycleId =
         (await resolveActiveReportCycleId(supabase, id).catch((error) => {
@@ -4092,6 +4524,26 @@ const CompanyReport = () => {
       };
       const nextAttachments = [...reportAttachments, nextAttachment];
       const previousAdditionalData = getJsonRecord(report?.dados_adicionais) || {};
+      const previewKind = getReportAttachmentPreviewKind(nextAttachment);
+
+      optimisticAttachment = nextAttachment;
+      if (previewKind === "pdf" || previewKind === "docx") {
+        reportAttachmentLocalFilesRef.current.set(nextAttachment.id, file);
+      } else if (previewKind === "image") {
+        optimisticLocalPreviewUrl = URL.createObjectURL(file);
+        setReportAttachmentLocalPreviewUrls((current) => {
+          const next = {
+            ...current,
+            [nextAttachment.id]: optimisticLocalPreviewUrl as string,
+          };
+          reportAttachmentLocalPreviewUrlsRef.current = next;
+          return next;
+        });
+      }
+
+      reportAttachmentsRef.current = nextAttachments;
+      setReportAttachments(nextAttachments);
+      setRecentReportAttachmentId(nextAttachment.id);
 
       const { activeReportCycleId: resolvedReportCycleId, report: data } =
         await upsertCompanyReportForCycle(supabase, id, {
@@ -4103,7 +4555,6 @@ const CompanyReport = () => {
 
       setReport(data);
       setActiveReportCycleId(resolvedReportCycleId);
-      setReportAttachments(nextAttachments);
       setReportAttachmentTitle("");
       setReportAttachmentFile(null);
       if (reportAttachmentInputRef.current) {
@@ -4116,6 +4567,37 @@ const CompanyReport = () => {
           "O documento foi vinculado ao relatorio e sera exibido antes da ART.",
       });
     } catch (error) {
+      if (optimisticAttachment) {
+        reportAttachmentsRef.current = previousAttachments;
+        setReportAttachments(previousAttachments);
+        setRecentReportAttachmentId(null);
+        reportAttachmentLocalFilesRef.current.delete(optimisticAttachment.id);
+        const failedPreview =
+          reportAttachmentPdfPreviewsRef.current[optimisticAttachment.id];
+        releasePdfPreviewImages(failedPreview?.images || []);
+        setReportAttachmentPdfPreviews((current) => {
+          const next = { ...current };
+          delete next[optimisticAttachment.id];
+          reportAttachmentPdfPreviewsRef.current = next;
+          return next;
+        });
+        setReportAttachmentTextPreviews((current) => {
+          const next = { ...current };
+          delete next[optimisticAttachment.id];
+          return next;
+        });
+
+        if (optimisticLocalPreviewUrl) {
+          URL.revokeObjectURL(optimisticLocalPreviewUrl);
+          setReportAttachmentLocalPreviewUrls((current) => {
+            const next = { ...current };
+            delete next[optimisticAttachment.id];
+            reportAttachmentLocalPreviewUrlsRef.current = next;
+            return next;
+          });
+        }
+      }
+
       if (uploadedFilePath) {
         await supabase.storage
           .from(REPORT_ATTACHMENT_STORAGE_BUCKET)
@@ -4134,6 +4616,7 @@ const CompanyReport = () => {
         variant: "destructive",
       });
     } finally {
+      reportAttachmentUploadInFlightRef.current = false;
       setUploadingReportAttachment(false);
     }
   };
@@ -4178,8 +4661,37 @@ const CompanyReport = () => {
 
       setReport(data);
       setActiveReportCycleId(resolvedReportCycleId);
+      reportAttachmentsRef.current = nextAttachments;
       setReportAttachments(nextAttachments);
+      setRecentReportAttachmentId((current) =>
+        current === attachmentId ? null : current,
+      );
       setReportAttachmentSignedUrls((current) => {
+        const next = { ...current };
+        delete next[attachmentId];
+        return next;
+      });
+      reportAttachmentLocalFilesRef.current.delete(attachmentId);
+      const localPreviewUrl =
+        reportAttachmentLocalPreviewUrlsRef.current[attachmentId];
+      if (localPreviewUrl) {
+        URL.revokeObjectURL(localPreviewUrl);
+      }
+      setReportAttachmentLocalPreviewUrls((current) => {
+        const next = { ...current };
+        delete next[attachmentId];
+        reportAttachmentLocalPreviewUrlsRef.current = next;
+        return next;
+      });
+      const pdfPreview = reportAttachmentPdfPreviewsRef.current[attachmentId];
+      releasePdfPreviewImages(pdfPreview?.images || []);
+      setReportAttachmentPdfPreviews((current) => {
+        const next = { ...current };
+        delete next[attachmentId];
+        reportAttachmentPdfPreviewsRef.current = next;
+        return next;
+      });
+      setReportAttachmentTextPreviews((current) => {
         const next = { ...current };
         delete next[attachmentId];
         return next;
@@ -4386,6 +4898,7 @@ const CompanyReport = () => {
 
   const handlePrint = () => {
     printRequestedRef.current = true;
+    setHeavyPreviewHydrationReady(true);
     setIsPreparingPrint(true);
     setPreviewReady(true);
     setVisiblePreviewPageCount(
@@ -5048,6 +5561,13 @@ const CompanyReport = () => {
   }
 
   const pages: ReactNode[] = [];
+  const reportAttachmentPageIndexes = new Map<string, number[]>();
+  const pushReportAttachmentPage = (attachmentId: string, page: ReactNode) => {
+    const currentIndexes = reportAttachmentPageIndexes.get(attachmentId) || [];
+    currentIndexes.push(pages.length);
+    reportAttachmentPageIndexes.set(attachmentId, currentIndexes);
+    pages.push(page);
+  };
 
   if (previewReady) {
     const renderSignatureCard = (signer: CompanyReportSignatureRow) => {
@@ -6241,6 +6761,9 @@ const CompanyReport = () => {
   reportAttachmentEntries.forEach((attachment, attachmentIndex) => {
     const attachmentPdfPreview =
       reportAttachmentPdfPreviews[attachment.id] || EMPTY_PDF_PREVIEW_STATE;
+    const attachmentTextPreview =
+      reportAttachmentTextPreviews[attachment.id] ||
+      EMPTY_TEXT_DOCUMENT_PREVIEW_STATE;
 
     if (attachment.previewKind === "pdf" && attachmentPdfPreview.images.length > 0) {
       const totalAttachmentPages =
@@ -6249,8 +6772,16 @@ const CompanyReport = () => {
       attachmentPdfPreview.images.forEach((imageUrl, pdfPageIndex) => {
         const isFirstAttachmentPage = pdfPageIndex === 0;
 
-        pages.push(
-          <div className="space-y-4">
+        pushReportAttachmentPage(
+          attachment.id,
+          <div
+            id={
+              pdfPageIndex === 0
+                ? `report-attachment-preview-${attachment.id}`
+                : undefined
+            }
+            className="space-y-4"
+          >
             <SectionHeading
               index={reportAttachmentSectionIndex}
               title={
@@ -6293,9 +6824,64 @@ const CompanyReport = () => {
       return;
     }
 
+    if (
+      attachment.previewKind === "docx" &&
+      attachmentTextPreview.pages.length > 0
+    ) {
+      attachmentTextPreview.pages.forEach((documentPage, documentPageIndex) => {
+        pushReportAttachmentPage(
+          attachment.id,
+          <div
+            id={
+              documentPageIndex === 0
+                ? `report-attachment-preview-${attachment.id}`
+                : undefined
+            }
+            className="space-y-4"
+          >
+            <SectionHeading
+              index={reportAttachmentSectionIndex}
+              title={
+                attachmentIndex === 0 && documentPageIndex === 0
+                  ? "Anexos Complementares do Relatorio"
+                  : "Anexos Complementares do Relatorio - Continuacao"
+              }
+            />
+
+            <div className="overflow-hidden rounded-sm border border-zinc-300 bg-white">
+              <div className="flex items-start justify-between gap-4 border-b border-zinc-300 bg-zinc-50 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="break-words text-[13px] font-semibold uppercase text-zinc-900">
+                    {attachment.title}
+                  </p>
+                  <p className="mt-1 break-words text-[10.5px] text-zinc-600">
+                    {attachment.fileName}
+                  </p>
+                </div>
+                <RequirementStatusBadge
+                  label={`DOCX ${documentPageIndex + 1}/${attachmentTextPreview.pages.length}`}
+                  tone="neutral"
+                />
+              </div>
+
+              <div className="min-h-[760px] whitespace-pre-wrap px-6 py-5 text-[11px] leading-[1.65] text-zinc-800">
+                {documentPage}
+              </div>
+            </div>
+          </div>,
+        );
+      });
+
+      return;
+    }
+
     if (attachment.previewKind === "image" && attachment.signedUrl) {
-      pages.push(
-        <div className="space-y-4">
+      pushReportAttachmentPage(
+        attachment.id,
+        <div
+          id={`report-attachment-preview-${attachment.id}`}
+          className="space-y-4"
+        >
           <SectionHeading
             index={reportAttachmentSectionIndex}
             title={
@@ -6334,8 +6920,12 @@ const CompanyReport = () => {
       return;
     }
 
-    pages.push(
-      <div className="space-y-5">
+    pushReportAttachmentPage(
+      attachment.id,
+      <div
+        id={`report-attachment-preview-${attachment.id}`}
+        className="space-y-5"
+      >
         <SectionHeading
           index={reportAttachmentSectionIndex}
           title={
@@ -6361,7 +6951,9 @@ const CompanyReport = () => {
                   ? "PDF"
                   : attachment.previewKind === "image"
                     ? "Imagem"
-                    : "Documento"
+                    : attachment.previewKind === "docx"
+                      ? "DOCX"
+                      : "Documento"
               }
               tone="neutral"
             />
@@ -6415,6 +7007,24 @@ const CompanyReport = () => {
                     </p>
                   </div>
                 )}
+              </div>
+            ) : attachment.previewKind === "docx" ? (
+              <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 border border-zinc-200 bg-zinc-50 px-6 text-center text-[12px] text-zinc-600">
+                {attachmentTextPreview.status === "loading" ? (
+                  <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
+                ) : (
+                  <FileCheck className="h-10 w-10 text-zinc-400" />
+                )}
+                <p className="font-semibold uppercase text-zinc-800">
+                  {attachmentTextPreview.status === "loading"
+                    ? "Lendo documento DOCX"
+                    : "Nao foi possivel incorporar o DOCX"}
+                </p>
+                <p>
+                  {attachmentTextPreview.status === "loading"
+                    ? "O conteudo textual sera distribuido nas paginas do topico 11."
+                    : "Converta o documento para PDF e anexe novamente para preservar a diagramacao integral."}
+                </p>
               </div>
             ) : (
               <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 border border-dashed border-zinc-300 bg-zinc-50 px-6 text-center text-[12px] text-zinc-600">
@@ -6560,10 +7170,18 @@ const CompanyReport = () => {
 
   const totalReportPages = pages.length;
   totalReportPageCountRef.current = totalReportPages;
+  const prioritizedAttachmentPageIndex = recentReportAttachmentId
+    ? reportAttachmentPageIndexes.get(recentReportAttachmentId)?.[0] ?? null
+    : null;
   const visibleReportPages =
     previewReady && !isPreparingPrint
-      ? pages.slice(0, Math.min(visiblePreviewPageCount, totalReportPages))
-      : pages;
+      ? pages.flatMap((page, pageIndex) =>
+          pageIndex < Math.min(visiblePreviewPageCount, totalReportPages) ||
+          pageIndex === prioritizedAttachmentPageIndex
+            ? [{ page, pageIndex }]
+            : [],
+        )
+      : pages.map((page, pageIndex) => ({ page, pageIndex }));
   const hasDeferredReportPages =
     previewReady &&
     !isPreparingPrint &&
@@ -6896,7 +7514,7 @@ const CompanyReport = () => {
                       }}
                     />
                     <p className="text-xs text-muted-foreground">
-                      PDF, imagem, DOC ou DOCX. Maximo de 20 MB por arquivo.
+                      PDF, imagem ou DOCX. Maximo de 20 MB por arquivo.
                     </p>
                   </div>
 
@@ -7038,10 +7656,10 @@ const CompanyReport = () => {
         <div className="report-pages space-y-8">
           {previewReady ? (
             <>
-              {visibleReportPages.map((page, index) => (
+              {visibleReportPages.map(({ page, pageIndex }) => (
                 <PageFrame
-                  key={`report-page-${index + 1}`}
-                  pageNumber={index + 1}
+                  key={`report-page-${pageIndex + 1}`}
+                  pageNumber={pageIndex + 1}
                   totalPages={totalReportPages}
                   title={reportTitle}
                   subtitle={reportSubtitle}
@@ -7052,7 +7670,10 @@ const CompanyReport = () => {
               ))}
 
               {hasDeferredReportPages ? (
-                <Card className="report-controls overflow-hidden border-dashed">
+                <Card
+                  ref={reportLoadMoreRef}
+                  className="report-controls overflow-hidden border-dashed"
+                >
                   <CardContent className="flex min-h-[160px] flex-col items-center justify-center gap-3 px-6 py-8 text-center">
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                     <div className="space-y-1">

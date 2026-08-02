@@ -448,81 +448,100 @@ const upsertChecklistNonConformityRecord = async (
   return (legacyResult.data || null) as ChecklistNonConformityRecord | null;
 };
 
-const hydrateChecklistNonConformityImageRecord = async (
-  supabase: AppSupabaseClient,
-  record: ChecklistNonConformityRecord,
-) => {
-  const originalValue = normalizeOptionalString(
-    record.imagem_original_value ?? record.imagem_data_url,
-  );
-
-  if (!originalValue) {
-    return {
-      ...record,
-      imagem_data_url: null,
-      imagem_original_value: null,
-      imagem_preview_url: null,
-    } satisfies ChecklistNonConformityRecord;
-  }
-
-  if (isDataUrl(originalValue) || isHttpUrl(originalValue)) {
-    return {
-      ...record,
-      imagem_data_url: originalValue,
-      imagem_original_value: originalValue,
-      imagem_preview_url: originalValue,
-    } satisfies ChecklistNonConformityRecord;
-  }
-
-  const storageReference =
-    parseChecklistNonConformityStorageReference(originalValue);
-
-  if (!storageReference) {
-    return {
-      ...record,
-      imagem_data_url: originalValue,
-      imagem_original_value: originalValue,
-      imagem_preview_url: originalValue,
-    } satisfies ChecklistNonConformityRecord;
-  }
-
-  const { data, error } = await supabase.storage
-    .from(storageReference.bucket)
-    .createSignedUrl(storageReference.path, SIGNED_URL_DURATION_SECONDS);
-
-  if (error) {
-    console.error(
-      `Error creating signed URL for checklist non conformity ${record.id}:`,
-      error,
-    );
-
-    return {
-      ...record,
-      imagem_data_url: null,
-      imagem_original_value: originalValue,
-      imagem_preview_url: null,
-    } satisfies ChecklistNonConformityRecord;
-  }
-
-  const signedUrl = data?.signedUrl || null;
-
-  return {
-    ...record,
-    imagem_data_url: signedUrl,
-    imagem_original_value: originalValue,
-    imagem_preview_url: signedUrl,
-  } satisfies ChecklistNonConformityRecord;
-};
-
 export const hydrateChecklistNonConformityImageRecords = async (
   supabase: AppSupabaseClient,
   records: ChecklistNonConformityRecord[],
-) =>
-  Promise.all(
-    records.map((record) =>
-      hydrateChecklistNonConformityImageRecord(supabase, record),
-    ),
+) => {
+  const hydrationEntries = records.map((record, index) => {
+    const originalValue = normalizeOptionalString(
+      record.imagem_original_value ?? record.imagem_data_url,
+    );
+    const storageReference =
+      originalValue && !isDataUrl(originalValue) && !isHttpUrl(originalValue)
+        ? parseChecklistNonConformityStorageReference(originalValue)
+        : null;
+
+    return {
+      index,
+      originalValue,
+      record,
+      storageReference,
+    };
+  });
+  const entriesByBucket = new Map<
+    string,
+    Array<(typeof hydrationEntries)[number] & { storageReference: { bucket: string; path: string } }>
+  >();
+
+  hydrationEntries.forEach((entry) => {
+    if (!entry.storageReference) {
+      return;
+    }
+
+    const current = entriesByBucket.get(entry.storageReference.bucket) || [];
+    current.push({
+      ...entry,
+      storageReference: entry.storageReference,
+    });
+    entriesByBucket.set(entry.storageReference.bucket, current);
+  });
+
+  const signedUrlsByIndex = new Map<number, string | null>();
+
+  await Promise.all(
+    Array.from(entriesByBucket.entries()).map(async ([bucket, entries]) => {
+      const { data, error } = await supabase.storage
+        .from(bucket)
+        .createSignedUrls(
+          entries.map((entry) => entry.storageReference.path),
+          SIGNED_URL_DURATION_SECONDS,
+        );
+
+      if (error) {
+        console.error(
+          `Error creating signed URLs for checklist non conformity bucket ${bucket}:`,
+          error,
+        );
+      }
+
+      entries.forEach((entry, entryIndex) => {
+        signedUrlsByIndex.set(
+          entry.index,
+          error ? null : data?.[entryIndex]?.signedUrl || null,
+        );
+      });
+    }),
   );
+
+  return hydrationEntries.map(({ index, originalValue, record, storageReference }) => {
+    if (!originalValue) {
+      return {
+        ...record,
+        imagem_data_url: null,
+        imagem_original_value: null,
+        imagem_preview_url: null,
+      } satisfies ChecklistNonConformityRecord;
+    }
+
+    if (!storageReference) {
+      return {
+        ...record,
+        imagem_data_url: originalValue,
+        imagem_original_value: originalValue,
+        imagem_preview_url: originalValue,
+      } satisfies ChecklistNonConformityRecord;
+    }
+
+    const signedUrl = signedUrlsByIndex.get(index) || null;
+
+    return {
+      ...record,
+      imagem_data_url: signedUrl,
+      imagem_original_value: originalValue,
+      imagem_preview_url: signedUrl,
+    } satisfies ChecklistNonConformityRecord;
+  });
+};
 
 export const getChecklistNonConformityImageStoredValue = (
   record?: ChecklistNonConformityRecord | null,

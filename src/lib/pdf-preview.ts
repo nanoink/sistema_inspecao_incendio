@@ -2,6 +2,13 @@ export interface PdfPreviewRenderOptions {
   scale?: number;
   quality?: number;
   maxPages?: number;
+  signal?: AbortSignal;
+  onDocumentLoaded?: (pageCount: number) => void;
+  onPageRendered?: (page: {
+    imageUrl: string;
+    pageCount: number;
+    pageNumber: number;
+  }) => void;
 }
 
 export interface PdfPreviewRenderResult {
@@ -12,6 +19,37 @@ export interface PdfPreviewRenderResult {
 export type PdfPreviewSource = string | Blob | ArrayBuffer | Uint8Array;
 
 let workerSrcPromise: Promise<string> | null = null;
+let renderQueue: Promise<void> = Promise.resolve();
+
+const createAbortError = () =>
+  new DOMException("A renderizacao do PDF foi cancelada.", "AbortError");
+
+const throwIfAborted = (signal?: AbortSignal) => {
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
+};
+
+const canvasToImageUrl = async (
+  canvas: HTMLCanvasElement,
+  quality: number,
+) => {
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob(resolve, "image/jpeg", quality);
+  });
+
+  return blob
+    ? URL.createObjectURL(blob)
+    : canvas.toDataURL("image/jpeg", quality);
+};
+
+export const releasePdfPreviewImages = (images: string[]) => {
+  images.forEach((imageUrl) => {
+    if (imageUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(imageUrl);
+    }
+  });
+};
 
 const getPdfWorkerSrc = async () => {
   if (!workerSrcPromise) {
@@ -53,10 +91,11 @@ const readPdfBytes = async (source: PdfPreviewSource) => {
   return new Uint8Array(source);
 };
 
-export const renderPdfPreviewImages = async (
+const performPdfPreviewRender = async (
   source: PdfPreviewSource,
   options: PdfPreviewRenderOptions = {},
 ): Promise<PdfPreviewRenderResult> => {
+  throwIfAborted(options.signal);
   const pdfBytes = await readPdfBytes(source);
 
   if (!pdfBytes || pdfBytes.byteLength === 0) {
@@ -78,17 +117,20 @@ export const renderPdfPreviewImages = async (
     isEvalSupported: false,
   });
   const pdf = await loadingTask.promise;
+  const images: string[] = [];
 
   try {
+    throwIfAborted(options.signal);
     const quality = options.quality ?? 0.88;
     const scale = options.scale ?? 1.3;
     const maxPages =
       typeof options.maxPages === "number" && options.maxPages > 0
         ? Math.min(options.maxPages, pdf.numPages)
         : pdf.numPages;
-    const images: string[] = [];
+    options.onDocumentLoaded?.(pdf.numPages);
 
     for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
+      throwIfAborted(options.signal);
       const page = await pdf.getPage(pageNumber);
       const viewport = page.getViewport({ scale });
       const canvas = document.createElement("canvas");
@@ -101,12 +143,32 @@ export const renderPdfPreviewImages = async (
       canvas.width = Math.ceil(viewport.width);
       canvas.height = Math.ceil(viewport.height);
 
-      await page.render({
+      const renderTask = page.render({
         canvasContext: context,
         viewport,
-      }).promise;
+      });
 
-      images.push(canvas.toDataURL("image/jpeg", quality));
+      const abortRender = () => renderTask.cancel();
+      options.signal?.addEventListener("abort", abortRender, { once: true });
+
+      try {
+        await renderTask.promise;
+      } finally {
+        options.signal?.removeEventListener("abort", abortRender);
+      }
+
+      throwIfAborted(options.signal);
+      const imageUrl = await canvasToImageUrl(canvas, quality);
+      if (options.signal?.aborted) {
+        releasePdfPreviewImages([imageUrl]);
+        throw createAbortError();
+      }
+      images.push(imageUrl);
+      options.onPageRendered?.({
+        imageUrl,
+        pageCount: pdf.numPages,
+        pageNumber,
+      });
       canvas.width = 0;
       canvas.height = 0;
       page.cleanup();
@@ -116,7 +178,27 @@ export const renderPdfPreviewImages = async (
       pageCount: pdf.numPages,
       images,
     };
+  } catch (error) {
+    releasePdfPreviewImages(images);
+    throw error;
   } finally {
     await loadingTask.destroy();
   }
+};
+
+export const renderPdfPreviewImages = (
+  source: PdfPreviewSource,
+  options: PdfPreviewRenderOptions = {},
+): Promise<PdfPreviewRenderResult> => {
+  const renderJob = renderQueue.then(
+    () => performPdfPreviewRender(source, options),
+    () => performPdfPreviewRender(source, options),
+  );
+
+  renderQueue = renderJob.then(
+    () => undefined,
+    () => undefined,
+  );
+
+  return renderJob;
 };

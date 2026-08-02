@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Check, ChevronsUpDown } from "lucide-react";
@@ -18,6 +17,7 @@ import { useAuth } from "@/hooks/useAuth";
 import {
   fetchAlturaOptions,
   getAlturaSelectionState,
+  getFallbackAlturaOptions,
   getSafeAlturaSelectValue,
   type AlturaOption,
 } from "@/lib/altura-options";
@@ -56,6 +56,127 @@ interface CNAEData {
   carga_incendio_mj_m2: number;
 }
 
+const CNAE_CATALOG_URL =
+  "https://script.google.com/macros/s/AKfycbwFuTToILsB-y5kbSkSI7u04jIoOlCOogPzUp6VSJbElZ-8u3pra5TtFRKR4J5aGvbX/exec";
+const CNAE_REQUEST_TIMEOUT_MS = 20_000;
+const CNAE_RENDER_LIMIT = 80;
+
+let cnaeOptionsCache: CNAEData[] | null = null;
+let cnaeOptionsRequest: Promise<CNAEData[]> | null = null;
+
+const normalizeCatalogText = (value: unknown) =>
+  typeof value === "string" || typeof value === "number"
+    ? String(value).trim()
+    : "";
+
+const normalizeCatalogSearch = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+
+const getVisibleCnaeOptions = (options: CNAEData[], search: string) => {
+  const normalizedSearch = normalizeCatalogSearch(search);
+
+  if (!normalizedSearch) {
+    return options.slice(0, CNAE_RENDER_LIMIT);
+  }
+
+  return options
+    .filter((option) =>
+      normalizeCatalogSearch(`${option.cnae} ${option.descricao}`).includes(
+        normalizedSearch,
+      ),
+    )
+    .slice(0, CNAE_RENDER_LIMIT);
+};
+
+const normalizeCnaeRow = (row: unknown): CNAEData | null => {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+
+  const item = row as Record<string, unknown>;
+  const cnae = normalizeCatalogText(item.CNAE ?? item.cnae);
+
+  if (!cnae) {
+    return null;
+  }
+
+  const cargaIncendio = Number(
+    item["CARGA DE INCÊNDIO (MJ/m2)"] ?? item.carga_incendio_mj_m2 ?? 0,
+  );
+
+  return {
+    cnae,
+    grupo: normalizeCatalogText(item.GRUPO ?? item.grupo),
+    ocupacao_uso: normalizeCatalogText(
+      item["OCUPAÇÃO/USO"] ?? item.ocupacao_uso,
+    ),
+    divisao: normalizeCatalogText(item["DIVISÃO"] ?? item.divisao),
+    descricao: normalizeCatalogText(item["DESCRIÇÃO"] ?? item.descricao),
+    carga_incendio_mj_m2: Number.isFinite(cargaIncendio) ? cargaIncendio : 0,
+  };
+};
+
+const fetchCnaeOptions = async (): Promise<CNAEData[]> => {
+  if (cnaeOptionsCache) {
+    return cnaeOptionsCache;
+  }
+
+  if (!cnaeOptionsRequest) {
+    cnaeOptionsRequest = (async () => {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(
+        () => controller.abort(),
+        CNAE_REQUEST_TIMEOUT_MS,
+      );
+
+      try {
+        const response = await fetch(CNAE_CATALOG_URL, {
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Falha ao carregar CNAEs (${response.status}).`);
+        }
+
+        const data: unknown = await response.json();
+
+        if (!Array.isArray(data)) {
+          throw new Error("Resposta de CNAE inválida.");
+        }
+
+        const uniqueCnaes = new Map<string, CNAEData>();
+
+        data.forEach((row) => {
+          const option = normalizeCnaeRow(row);
+
+          if (option && !uniqueCnaes.has(option.cnae)) {
+            uniqueCnaes.set(option.cnae, option);
+          }
+        });
+
+        const options = Array.from(uniqueCnaes.values());
+
+        if (options.length === 0) {
+          throw new Error("O catálogo de CNAEs retornou vazio.");
+        }
+
+        cnaeOptionsCache = options;
+        return options;
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    })().finally(() => {
+      cnaeOptionsRequest = null;
+    });
+  }
+
+  return cnaeOptionsRequest;
+};
+
 export function CompanyForm() {
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -64,11 +185,14 @@ export function CompanyForm() {
   const [loadingCEP, setLoadingCEP] = useState(false);
   const [cnaeData, setCnaeData] = useState<CNAEData | null>(null);
   const [grauRisco, setGrauRisco] = useState<string>("");
-  const [alturaOptions, setAlturaOptions] = useState<AlturaOption[]>([]);
-  const [alturaDenominacao, setAlturaDenominacao] = useState<string>("");
-  const [alturaDescricao, setAlturaDescricao] = useState<string>("");
+  const [alturaOptions, setAlturaOptions] = useState<AlturaOption[]>(
+    getFallbackAlturaOptions,
+  );
   const [cnaeOptions, setCnaeOptions] = useState<CNAEData[]>([]);
   const [cnaeOpen, setCnaeOpen] = useState(false);
+  const [cnaeSearch, setCnaeSearch] = useState("");
+  const [loadingCnaeOptions, setLoadingCnaeOptions] = useState(false);
+  const [cnaeLoadError, setCnaeLoadError] = useState(false);
   const [firstUserPassword, setFirstUserPassword] = useState("");
   const [firstUserCpf, setFirstUserCpf] = useState("");
   const [firstUserCargo, setFirstUserCargo] = useState("");
@@ -101,6 +225,7 @@ export function CompanyForm() {
     form.watch("altura_tipo"),
     alturaOptions,
   );
+  const visibleCnaeOptions = getVisibleCnaeOptions(cnaeOptions, cnaeSearch);
 
   const loadAlturaOptions = useCallback(async () => {
     try {
@@ -108,49 +233,36 @@ export function CompanyForm() {
       setAlturaOptions(options);
     } catch (error) {
       console.error("Error loading altura options:", error);
+      // The local normative catalog keeps this critical field usable offline.
     }
   }, []);
 
   const loadCnaeOptions = useCallback(async () => {
-    try {
-      const response = await fetch('https://script.google.com/macros/s/AKfycbwFuTToILsB-y5kbSkSI7u04jIoOlCOogPzUp6VSJbElZ-8u3pra5TtFRKR4J5aGvbX/exec');
-      const data: unknown = await response.json();
+    if (loadingCnaeOptions || cnaeOptions.length > 0) {
+      return;
+    }
 
-      if (!Array.isArray(data)) {
-        throw new Error("Resposta de CNAE invalida");
-      }
-      
-      // Map API response to expected format
-      const mappedData = (data as Array<Record<string, unknown>>).map((item) => ({
-        cnae: item.CNAE || item.cnae,
-        grupo: item.GRUPO || item.grupo || '',
-        ocupacao_uso: item['OCUPAÇÃO/USO'] || item.ocupacao_uso || '',
-        divisao: item['DIVISÃO'] || item.divisao || '',
-        descricao: item['DESCRIÇÃO'] || item.descricao || '',
-        carga_incendio_mj_m2: Number(item['CARGA DE INCÊNDIO (MJ/m2)'] || item.carga_incendio_mj_m2 || 0),
-      }));
-      
-      // Remove duplicates based on CNAE code
-      const uniqueCnaes = mappedData.filter((item: CNAEData, index: number, self: CNAEData[]) => 
-        index === self.findIndex((t) => t.cnae === item.cnae)
-      );
-      
-      setCnaeOptions(uniqueCnaes);
+    try {
+      setLoadingCnaeOptions(true);
+      setCnaeLoadError(false);
+      setCnaeOptions(await fetchCnaeOptions());
     } catch (error) {
       console.error("Error loading CNAE options from API:", error);
+      setCnaeLoadError(true);
       toast({
         title: "Erro ao carregar CNAEs",
-        description: "Não foi possível carregar a lista de CNAEs.",
+        description: "Não foi possível carregar a lista de CNAEs. Tente novamente.",
         variant: "destructive",
       });
+    } finally {
+      setLoadingCnaeOptions(false);
     }
-  }, [toast]);
+  }, [cnaeOptions.length, loadingCnaeOptions, toast]);
 
-  // Load altura options and CNAE catalog
+  // Height is critical and tiny; the larger external CNAE catalog loads on demand.
   useEffect(() => {
-    loadAlturaOptions();
-    loadCnaeOptions();
-  }, [loadAlturaOptions, loadCnaeOptions]);
+    void loadAlturaOptions();
+  }, [loadAlturaOptions]);
 
   // Fetch CEP data from ViaCEP
   const handleCEPBlur = async () => {
@@ -214,6 +326,7 @@ export function CompanyForm() {
       calculateRiskGrade(selected.carga_incendio_mj_m2, form.getValues("numero_ocupantes"));
     }
     
+    setCnaeSearch("");
     setCnaeOpen(false);
   };
 
@@ -293,17 +406,41 @@ export function CompanyForm() {
   const handleAlturaChange = (tipo: string) => {
     const selection = getAlturaSelectionState(tipo, alturaOptions);
 
+    if (!selection.tipo || !selection.denominacao) {
+      form.setError("altura_tipo", {
+        type: "validate",
+        message: "Selecione uma altura válida.",
+      });
+      return;
+    }
+
     form.setValue("altura_tipo", selection.tipo, {
       shouldDirty: true,
       shouldValidate: true,
     });
-    setAlturaDenominacao(selection.denominacao);
-    setAlturaDescricao(selection.descricao);
   };
 
 
   // Submit form
   const onSubmit = async (data: FormData) => {
+    const alturaSelection = getAlturaSelectionState(
+      data.altura_tipo,
+      alturaOptions,
+    );
+
+    if (!alturaSelection.tipo || !alturaSelection.denominacao) {
+      form.setError("altura_tipo", {
+        type: "validate",
+        message: "Selecione uma altura válida.",
+      });
+      toast({
+        title: "Altura inválida",
+        description: "Selecione novamente a altura da edificação.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!cnaeData) {
       toast({
         title: "Dados incompletos",
@@ -372,9 +509,9 @@ export function CompanyForm() {
         divisao: cnaeData.divisao,
         descricao: cnaeData.descricao,
         carga_incendio_mj_m2: cnaeData.carga_incendio_mj_m2,
-        altura_tipo: data.altura_tipo,
-        altura_denominacao: alturaDenominacao,
-        altura_descricao: alturaDescricao,
+        altura_tipo: alturaSelection.tipo,
+        altura_denominacao: alturaSelection.denominacao,
+        altura_descricao: alturaSelection.descricao,
         area_m2: data.area_m2,
         numero_ocupantes: data.numero_ocupantes,
         grau_risco: grauRisco,
@@ -452,7 +589,6 @@ export function CompanyForm() {
       form.reset();
       setCnaeData(null);
       setGrauRisco("");
-      setAlturaDenominacao("");
       setFirstUserPassword("");
       setFirstUserCpf("");
       setFirstUserCargo("");
@@ -664,7 +800,18 @@ export function CompanyForm() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label>CNAE</Label>
-              <Popover open={cnaeOpen} onOpenChange={setCnaeOpen}>
+              <Popover
+                open={cnaeOpen}
+                onOpenChange={(open) => {
+                  setCnaeOpen(open);
+
+                  if (open) {
+                    void loadCnaeOptions();
+                  } else {
+                    setCnaeSearch("");
+                  }
+                }}
+              >
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
@@ -676,13 +823,26 @@ export function CompanyForm() {
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[400px] p-0">
-                  <Command>
-                    <CommandInput placeholder="Buscar CNAE..." />
+                <PopoverContent className="w-[min(400px,calc(100vw-2rem))] p-0">
+                  <Command shouldFilter={false}>
+                    <CommandInput
+                      placeholder={
+                        loadingCnaeOptions ? "Carregando CNAEs..." : "Buscar CNAE..."
+                      }
+                      value={cnaeSearch}
+                      onValueChange={setCnaeSearch}
+                      disabled={loadingCnaeOptions}
+                    />
                     <CommandList>
-                      <CommandEmpty>Nenhum CNAE encontrado.</CommandEmpty>
+                      <CommandEmpty>
+                        {loadingCnaeOptions
+                          ? "Carregando catálogo de CNAEs..."
+                          : cnaeLoadError
+                            ? "Falha ao carregar. Feche e abra para tentar novamente."
+                            : "Nenhum CNAE encontrado."}
+                      </CommandEmpty>
                       <CommandGroup>
-                        {cnaeOptions.map((cnae) => (
+                        {cnaeOpen && visibleCnaeOptions.map((cnae) => (
                           <CommandItem
                             key={cnae.cnae}
                             value={cnae.cnae}
@@ -746,18 +906,23 @@ export function CompanyForm() {
             
             <div className="space-y-2">
               <Label htmlFor="altura_tipo">Altura da edificação *</Label>
-              <Select onValueChange={handleAlturaChange} value={alturaTipoValue}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Altura em (m)" />
-                </SelectTrigger>
-                <SelectContent>
-                  {alturaOptions.map((altura) => (
-                    <SelectItem key={altura.tipo} value={altura.tipo}>
-                      {altura.tipo} — {altura.denominacao}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <select
+                id="altura_tipo"
+                value={alturaTipoValue}
+                onChange={(event) => handleAlturaChange(event.target.value)}
+                aria-invalid={Boolean(form.formState.errors.altura_tipo)}
+                className={cn(
+                  "flex h-11 w-full appearance-none rounded-xl border border-input/90 bg-background px-3.5 py-2 text-sm text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/25",
+                  form.formState.errors.altura_tipo && "border-destructive",
+                )}
+              >
+                <option value="">Altura em (m)</option>
+                {alturaOptions.map((altura) => (
+                  <option key={altura.tipo} value={altura.tipo}>
+                    {altura.tipo} - {altura.denominacao}
+                  </option>
+                ))}
+              </select>
               {form.formState.errors.altura_tipo && (
                 <p className="text-sm text-destructive">{form.formState.errors.altura_tipo.message}</p>
               )}
