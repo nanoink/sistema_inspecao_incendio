@@ -4,16 +4,18 @@ import { CompanyTable } from "@/components/company/CompanyTable";
 import { FirePageHeader, FirePageShell } from "@/components/branding/FirePageShell";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Shield, Plus, LogOut, KeyRound, Users } from "lucide-react";
+import { Shield, Plus, LogOut, KeyRound, QrCode, Users } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { ChangePasswordDialog } from "@/components/auth/ChangePasswordDialog";
+import { PortfolioQrDialog } from "@/components/portfolio/PortfolioQrDialog";
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const { signOut, isSystemAdmin, requiresPasswordChange } = useAuth();
   const { toast } = useToast();
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [portfolioQrDialogOpen, setPortfolioQrDialogOpen] = useState(false);
 
   const handleLogout = async () => {
     const { error } = await signOut();
@@ -43,6 +45,14 @@ const Dashboard = () => {
           <>
             {isSystemAdmin ? (
               <>
+                <Button
+                  onClick={() => setPortfolioQrDialogOpen(true)}
+                  variant="outline"
+                  size="lg"
+                >
+                  <QrCode className="mr-2 h-5 w-5" />
+                  QR Portfólio
+                </Button>
                 <Button onClick={() => navigate("/gestores")} variant="outline" size="lg">
                   <Users className="mr-2 h-5 w-5" />
                   Gestores
@@ -90,6 +100,13 @@ const Dashboard = () => {
         open={passwordDialogOpen}
         onOpenChange={setPasswordDialogOpen}
       />
+
+      {isSystemAdmin ? (
+        <PortfolioQrDialog
+          open={portfolioQrDialogOpen}
+          onOpenChange={setPortfolioQrDialogOpen}
+        />
+      ) : null}
     </FirePageShell>
   );
 };

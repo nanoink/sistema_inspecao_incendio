@@ -18,6 +18,7 @@ const CompanyReport = lazy(() => import("./pages/CompanyReport"));
 const CompanyAnalyticsDashboard = lazy(() => import("./pages/CompanyAnalyticsDashboard"));
 const ManagerAssignmentsPage = lazy(() => import("./pages/ManagerAssignmentsPage"));
 const Fire360Landing = lazy(() => import("./pages/Fire360Landing"));
+const PublicPortfolio = lazy(() => import("./pages/PublicPortfolio"));
 const Auth = lazy(() => import("./pages/Auth"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -49,6 +50,7 @@ const App = () => (
             <Route path="/auth" element={<Auth />} />
             <Route path="/fire360" element={<Fire360Landing />} />
             <Route path="/apresentacao/fire360" element={<Fire360Landing />} />
+            <Route path="/portfolio" element={<PublicPortfolio />} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/gestores" element={<ProtectedRoute><ManagerAssignmentsPage /></ProtectedRoute>} />
             <Route path="/cadastro" element={<ProtectedRoute><Index /></ProtectedRoute>} />
