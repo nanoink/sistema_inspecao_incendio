@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 
 import { FirePageHeader, FirePageShell } from "@/components/branding/FirePageShell";
+import { RecipientListDialog } from "@/components/email/RecipientListDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -237,6 +238,7 @@ const BulkEmailAdminPage = () => {
   const [testingSmtp, setTestingSmtp] = useState(false);
   const [schemaUnavailable, setSchemaUnavailable] = useState(false);
   const [lists, setLists] = useState<RecipientListRow[]>([]);
+  const [viewingList, setViewingList] = useState<RecipientListRow | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | null>(null);
   const [campaignForm, setCampaignForm] = useState<CampaignFormState>(emptyCampaignForm);
@@ -811,12 +813,13 @@ const BulkEmailAdminPage = () => {
             <div className="space-y-4">
               <div><h2 className="fire-display text-2xl font-bold text-slate-950">Listas cadastradas</h2><p className="mt-1 text-sm text-muted-foreground">As campanhas criam um snapshot para preservar o historico dos destinatarios.</p></div>
               {lists.length === 0 ? <Card className="fire-app-surface"><CardContent className="py-16 text-center text-muted-foreground">Nenhuma lista cadastrada.</CardContent></Card> : lists.map((list) => (
-                <Card key={list.id} className="fire-app-surface"><CardContent className="flex items-center justify-between gap-4 py-5"><div><div className="font-semibold text-slate-950">{list.name}</div><p className="mt-1 text-sm text-muted-foreground">{list.description || "Sem descricao"}</p><div className="mt-2 text-xs text-muted-foreground">Criada em {formatDateTime(list.created_at)}</div></div><div className="rounded-2xl bg-primary/10 px-4 py-3 text-center"><div className="text-xl font-bold text-primary">{list.email_recipients?.[0]?.count || 0}</div><div className="text-[10px] font-bold uppercase tracking-wider text-primary/70">contatos</div></div></CardContent></Card>
+                <Card key={list.id} className="fire-app-surface"><CardContent className="flex flex-col justify-between gap-4 py-5 sm:flex-row sm:items-center"><div><div className="font-semibold text-slate-950">{list.name}</div><p className="mt-1 text-sm text-muted-foreground">{list.description || "Sem descricao"}</p><div className="mt-2 text-xs text-muted-foreground">Criada em {formatDateTime(list.created_at)}</div></div><div className="flex shrink-0 flex-col gap-3"><div className="rounded-2xl bg-primary/10 px-4 py-3 text-center"><div className="text-xl font-bold text-primary">{list.email_recipients?.[0]?.count || 0}</div><div className="text-[10px] font-bold uppercase tracking-wider text-primary/70">contatos</div></div><Button variant="outline" onClick={() => setViewingList(list)}><Eye className="mr-2 h-4 w-4" />Ver contatos</Button></div></CardContent></Card>
               ))}
             </div>
           </div>
         </TabsContent>
       </Tabs>
+      <RecipientListDialog list={viewingList} onClose={() => setViewingList(null)} onCreated={loadData} />
     </FirePageShell>
   );
 };
