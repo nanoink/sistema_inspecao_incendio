@@ -1,0 +1,368 @@
+import { createClient } from "npm:@supabase/supabase-js@2.75.0";
+import type { ClaimedDelivery } from "./email-types.ts";
+import { getProviderConfiguration } from "./email-config.ts";
+import { connectAuthenticatedUolSmtp, runSmtpCommand, sendWithUolSmtp } from "./uol-smtp.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-email-worker-token",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+const SYSTEM_ADMIN_EMAIL = "firetetraedro@gmail.com";
+
+type DeliveryResult = {
+  delivery_id: string;
+  status: "sent" | "failed";
+  provider_message_id: string | null;
+  error_message: string | null;
+};
+
+const jsonResponse = (status: number, payload: Record<string, unknown>) =>
+  new Response(JSON.stringify(payload), {
+    status,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json",
+    },
+  });
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+
+const replaceAll = (source: string, token: string, value: string) =>
+  source.split(token).join(value);
+
+const renderEmailHtml = ({
+  delivery,
+  publicAppUrl,
+}: {
+  delivery: ClaimedDelivery;
+  publicAppUrl: string;
+}) => {
+  const unsubscribeUrl = `${publicAppUrl.replace(/\/$/, "")}/email/descadastrar/${delivery.unsubscribe_token}`;
+  const values: Record<string, string> = {
+    "{{nome}}": escapeHtml(delivery.recipient_name || "cliente"),
+    "{{email}}": escapeHtml(delivery.recipient_email),
+    "{{assunto}}": escapeHtml(delivery.subject),
+    "{{unsubscribe_url}}": unsubscribeUrl,
+  };
+
+  let html = delivery.html_body;
+  Object.entries(values).forEach(([token, value]) => {
+    html = replaceAll(html, token, value);
+  });
+
+  const preheader = delivery.preview_text?.trim()
+    ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${escapeHtml(
+        delivery.preview_text.trim(),
+      )}</div>`
+    : "";
+
+  const unsubscribeFooter = delivery.html_body.includes("{{unsubscribe_url}}")
+    ? ""
+    : `<div style="margin:32px auto 0;max-width:640px;padding:20px 16px;border-top:1px solid #e5e7eb;text-align:center;font-family:Arial,sans-serif;font-size:12px;line-height:1.6;color:#6b7280;">Você recebeu esta mensagem por constar em uma lista autorizada da Fire Tetraedro. <a href="${unsubscribeUrl}" style="color:#4b5563;text-decoration:underline;">Descadastrar este e-mail</a>.</div>`;
+
+  return `${preheader}${html}${unsubscribeFooter}`;
+};
+
+const parseProviderError = async (response: Response) => {
+  const responseText = await response.text();
+
+  if (!responseText) {
+    return `O provedor respondeu com HTTP ${response.status}.`;
+  }
+
+  try {
+    const payload = JSON.parse(responseText) as Record<string, unknown>;
+    const message = payload.message || payload.error || payload.detail;
+    return typeof message === "string"
+      ? message
+      : `O provedor respondeu com HTTP ${response.status}.`;
+  } catch {
+    return responseText.slice(0, 1000);
+  }
+};
+
+const sendWithProvider = async ({
+  delivery,
+  html,
+  config,
+}: {
+  delivery: ClaimedDelivery;
+  html: string;
+  config: ReturnType<typeof getProviderConfiguration>;
+}) => {
+  const unsubscribeUrl = `${config.publicAppUrl.replace(/\/$/, "")}/email/descadastrar/${delivery.unsubscribe_token}`;
+  const commonHeaders = {
+    "List-Unsubscribe": `<${unsubscribeUrl}>`,
+  };
+
+  if (config.provider === "uol_smtp") {
+    return sendWithUolSmtp({ delivery, html, config });
+  }
+
+  if (config.provider === "resend") {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.resendApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: `${delivery.sender_name} <${config.fromAddress}>`,
+        to: [delivery.recipient_email],
+        subject: delivery.subject,
+        html,
+        reply_to: delivery.reply_to || undefined,
+        headers: commonHeaders,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseProviderError(response));
+    }
+
+    const payload = (await response.json()) as { id?: string };
+    return payload.id || null;
+  }
+
+  if (config.provider === "generic_http") {
+    const response = await fetch(config.genericApiUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.genericApiToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: {
+          email: config.fromAddress,
+          name: delivery.sender_name,
+        },
+        to: {
+          email: delivery.recipient_email,
+          name: delivery.recipient_name,
+        },
+        reply_to: delivery.reply_to,
+        subject: delivery.subject,
+        html,
+        headers: commonHeaders,
+        metadata: {
+          campaign_id: delivery.campaign_id,
+          delivery_id: delivery.delivery_id,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseProviderError(response));
+    }
+
+    const payload = (await response.json().catch(() => ({}))) as {
+      id?: string;
+      message_id?: string;
+    };
+    return payload.id || payload.message_id || null;
+  }
+
+  throw new Error("Nenhum provedor de entrega de e-mail foi configurado.");
+};
+
+export const handler = async (request: Request) => {
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
+  if (request.method !== "POST") {
+    return jsonResponse(405, { error: "Metodo nao permitido." });
+  }
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+  const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
+    return jsonResponse(500, { error: "Configuracao do Supabase incompleta." });
+  }
+
+  const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const workerToken = request.headers.get("x-email-worker-token") || "";
+  let authorized = false;
+  let authorizationMode: "cron" | "admin" | null = null;
+
+  if (workerToken) {
+    const { data: tokenIsValid, error: tokenError } = await adminClient.rpc(
+      "verify_bulk_email_worker_token",
+      { p_token: workerToken },
+    );
+
+    authorized = !tokenError && tokenIsValid === true;
+    authorizationMode = authorized ? "cron" : null;
+  }
+
+  if (!authorized) {
+    const authorization = request.headers.get("Authorization");
+
+    if (authorization) {
+      const callerClient = createClient(supabaseUrl, supabaseAnonKey, {
+        global: { headers: { Authorization: authorization } },
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const {
+        data: { user },
+      } = await callerClient.auth.getUser();
+
+      authorized =
+        user?.email?.trim().toLowerCase() === SYSTEM_ADMIN_EMAIL;
+      authorizationMode = authorized ? "admin" : null;
+    }
+  }
+
+  if (!authorized) {
+    return jsonResponse(401, { error: "Chamada nao autorizada." });
+  }
+
+  const body = (await request.json().catch(() => ({}))) as {
+    action?: "status" | "process" | "test_smtp";
+  };
+  const config = getProviderConfiguration();
+
+  if (body.action === "status") {
+    return jsonResponse(200, {
+      configured: config.configured,
+      provider: config.provider,
+      from_address: config.fromAddress || null,
+      from_address_configured: Boolean(config.fromAddress),
+      public_app_url_configured: Boolean(config.publicAppUrl),
+      smtp_host_configured: Boolean(config.uolSmtpHost),
+      smtp_username_configured: Boolean(config.uolSmtpUsername),
+      smtp_password_configured: Boolean(config.uolSmtpPassword),
+      smtp_configured: config.smtpConfigured,
+      authorization_mode: authorizationMode,
+    });
+  }
+
+  if (body.action === "test_smtp") {
+    // A autorização já validou uma sessão de super admin ou o token interno do Vault.
+    if (config.provider !== "uol_smtp" || !config.smtpConfigured) {
+      return jsonResponse(200, {
+        ok: false,
+        error: "As secrets do transporte UOL SMTP ainda nao estao completas.",
+      });
+    }
+
+    try {
+      const connection = await connectAuthenticatedUolSmtp(config);
+      try {
+        await runSmtpCommand(connection, "QUIT", [221], "encerramento");
+      } finally {
+        connection.close();
+      }
+      return jsonResponse(200, { ok: true, provider: config.provider });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha desconhecida no SMTP.";
+      return jsonResponse(200, { ok: false, error: message.slice(0, 500) });
+    }
+  }
+
+  const workerId = crypto.randomUUID();
+  const { data: claimedRows, error: claimError } = await adminClient.rpc(
+    "claim_due_email_campaign_batch",
+    { p_worker_id: workerId },
+  );
+
+  if (claimError) {
+    console.error("Error claiming email campaign batch:", claimError);
+    return jsonResponse(500, { error: "Nao foi possivel reservar o proximo lote." });
+  }
+
+  const deliveries = (claimedRows || []) as ClaimedDelivery[];
+
+  if (deliveries.length === 0) {
+    return jsonResponse(200, {
+      processed: 0,
+      message: "Nenhum lote de campanha esta pendente neste momento.",
+    });
+  }
+
+  const campaignId = deliveries[0].campaign_id;
+
+  if (!config.configured) {
+    const configurationError =
+      "Transporte de e-mail ainda nao configurado. Defina EMAIL_PROVIDER, EMAIL_FROM_ADDRESS, PUBLIC_APP_URL e as credenciais do provedor.";
+    await adminClient.rpc("block_email_campaign_batch", {
+      p_worker_id: workerId,
+      p_campaign_id: campaignId,
+      p_error: configurationError,
+    });
+
+    return jsonResponse(200, {
+      processed: 0,
+      blocked: true,
+      campaign_id: campaignId,
+      message: configurationError,
+    });
+  }
+
+  const results: DeliveryResult[] = [];
+
+  for (const delivery of deliveries) {
+    try {
+      const html = renderEmailHtml({ delivery, publicAppUrl: config.publicAppUrl });
+      const providerMessageId = await sendWithProvider({ delivery, html, config });
+
+      results.push({
+        delivery_id: delivery.delivery_id,
+        status: "sent",
+        provider_message_id: providerMessageId,
+        error_message: null,
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Falha desconhecida no provedor.";
+      console.error("Email delivery failed:", delivery.delivery_id, errorMessage);
+      results.push({
+        delivery_id: delivery.delivery_id,
+        status: "failed",
+        provider_message_id: null,
+        error_message: errorMessage.slice(0, 2000),
+      });
+    }
+  }
+
+  const { data: campaign, error: finalizeError } = await adminClient.rpc(
+    "finalize_email_campaign_batch",
+    {
+      p_worker_id: workerId,
+      p_campaign_id: campaignId,
+      p_results: results,
+    },
+  );
+
+  if (finalizeError) {
+    console.error("Error finalizing email campaign batch:", finalizeError);
+    return jsonResponse(500, {
+      error: "O lote foi processado, mas nao foi possivel consolidar os resultados.",
+      campaign_id: campaignId,
+    });
+  }
+
+  return jsonResponse(200, {
+    processed: results.length,
+    sent: results.filter((result) => result.status === "sent").length,
+    failed: results.filter((result) => result.status === "failed").length,
+    campaign_id: campaignId,
+    campaign,
+  });
+};
+
+Deno.serve(handler);

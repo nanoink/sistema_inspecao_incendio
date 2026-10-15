@@ -4,7 +4,7 @@ import { CompanyTable } from "@/components/company/CompanyTable";
 import { FirePageHeader, FirePageShell } from "@/components/branding/FirePageShell";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Shield, Plus, LogOut, KeyRound, QrCode, Users } from "lucide-react";
+import { Shield, Plus, LogOut, KeyRound, Mails, QrCode, Users } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { ChangePasswordDialog } from "@/components/auth/ChangePasswordDialog";
@@ -45,6 +45,10 @@ const Dashboard = () => {
           <>
             {isSystemAdmin ? (
               <>
+                <Button onClick={() => navigate("/admin/emails")} variant="outline" size="lg">
+                  <Mails className="mr-2 h-5 w-5" />
+                  E-mails em massa
+                </Button>
                 <Button
                   onClick={() => setPortfolioQrDialogOpen(true)}
                   variant="outline"

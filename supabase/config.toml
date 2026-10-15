@@ -2,3 +2,6 @@ project_id = "nvdvcjsiizqzmakbirfs"
 
 [functions.create-company-user]
 verify_jwt = false
+
+[functions.process-email-campaigns]
+verify_jwt = false

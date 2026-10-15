@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { SystemAdminRoute } from "@/components/auth/SystemAdminRoute";
 import EquipmentChecklistPage from "./pages/EquipmentChecklistPage";
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -19,6 +20,8 @@ const CompanyAnalyticsDashboard = lazy(() => import("./pages/CompanyAnalyticsDas
 const ManagerAssignmentsPage = lazy(() => import("./pages/ManagerAssignmentsPage"));
 const Fire360Landing = lazy(() => import("./pages/Fire360Landing"));
 const PublicPortfolio = lazy(() => import("./pages/PublicPortfolio"));
+const BulkEmailAdminPage = lazy(() => import("./pages/BulkEmailAdminPage"));
+const EmailUnsubscribePage = lazy(() => import("./pages/EmailUnsubscribePage"));
 const Auth = lazy(() => import("./pages/Auth"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -51,7 +54,18 @@ const App = () => (
             <Route path="/fire360" element={<Fire360Landing />} />
             <Route path="/apresentacao/fire360" element={<Fire360Landing />} />
             <Route path="/portfolio" element={<PublicPortfolio />} />
+            <Route path="/email/descadastrar/:token" element={<EmailUnsubscribePage />} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route
+              path="/admin/emails"
+              element={
+                <ProtectedRoute>
+                  <SystemAdminRoute>
+                    <BulkEmailAdminPage />
+                  </SystemAdminRoute>
+                </ProtectedRoute>
+              }
+            />
             <Route path="/gestores" element={<ProtectedRoute><ManagerAssignmentsPage /></ProtectedRoute>} />
             <Route path="/cadastro" element={<ProtectedRoute><Index /></ProtectedRoute>} />
             <Route path="/empresas/:id/editar" element={<ProtectedRoute><EditCompanyPage /></ProtectedRoute>} />
