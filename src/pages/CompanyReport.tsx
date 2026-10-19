@@ -6,8 +6,6 @@ import {
   FileCheck,
   Paperclip,
   Loader2,
-  Printer,
-  RefreshCcw,
   Save,
   Trash2,
   Upload,
@@ -16,7 +14,9 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { buildChecklistMapsUrl, formatChecklistCoordinates, normalizeChecklistLocation } from "@/lib/checklist-location";
 import { FirePageHeader, FirePageShell } from "@/components/branding/FirePageShell";
+import { ReportToolbar } from "@/components/reports/ReportToolbar";
 import {
   formatCpf,
   loadCompanyMembers,
@@ -3248,96 +3248,6 @@ const RiskMatrix = () => (
   </table>
 );
 
-const ReportToolbar = ({
-  navigateBack,
-  onSync,
-  onPrint,
-  onSaveDraft,
-  onFinalize,
-  onStartNewCycle,
-  saving,
-  printing = false,
-  snapshotIsCurrent,
-  statusLabel,
-  finalizeLabel,
-  showStartNewCycle,
-}: {
-  navigateBack: () => void;
-  onSync: () => void;
-  onPrint: () => void;
-  onSaveDraft: () => void;
-  onFinalize: () => void;
-  onStartNewCycle?: () => void;
-  saving: boolean;
-  printing?: boolean;
-  snapshotIsCurrent: boolean;
-  statusLabel: string;
-  finalizeLabel: string;
-  showStartNewCycle?: boolean;
-}) => (
-  <div className="report-controls flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-    <div className="flex flex-wrap items-center gap-2">
-      <Button variant="ghost" size="sm" className="w-full sm:w-auto" onClick={navigateBack}>
-        <ArrowLeft className="mr-2 h-4 w-4" />
-        Voltar
-      </Button>
-      <Badge variant="outline">{statusLabel}</Badge>
-      <Badge variant="outline">{snapshotIsCurrent ? "Checklist sincronizado" : "Checklist desatualizado"}</Badge>
-    </div>
-    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-      <Button variant="outline" className="w-full sm:w-auto" onClick={onSync} disabled={saving}>
-        <RefreshCcw className="mr-2 h-4 w-4" />
-        Atualizar com checklist
-      </Button>
-      <Button variant="outline" className="w-full sm:w-auto" onClick={onPrint} disabled={saving || printing}>
-        {printing ? (
-          <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Preparando PDF
-          </>
-        ) : (
-          <>
-            <Printer className="mr-2 h-4 w-4" />
-            Imprimir / PDF
-          </>
-        )}
-      </Button>
-      <Button variant="outline" className="w-full sm:w-auto" onClick={onSaveDraft} disabled={saving}>
-        {saving ? (
-          <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Salvando
-          </>
-        ) : (
-          <>
-            <Save className="mr-2 h-4 w-4" />
-            Salvar rascunho
-          </>
-        )}
-      </Button>
-      {showStartNewCycle ? (
-        <Button variant="outline" className="w-full sm:w-auto" onClick={onStartNewCycle} disabled={saving}>
-          <RefreshCcw className="mr-2 h-4 w-4" />
-          Encerrar ciclo e iniciar novo
-        </Button>
-      ) : null}
-      <Button className="w-full sm:w-auto" onClick={onFinalize} disabled={saving}>
-        {saving ? (
-          <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Salvando
-          </>
-        ) : (
-          <>
-            <FileCheck className="mr-2 h-4 w-4" />
-            {finalizeLabel}
-          </>
-        )}
-      </Button>
-    </div>
-  </div>
-);
-
 const CompanyReport = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -3368,6 +3278,7 @@ const CompanyReport = () => {
   );
   const [isPreparingPrint, setIsPreparingPrint] = useState(false);
   const [saving, setSaving] = useState(false);
+  const reportMutationInFlightRef = useRef(false);
   const [uploadingArt, setUploadingArt] = useState(false);
   const [uploadingReportAttachment, setUploadingReportAttachment] = useState(false);
   const [removingReportAttachmentId, setRemovingReportAttachmentId] = useState<string | null>(null);
@@ -4949,11 +4860,12 @@ const CompanyReport = () => {
   }, [isPreparingPrint, pendingPdfPreviewCount]);
 
   const handleStartNewCycle = async () => {
-    if (!id) {
+    if (!id || !canManageReportCycles || reportMutationInFlightRef.current) {
       return;
     }
 
     try {
+      reportMutationInFlightRef.current = true;
       setSaving(true);
       await startNewCompanyReportCycle(
         supabase,
@@ -4971,12 +4883,13 @@ const CompanyReport = () => {
         variant: "destructive",
       });
     } finally {
+      reportMutationInFlightRef.current = false;
       setSaving(false);
     }
   };
 
   const handleSave = async (nextStatus: ReportStatus = "rascunho") => {
-    if (!id || !company || !snapshot) {
+    if (!id || !company || !snapshot || reportMutationInFlightRef.current) {
       return;
     }
 
@@ -5036,6 +4949,7 @@ const CompanyReport = () => {
     }
 
     try {
+      reportMutationInFlightRef.current = true;
       setSaving(true);
 
       clearActiveReportCycleCache(id);
@@ -5189,7 +5103,7 @@ const CompanyReport = () => {
         title: "Relatorio salvo",
         description:
           nextStatus === "finalizado"
-            ? "O relatorio foi salvo e marcado como finalizado."
+            ? "O relatorio foi finalizado. Os registros foram mantidos no ciclo atual."
             : "Os dados do relatorio foram atualizados com sucesso.",
       });
     } catch (error) {
@@ -5200,6 +5114,7 @@ const CompanyReport = () => {
         variant: "destructive",
       });
     } finally {
+      reportMutationInFlightRef.current = false;
       setSaving(false);
     }
   };
@@ -6694,15 +6609,18 @@ const CompanyReport = () => {
               <thead>
                 <tr className="bg-zinc-100 text-left uppercase tracking-[0.08em] text-zinc-600">
                   <th className="w-[38px] border border-zinc-300 px-2 py-2">Item</th>
-                  <th className="w-[110px] border border-zinc-300 px-2 py-2">Secao</th>
+                  <th className="w-[85px] border border-zinc-300 px-2 py-2">Secao</th>
                   <th className="border border-zinc-300 px-2 py-2">Descricao</th>
-                  <th className="w-[120px] border border-zinc-300 px-2 py-2">Status</th>
-                  <th className="w-[165px] border border-zinc-300 px-2 py-2">Registro</th>
+                  <th className="w-[85px] border border-zinc-300 px-2 py-2">Status</th>
+                  <th className="w-[125px] border border-zinc-300 px-2 py-2">Registro</th>
+                  <th className="w-[110px] border border-zinc-300 px-2 py-2">Coordenadas</th>
                 </tr>
               </thead>
               <tbody>
                 {itemChunk.map((item) => {
                   const statusMeta = getChecklistStatusMeta(item.status);
+                  const location = normalizeChecklistLocation(item.localizacao);
+                  const mapsUrl = buildChecklistMapsUrl(location);
                   const auditSummary =
                     equipmentChecklistItemAuditSummaryLookup.get(
                       item.checklist_item_id,
@@ -6725,6 +6643,14 @@ const CompanyReport = () => {
                       </td>
                       <td className="border border-zinc-300 px-2 py-2 text-[10px] leading-4 text-zinc-700">
                         {auditSummary}
+                      </td>
+                      <td className="border border-zinc-300 px-2 py-2 text-[9.5px] leading-4 text-zinc-700">
+                        {location && mapsUrl ? <>
+                          <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-blue-800 underline print:text-zinc-900" title={`Abrir local da inspeção no Google Maps. Capturado em ${formatDateTime(location.captured_at)}`}>
+                            {formatChecklistCoordinates(location)}
+                          </a>
+                          <div className="mt-1 text-[8.5px] text-zinc-500">Precisão: ±{Math.ceil(location.accuracy_m)} m</div>
+                        </> : "Não registrada"}
                       </td>
                     </tr>
                   );

@@ -22,6 +22,8 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { useChecklistLocation } from "@/hooks/useChecklistLocation";
+import { ChecklistLocationNotice } from "@/components/checklists/ChecklistLocationNotice";
 import {
   canCompanyMemberExecuteChecklists,
   loadCompanyMembers,
@@ -235,6 +237,11 @@ const EquipmentChecklistPage = () => {
     useState<EquipmentChecklistSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [canExecuteChecklist, setCanExecuteChecklist] = useState(true);
+  const locationScope = !authLoading && !loading && record && user && canExecuteChecklist
+    ? `${user.id}:qr:${kind}:${token}` : null;
+  const checklistLocation = useChecklistLocation(locationScope);
+  const locationPendingItemIds = useRef(new Set<string>());
+  useEffect(() => { locationPendingItemIds.current.clear(); }, [locationScope]);
   const [saveIndicator, setSaveIndicator] =
     useState<SaveIndicatorState>("idle");
   const [notFound, setNotFound] = useState(false);
@@ -524,6 +531,22 @@ const EquipmentChecklistPage = () => {
     [flushPendingSave],
   );
 
+  useEffect(() => {
+    const location = checklistLocation.location;
+    const currentSnapshot = activeSnapshotRef.current;
+    if (!location || !currentSnapshot || !user) return;
+    let changed = false;
+    let nextSnapshot = currentSnapshot;
+    currentSnapshot.items.forEach((item) => {
+      if (locationPendingItemIds.current.has(item.checklist_item_id) &&
+        item.preenchido_por_user_id === user.id && !item.localizacao) {
+        changed = true;
+        nextSnapshot = updateEquipmentChecklistSnapshotItem(nextSnapshot, item.checklist_item_id, { localizacao: location });
+      }
+    });
+    if (changed) queueSnapshotSave(nextSnapshot);
+  }, [checklistLocation.location, queueSnapshotSave, user]);
+
   const handleSaveCurrentChecklist = useCallback(async () => {
     const currentSnapshot = activeSnapshotRef.current;
 
@@ -555,6 +578,7 @@ const EquipmentChecklistPage = () => {
     }
 
     const existingNonConformity = nonConformities.get(itemId);
+    locationPendingItemIds.current.add(itemId);
     const nextSnapshot = updateEquipmentChecklistSnapshotItem(
       currentSnapshot,
       itemId,
@@ -565,6 +589,7 @@ const EquipmentChecklistPage = () => {
         preenchido_por_nome: currentActorName,
         preenchido_por_user_id: user?.id || null,
         preenchido_em: new Date().toISOString(),
+        localizacao: checklistLocation.location,
       },
     );
 
@@ -664,6 +689,7 @@ const EquipmentChecklistPage = () => {
 
       const currentSnapshot = activeSnapshotRef.current;
       if (currentSnapshot) {
+        locationPendingItemIds.current.add(selectedNonConformityItem.checklist_item_id);
         const nextSnapshot = updateEquipmentChecklistSnapshotItem(
           currentSnapshot,
           selectedNonConformityItem.checklist_item_id,
@@ -672,6 +698,7 @@ const EquipmentChecklistPage = () => {
             preenchido_por_nome: currentActorName,
             preenchido_por_user_id: user?.id || null,
             preenchido_em: new Date().toISOString(),
+            localizacao: checklistLocation.location,
           },
         );
         queueSnapshotSave(nextSnapshot);
@@ -831,6 +858,7 @@ const EquipmentChecklistPage = () => {
   return (
     <div className="min-h-screen bg-muted/20">
       <div className="container mx-auto px-4 py-6 md:py-10">
+        {canExecuteChecklist && <ChecklistLocationNotice {...checklistLocation} onRetry={checklistLocation.requestLocation} />}
         <div className="grid gap-6 lg:grid-cols-[1.05fr,0.95fr]">
           <div className="space-y-6">
             <Card className="overflow-hidden border-none shadow-sm">

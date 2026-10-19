@@ -3,6 +3,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { useChecklistLocation } from "@/hooks/useChecklistLocation";
+import { ChecklistLocationNotice } from "@/components/checklists/ChecklistLocationNotice";
 import { FirePageHeader, FirePageShell } from "@/components/branding/FirePageShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -339,6 +341,7 @@ const buildMirroredEquipmentResponses = (
       preenchido_por_nome: latestAuditItem?.preenchido_por_nome || null,
       preenchido_por_user_id: latestAuditItem?.preenchido_por_user_id || null,
       preenchido_em: latestAuditItem?.preenchido_em || null,
+      localizacao: latestAuditItem?.localizacao || null,
     };
 
     if (statuses.some((item) => item.status === "NC")) {
@@ -654,6 +657,29 @@ const CompanyChecklists = () => {
   const [savingAction, setSavingAction] =
     useState<ChecklistPersistAction | null>(null);
   const [openInspection, setOpenInspection] = useState<string | null>(null);
+  const locationScope = !authLoading && !loading && company && user &&
+    canCompanyMemberExecuteChecklists(currentCompanyMember, isSystemAdmin)
+    ? `${user.id}:${id}:${openInspection || "catalog"}` : null;
+  const checklistLocation = useChecklistLocation(locationScope);
+  const locationPendingItemIds = useRef(new Set<string>());
+
+  useEffect(() => { locationPendingItemIds.current.clear(); }, [locationScope]);
+
+  useEffect(() => {
+    if (!checklistLocation.location || !user) return;
+    const location = checklistLocation.location;
+    const pending = new Set(locationPendingItemIds.current);
+    setResponses((previous) => {
+      const next = new Map(previous);
+      pending.forEach((itemId) => {
+        const response = next.get(itemId);
+        if (response && response.preenchido_por_user_id === user.id && !response.localizacao) {
+          next.set(itemId, { ...response, localizacao: location });
+        }
+      });
+      return next;
+    });
+  }, [checklistLocation.location, user]);
   const [extinguisherDialogOpen, setExtinguisherDialogOpen] =
     useState(false);
   const [hydrantDialogOpen, setHydrantDialogOpen] = useState(false);
@@ -2011,6 +2037,7 @@ const CompanyChecklists = () => {
 
   const handleStatusChange = (itemId: string, status: ChecklistStatus) => {
     markInspectionExecutionTouched(itemId);
+    locationPendingItemIds.current.add(itemId);
     setResponses((previous) => {
       const next = new Map(previous);
       const existing = previous.get(itemId);
@@ -2026,6 +2053,7 @@ const CompanyChecklists = () => {
         preenchido_por_nome: currentActorName,
         preenchido_por_user_id: user?.id || null,
         preenchido_em: now,
+        localizacao: checklistLocation.location,
       });
       return next;
     });
@@ -2230,6 +2258,7 @@ const CompanyChecklists = () => {
         const now = new Date().toISOString();
 
         if (existing?.status === "NC") {
+          locationPendingItemIds.current.add(selectedNonConformityItem.itemId);
           next.set(selectedNonConformityItem.itemId, {
             checklist_item_id: selectedNonConformityItem.itemId,
             status: existing.status,
@@ -2237,6 +2266,7 @@ const CompanyChecklists = () => {
             preenchido_por_nome: currentActorName,
             preenchido_por_user_id: user?.id || null,
             preenchido_em: now,
+            localizacao: checklistLocation.location,
           });
         }
 
@@ -2340,17 +2370,28 @@ const CompanyChecklists = () => {
             !saveScope || inspectionCode === saveScope.inspection.codigo,
         ),
       );
+      const pendingLocationIds = new Set(locationPendingItemIds.current);
+      const capturedLocation = await checklistLocation.waitForLocation();
+      const responsesToSave = new Map(mergedResponses);
+      if (capturedLocation) {
+        pendingLocationIds.forEach((itemId) => {
+          const response = responsesToSave.get(itemId);
+          if (response && response.preenchido_por_user_id === user?.id && !response.localizacao) {
+            responsesToSave.set(itemId, { ...response, localizacao: capturedLocation });
+          }
+        });
+      }
       await saveChecklistResponses({
         supabase,
         companyId: id,
-        responses: mergedResponses,
+        responses: responsesToSave,
         evaluableIds: scopedEvaluableItemIds,
       });
 
       const checklistSnapshot = buildChecklistSnapshot(
         visibleModels,
         visibleGroupsByModel,
-        mergedResponses,
+        responsesToSave,
       );
       const touchedInspections = Array.from(
         touchedInspectionExecutionsRef.current.entries(),
@@ -2745,6 +2786,8 @@ const CompanyChecklists = () => {
             { value: String(luminaireSummary.total), label: "luminarias" },
           ]}
         />
+
+        <ChecklistLocationNotice {...checklistLocation} onRetry={checklistLocation.requestLocation} />
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-8">
           {visibleModels.map((inspection) => {

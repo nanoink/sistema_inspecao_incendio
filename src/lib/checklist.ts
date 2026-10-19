@@ -1,3 +1,5 @@
+import { normalizeChecklistLocation, type ChecklistLocation } from "@/lib/checklist-location";
+
 export interface ChecklistModelShape {
   id: string;
   codigo: string;
@@ -37,6 +39,7 @@ export interface ChecklistResponseShape {
   preenchido_por_nome?: string | null;
   preenchido_por_user_id?: string | null;
   preenchido_em?: string | null;
+  localizacao?: ChecklistLocation | null;
 }
 
 export type ChecklistTableRow =
@@ -75,6 +78,7 @@ export interface ChecklistSnapshotItem {
   preenchido_por_nome?: string | null;
   preenchido_por_user_id?: string | null;
   preenchido_em?: string | null;
+  localizacao?: ChecklistLocation | null;
 }
 
 export interface ChecklistSnapshotInspection {
@@ -106,6 +110,7 @@ export interface ChecklistResponseAuditShape {
   preenchido_por_nome?: string | null;
   preenchido_por_user_id?: string | null;
   preenchido_em?: string | null;
+  localizacao?: ChecklistLocation | null;
 }
 
 const normalizeSnapshotStatus = (
@@ -247,6 +252,7 @@ export const buildChecklistSnapshot = (
         preenchido_por_nome: response?.preenchido_por_nome || null,
         preenchido_por_user_id: response?.preenchido_por_user_id || null,
         preenchido_em: response?.preenchido_em || null,
+        localizacao: normalizeChecklistLocation(response?.localizacao),
       };
 
       items.push(itemSnapshot);
@@ -300,6 +306,7 @@ export const buildChecklistSnapshotAuditMap = (
         preenchido_por_nome: item.preenchido_por_nome || null,
         preenchido_por_user_id: item.preenchido_por_user_id || null,
         preenchido_em: item.preenchido_em || null,
+        localizacao: normalizeChecklistLocation(item.localizacao),
       });
     });
   });
@@ -317,6 +324,12 @@ export const mergeChecklistResponseWithAudit = (
   preenchido_por_user_id:
     response.preenchido_por_user_id || audit?.preenchido_por_user_id || null,
   preenchido_em: response.preenchido_em || audit?.preenchido_em || null,
+  // Uma resposta nova sem GPS não pode herdar o local de uma execução anterior.
+  localizacao: response.localizacao !== undefined
+    ? normalizeChecklistLocation(response.localizacao)
+    : response.preenchido_em && response.preenchido_em !== audit?.preenchido_em
+      ? null
+      : normalizeChecklistLocation(audit?.localizacao),
 });
 
 export const formatChecklistItemAuditSummary = (

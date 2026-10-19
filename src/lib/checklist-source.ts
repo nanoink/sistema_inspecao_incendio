@@ -11,6 +11,7 @@ import {
   resolveEditableReportCycleId,
 } from "@/lib/report-cycles";
 import { isMissingColumnError } from "@/lib/supabase-errors";
+import { normalizeChecklistLocation } from "@/lib/checklist-location";
 
 type AppSupabaseClient = SupabaseClient<Database>;
 
@@ -22,6 +23,7 @@ interface ChecklistResponseRow {
   preenchido_por_nome?: string | null;
   preenchido_por_user_id?: string | null;
   preenchido_em?: string | null;
+  localizacao?: unknown;
   updated_at: string;
 }
 
@@ -60,6 +62,7 @@ const buildResponsesMap = (
       preenchido_por_nome: row.preenchido_por_nome ?? null,
       preenchido_por_user_id: row.preenchido_por_user_id ?? null,
       preenchido_em: row.preenchido_em ?? null,
+      localizacao: normalizeChecklistLocation(row.localizacao),
     });
   });
 
@@ -78,9 +81,7 @@ export const loadChecklistResponses = async (
 
   let responsesQuery = supabase
     .from("empresa_checklist_respostas")
-    .select(
-      "checklist_item_id, relatorio_ciclo_id, status, observacoes, preenchido_por_nome, preenchido_por_user_id, preenchido_em, updated_at",
-    )
+    .select("*")
     .eq("empresa_id", companyId)
     .order("updated_at", { ascending: false });
 
@@ -275,6 +276,7 @@ export const saveChecklistResponses = async ({
       preenchido_por_nome: response.preenchido_por_nome ?? null,
       preenchido_por_user_id: response.preenchido_por_user_id ?? null,
       preenchido_em: response.preenchido_em ?? null,
+      localizacao: response.localizacao ? { ...response.localizacao } : null,
     }));
 
   if (editableReportCycleId) {

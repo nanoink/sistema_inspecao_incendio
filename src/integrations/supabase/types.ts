@@ -479,6 +479,7 @@ export type Database = {
           created_at: string
           empresa_id: string
           id: string
+          localizacao: Json | null
           observacoes: string | null
           relatorio_ciclo_id: string
           preenchido_em: string | null
@@ -492,6 +493,7 @@ export type Database = {
           created_at?: string
           empresa_id: string
           id?: string
+          localizacao?: Json | null
           observacoes?: string | null
           relatorio_ciclo_id?: string
           preenchido_em?: string | null
@@ -505,6 +507,7 @@ export type Database = {
           created_at?: string
           empresa_id?: string
           id?: string
+          localizacao?: Json | null
           observacoes?: string | null
           relatorio_ciclo_id?: string
           preenchido_em?: string | null

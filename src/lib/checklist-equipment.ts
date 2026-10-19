@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { normalizeChecklistLocation } from "@/lib/checklist-location";
 import type {
   Database,
   Json,
@@ -309,6 +310,7 @@ const toSnapshotItem = (value: unknown): ChecklistSnapshotItem | null => {
     preenchido_por_nome: toNullableStringValue(value.preenchido_por_nome),
     preenchido_por_user_id: toNullableStringValue(value.preenchido_por_user_id),
     preenchido_em: toNullableStringValue(value.preenchido_em),
+    localizacao: normalizeChecklistLocation(value.localizacao),
   };
 };
 
@@ -384,6 +386,7 @@ const resetEquipmentChecklistSnapshotResponses = (
       preenchido_por_nome: null,
       preenchido_por_user_id: null,
       preenchido_em: null,
+      localizacao: null,
     })),
   });
 
@@ -581,6 +584,7 @@ export const mergeEquipmentChecklistSnapshotWithTemplate = ({
       preenchido_por_nome: existingItem.preenchido_por_nome || null,
       preenchido_por_user_id: existingItem.preenchido_por_user_id || null,
       preenchido_em: existingItem.preenchido_em || null,
+      localizacao: existingItem.localizacao || null,
     };
   });
 
@@ -924,6 +928,7 @@ export const updateEquipmentChecklistSnapshotItem = (
       | "preenchido_por_nome"
       | "preenchido_por_user_id"
       | "preenchido_em"
+      | "localizacao"
     >
   >,
 ) =>
