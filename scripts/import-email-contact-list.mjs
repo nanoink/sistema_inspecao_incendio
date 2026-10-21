@@ -5,7 +5,8 @@ const directory = path.resolve(process.argv[2] || "output/contact-imports/guia-i
 const apply = process.argv.includes("--apply");
 const contacts = JSON.parse(fs.readFileSync(path.join(directory, "contacts.json"), "utf8"));
 const extraction = JSON.parse(fs.readFileSync(path.join(directory, "summary.json"), "utf8"));
-const listName = path.basename(extraction.source_file, ".pdf");
+const listName = extraction.list_name?.trim() || path.basename(extraction.source_file, path.extname(extraction.source_file));
+if (listName.length < 2 || listName.length > 120) throw new Error("Nome de lista inválido (2 a 120 caracteres).");
 if (contacts.length !== new Set(contacts.map((contact) => contact.email)).size) throw new Error("A extração contém e-mails duplicados.");
 if (!contacts.length || contacts.some((contact) => !contact.email || !contact.metadata?.source_sha256)) throw new Error("Dados de extração incompletos.");
 if (!apply) {
@@ -38,7 +39,7 @@ async function query(sql) {
   return response.json();
 }
 
-const description = `Extraído de ${extraction.source_file}. Edição 2022; ${contacts.length} e-mails únicos e dados de empresas, com páginas de origem. Endereços com formato inválido separados para revisão.`;
+const description = extraction.description || `Extraído de ${extraction.source_file}. Edição 2022; ${contacts.length} e-mails únicos e dados de empresas, com páginas de origem. Endereços com formato inválido separados para revisão.`;
 const existing = await query(`select id from public.email_recipient_lists where lower(btrim(name))=lower(btrim(${sqlValue(listName)}));`);
 let listId = existing[0]?.id;
 if (listId) {

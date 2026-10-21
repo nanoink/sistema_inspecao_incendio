@@ -37,6 +37,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { renderEmailPreview } from "@/lib/email-preview";
 
 type CampaignStatus =
   | "draft"
@@ -199,33 +200,6 @@ const formatDateTime = (value?: string | null) => {
   return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString("pt-BR");
 };
 
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-
-const renderPreview = (html: string, subject: string, previewText: string) => {
-  const unsubscribeUrl = `${window.location.origin}/email/descadastrar/00000000-0000-4000-8000-000000000000`;
-  const replacements: Record<string, string> = {
-    "{{nome}}": "Maria",
-    "{{email}}": "maria@exemplo.com.br",
-    "{{assunto}}": escapeHtml(subject || "Assunto da campanha"),
-    "{{unsubscribe_url}}": unsubscribeUrl,
-  };
-  let rendered = html;
-
-  Object.entries(replacements).forEach(([token, replacement]) => {
-    rendered = rendered.split(token).join(replacement);
-  });
-
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div style="display:none;max-height:0;overflow:hidden;opacity:0">${escapeHtml(
-    previewText,
-  )}</div>${rendered}</body></html>`;
-};
-
 const BulkEmailAdminPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -249,7 +223,7 @@ const BulkEmailAdminPage = () => {
   const [recipientInput, setRecipientInput] = useState("");
   const parsedRecipients = useMemo(() => parseRecipients(recipientInput), [recipientInput]);
   const previewHtml = useMemo(
-    () => renderPreview(campaignForm.htmlBody, campaignForm.subject, campaignForm.previewText),
+    () => renderEmailPreview(campaignForm.htmlBody, campaignForm.subject, campaignForm.previewText, window.location.origin),
     [campaignForm.htmlBody, campaignForm.previewText, campaignForm.subject],
   );
 
@@ -769,8 +743,9 @@ const BulkEmailAdminPage = () => {
                 </div>
                 <div className="space-y-2"><Label htmlFor="scheduled-at">Iniciar em</Label><Input id="scheduled-at" type="datetime-local" value={campaignForm.scheduledAt} onChange={(event) => updateCampaignField("scheduledAt", event.target.value)} /></div>
                 <div className="space-y-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2"><Label htmlFor="html-body">HTML e CSS do e-mail</Label><span className="text-xs text-muted-foreground">Variaveis: {"{{nome}}"}, {"{{email}}"}, {"{{assunto}}"}, {"{{unsubscribe_url}}"}</span></div>
+                  <div className="flex flex-wrap items-center justify-between gap-2"><Label htmlFor="html-body">HTML e CSS do e-mail</Label><span className="text-xs text-muted-foreground">Variaveis: {"{{nome}}"}, {"{{email}}"}, {"{{assunto}}"}, {"{{unsubscribe_url}}"}, {"{{logo_url}}"}, {"{{holding_logo_url}}"}</span></div>
                   <Textarea id="html-body" value={campaignForm.htmlBody} onChange={(event) => updateCampaignField("htmlBody", event.target.value)} className="min-h-[520px] resize-y font-mono text-xs leading-5" spellCheck={false} />
+                  <p className="text-xs text-muted-foreground">As variáveis {"{{logo_url}}"} (FIRE 360) e {"{{holding_logo_url}}"} (Fire Tetraedro) usam as logos oficiais hospedadas publicamente, tanto na prévia quanto no envio.</p>
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
                   <Button variant="outline" onClick={() => void handleSaveDraft()} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FilePlus2 className="mr-2 h-4 w-4" />}Salvar rascunho</Button>
