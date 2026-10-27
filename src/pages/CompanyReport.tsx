@@ -4708,12 +4708,8 @@ const CompanyReport = () => {
         throw uploadError;
       }
 
-      if (artFilePath && artFilePath !== filePath) {
-        await supabase.storage
-          .from(ART_STORAGE_BUCKET)
-          .remove([artFilePath])
-          .catch(() => undefined);
-      }
+      // Do not delete the previous ART: its metadata may still be current if
+      // this save fails, or an archived report may still reference the file.
 
       const { report: data } = await upsertCompanyReportForCycle(
         supabase,

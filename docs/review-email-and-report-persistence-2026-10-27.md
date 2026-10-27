@@ -35,6 +35,8 @@ recuperar os títulos originais apenas pelo nome armazenado.
 - Trigger de proteção no banco também preserva chaves omitidas por clientes antigos.
 - Manter o objeto no Storage quando uma chamada de metadados falha: uma resposta
   perdida após commit não pode resultar na exclusão de um arquivo já vinculado.
+- A substituição de ART não exclui automaticamente o arquivo anterior, mantendo
+  válida a referência antiga se o salvamento falhar ou outro relatório a usar.
 - Registrar o resultado de cada destinatário antes de enviar o próximo.
 - Pausar/bloquear em rejeição de autenticação, sem consumir toda a lista com 535.
 - Orçamento de tempo do lote e limites da conexão SMTP; devolver à fila somente

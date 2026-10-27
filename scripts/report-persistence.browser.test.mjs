@@ -48,7 +48,7 @@ const bundle = await build({
             for(const name of ['single','maybeSingle']){const execute=builder[name];builder[name]=async()=>{const result=await execute();commit();return result;};}
             return builder;
           }
-          const company={id:COMPANY,razao_social:'Empresa fictícia',cnpj:'00000000000000',responsavel:'Teste',telefone:'',email:'test@example.invalid',cidade:'Belém',estado:'PA',area_m2:100,numero_ocupantes:1,possui_responsavel_tecnico:false,possui_atrio:false};
+          const company={id:COMPANY,razao_social:'Empresa fictícia',cnpj:'00000000000000',responsavel:'Teste',telefone:'',email:'test@example.invalid',cidade:'Belém',estado:'PA',area_m2:100,numero_ocupantes:1,possui_responsavel_tecnico:true,possui_atrio:false};
           if(!['empresa','empresa_exigencias','empresa_extintores','empresa_hidrantes','empresa_luminarias'].includes(table))throw new Error('Unexpected table '+table);
           const query={select(){return query},eq(){return query},order(){return query},
             async maybeSingle(){return {data:company,error:null}},then(resolve,reject){return Promise.resolve({data:[],error:null}).then(resolve,reject)}};return query;
@@ -109,6 +109,21 @@ try {
   const attached = await page.evaluate(() => window.__reportFixture.state.rows[0].dados_adicionais.report_attachments);
   assert.equal(attached.length, 2);
   assert.ok(attached.every((file) => file.file_path && !file.file_path.startsWith("blob:")));
+  await page.getByRole("button", { name: "Relatorio tecnico oficial", exact: true }).click();
+  const uploadArt = async (name) => page.locator("#artFile").setInputFiles({ name, mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\nfixture") });
+  await uploadArt("art-original.pdf");
+  await page.waitForFunction(() => window.__reportFixture.state.rows[0].dados_adicionais.art_file_name === "art-original.pdf");
+  const originalArtPath = await page.evaluate(() => window.__reportFixture.state.rows[0].dados_adicionais.art_file_path);
+  await page.evaluate(() => { window.__reportFixture.state.failWrites = true; });
+  await uploadArt("art-save-failed.pdf");
+  await page.waitForFunction(() => window.__toasts?.at(-1)?.title === "Erro ao enviar ART");
+  assert.equal(await page.evaluate(() => window.__reportFixture.state.rows[0].dados_adicionais.art_file_path), originalArtPath);
+  assert.ok(await page.evaluate(() => Object.values(window.__reportFixture.files).some((file) => file.name === "art-original.pdf")));
+  await page.evaluate(() => { window.__reportFixture.state.failWrites = false; });
+  await uploadArt("art-substituta.pdf");
+  await page.waitForFunction(() => window.__reportFixture.state.rows[0].dados_adicionais.art_file_name === "art-substituta.pdf");
+  assert.ok(await page.evaluate(() => Object.values(window.__reportFixture.files).some((file) => file.name === "art-original.pdf")));
+  assert.equal(await page.evaluate(() => window.__reportFixture.state.rows[0].dados_adicionais.report_attachments.length), 2);
   await page.getByRole("button", { name: "Remover", exact: true }).first().click();
   await page.waitForFunction(() => window.__reportFixture.state.rows[0].dados_adicionais.report_attachments.length === 1);
   await page.reload();
@@ -116,7 +131,7 @@ try {
   assert.equal(await page.getByText("planta.png", { exact: true }).count(), 0);
   assert.ok(await page.getByText("laudo.pdf", { exact: true }).count());
   assert.deepEqual(errors, []);
-  console.log("PASS: real image/PDF upload controls → persistence → leave report → save checklist → reopen → save draft → full reload → refreshed links → explicit removal only. No external requests.");
+  console.log("PASS: real image/PDF upload → leave → save checklist → reopen → save draft → reload → refreshed links → explicit removal only; ART replacement preserves prior file after failed and successful saves. No external requests.");
 } finally {
   await browser?.close();
   await new Promise((resolve) => server.close(resolve));
