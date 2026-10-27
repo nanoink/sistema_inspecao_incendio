@@ -9,6 +9,7 @@ export type DeliveryResult = {
 };
 
 type CampaignState = { status?: string } | null;
+export class BeforeEmailSubmissionError extends Error {}
 
 export const processClaimedEmailBatch = async ({
   deliveries, send, persist, halt, now = Date.now, budgetMs = 60_000,
@@ -38,11 +39,11 @@ export const processClaimedEmailBatch = async ({
       result = { delivery_id: delivery.delivery_id, status: "sent", provider_message_id: messageId, error_message: null };
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 2000) : "Falha desconhecida no provedor.";
-      if (isSmtpAuthenticationError(error)) {
+      if (isSmtpAuthenticationError(error) || error instanceof BeforeEmailSubmissionError) {
         // Authentication failed before DATA: no message was submitted, so these
         // rows can safely remain queued, but only an admin may resume the campaign.
         await halt(remaining(index), message, true);
-        stopped = "authentication";
+        stopped = error instanceof BeforeEmailSubmissionError ? "preparation" : "authentication";
         break;
       }
       result = {

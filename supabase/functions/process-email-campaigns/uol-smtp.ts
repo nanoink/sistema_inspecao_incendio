@@ -187,24 +187,24 @@ export const connectAuthenticatedUolSmtp = async (
   }
 };
 
-export const sendWithUolSmtp = async ({
-  delivery,
-  html,
-  config,
-}: {
+export type PreparedSmtpMessage = { messageId: string; message: string };
+
+export const buildUolSmtpMessage = ({ delivery, html, config, messageId: suppliedId, date = new Date() }: {
   delivery: ClaimedDelivery;
   html: string;
   config: EmailProviderConfiguration;
+  messageId?: string;
+  date?: Date;
 }) => {
   const unsubscribeUrl = `${config.publicAppUrl.replace(/\/$/, "")}/email/descadastrar/${delivery.unsubscribe_token}`;
   const fromAddress = sanitizeHeader(config.fromAddress);
   const recipientAddress = sanitizeHeader(delivery.recipient_email);
   const replyTo = delivery.reply_to ? sanitizeHeader(delivery.reply_to) : null;
   const messageDomain = fromAddress.split("@")[1]?.replace(/[^a-z0-9.-]/gi, "") || "fire360.local";
-  const messageId = `${crypto.randomUUID()}@${messageDomain}`;
+  const messageId = sanitizeHeader(suppliedId || `${crypto.randomUUID()}@${messageDomain}`);
   const encodedHtml = encodeBase64(html).replace(/.{1,76}/g, "$&\r\n").trimEnd();
   const message = [
-    `Date: ${new Date().toUTCString()}`,
+    `Date: ${date.toUTCString()}`,
     `Message-ID: <${messageId}>`,
     `From: ${encodeMimeHeader(delivery.sender_name)} <${fromAddress}>`,
     `To: ${delivery.recipient_name ? `${encodeMimeHeader(delivery.recipient_name)} ` : ""}<${recipientAddress}>`,
@@ -219,6 +219,18 @@ export const sendWithUolSmtp = async ({
     "",
     encodedHtml,
   ].join("\r\n");
+  return { messageId, message: `${message}\r\n` } satisfies PreparedSmtpMessage;
+};
+
+export const sendWithUolSmtp = async ({ delivery, html, config, prepared }: {
+  delivery: ClaimedDelivery;
+  html: string;
+  config: EmailProviderConfiguration;
+  prepared?: PreparedSmtpMessage;
+}) => {
+  const { messageId, message } = prepared || buildUolSmtpMessage({ delivery, html, config });
+  const fromAddress = sanitizeHeader(config.fromAddress);
+  const recipientAddress = sanitizeHeader(delivery.recipient_email);
   const connection = await connectAuthenticatedUolSmtp(config);
   let submissionStarted = false;
   let accepted = false;
@@ -236,7 +248,7 @@ export const sendWithUolSmtp = async ({
     );
     await runSmtpCommand(connection, "DATA", [354], "conteúdo");
     submissionStarted = true;
-    await writeSmtp(connection, `${message.replace(/^\./gm, "..")}\r\n.\r\n`);
+    await writeSmtp(connection, `${message.replace(/^\./gm, "..")}${message.endsWith("\r\n") ? "" : "\r\n"}.\r\n`);
     assertSmtpCode(await readSmtpResponse(connection), [250], "entrega");
     accepted = true;
 

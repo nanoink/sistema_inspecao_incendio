@@ -12,6 +12,13 @@ export const getProviderConfiguration = () => {
   const uolSmtpPort = parsedUolSmtpPort;
   const uolSmtpUsername = (Deno.env.get("UOL_SMTP_USERNAME") || "").trim();
   const uolSmtpPassword = Deno.env.get("UOL_SMTP_PASSWORD") || "";
+  const uolImapHost = (Deno.env.get("UOL_IMAP_HOST") || "imap.uhserver.com").trim();
+  const uolImapPort = Number(Deno.env.get("UOL_IMAP_PORT") || "993");
+  const uolImapUsername = (Deno.env.get("UOL_IMAP_USERNAME") || uolSmtpUsername).trim();
+  const uolImapPassword = Deno.env.get("UOL_IMAP_PASSWORD") || uolSmtpPassword;
+  const uolSentFolder = (Deno.env.get("UOL_SENT_FOLDER") || "").trim();
+  const uolSaveSentCopies = Deno.env.get("UOL_SAVE_SENT_COPIES") !== "false";
+  const imapConfigured = Boolean(uolImapHost && uolImapPort === 993 && uolImapUsername && uolImapPassword);
 
   const smtpConfigured = Boolean(
     uolSmtpHost && uolSmtpUsername && uolSmtpPassword && uolSmtpPort === 465,
@@ -33,6 +40,8 @@ export const getProviderConfiguration = () => {
     uolSmtpPort,
     uolSmtpUsername,
     uolSmtpPassword,
+    uolImapHost, uolImapPort, uolImapUsername, uolImapPassword,
+    uolSentFolder, uolSaveSentCopies, imapConfigured,
     smtpConfigured,
     configured,
   };

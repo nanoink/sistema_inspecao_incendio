@@ -1,9 +1,11 @@
 import { createClient } from "npm:@supabase/supabase-js@2.75.0";
 import type { ClaimedDelivery } from "./email-types.ts";
 import { getProviderConfiguration } from "./email-config.ts";
-import { connectAuthenticatedUolSmtp, runSmtpCommand, sendWithUolSmtp } from "./uol-smtp.ts";
+import { buildUolSmtpMessage, connectAuthenticatedUolSmtp, runSmtpCommand, sendWithUolSmtp, type PreparedSmtpMessage } from "./uol-smtp.ts";
 import { renderEmailHtml } from "./email-content.ts";
-import { processClaimedEmailBatch } from "./batch-processor.ts";
+import { BeforeEmailSubmissionError, processClaimedEmailBatch } from "./batch-processor.ts";
+import { archiveUolSentCopies } from "./uol-archive-worker.ts";
+import { connectUolImap } from "./uol-imap.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -45,10 +47,12 @@ const sendWithProvider = async ({
   delivery,
   html,
   config,
+  prepareCopy,
 }: {
   delivery: ClaimedDelivery;
   html: string;
   config: ReturnType<typeof getProviderConfiguration>;
+  prepareCopy: (message: PreparedSmtpMessage) => Promise<PreparedSmtpMessage>;
 }) => {
   const unsubscribeUrl = `${config.publicAppUrl.replace(/\/$/, "")}/email/descadastrar/${delivery.unsubscribe_token}`;
   const commonHeaders = {
@@ -56,7 +60,9 @@ const sendWithProvider = async ({
   };
 
   if (config.provider === "uol_smtp") {
-    return sendWithUolSmtp({ delivery, html, config });
+    const message = buildUolSmtpMessage({ delivery, html, config });
+    const prepared = config.uolSaveSentCopies ? await prepareCopy(message) : message;
+    return sendWithUolSmtp({ delivery, html, config, prepared });
   }
 
   if (config.provider === "resend") {
@@ -126,6 +132,7 @@ const sendWithProvider = async ({
 };
 
 export const handler = async (request: Request) => {
+  const requestStartedAt = Date.now();
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -183,7 +190,7 @@ export const handler = async (request: Request) => {
   }
 
   const body = (await request.json().catch(() => ({}))) as {
-    action?: "status" | "process" | "test_smtp";
+    action?: "status" | "process" | "test_smtp" | "test_imap" | "archive_sent_copies";
   };
   const config = getProviderConfiguration();
 
@@ -198,8 +205,20 @@ export const handler = async (request: Request) => {
       smtp_username_configured: Boolean(config.uolSmtpUsername),
       smtp_password_configured: Boolean(config.uolSmtpPassword),
       smtp_configured: config.smtpConfigured,
+      uol_archive_enabled: config.provider === "uol_smtp" && config.uolSaveSentCopies,
+      imap_configured: config.imapConfigured,
       authorization_mode: authorizationMode,
     });
+  }
+
+  if (body.action === "test_imap") {
+    try {
+      const session = await connectUolImap(config);
+      try { return jsonResponse(200, { ok: true, folder: await session.sentFolder(config.uolSentFolder) }); }
+      finally { session.close(); }
+    } catch (error) {
+      return jsonResponse(200, { ok: false, error: error instanceof Error ? error.message : "Falha no IMAP." });
+    }
   }
 
   if (body.action === "test_smtp") {
@@ -225,6 +244,14 @@ export const handler = async (request: Request) => {
     }
   }
 
+  let archiveResult: Record<string, unknown>;
+  try { archiveResult = await archiveUolSentCopies(adminClient, config); }
+  catch (error) {
+    archiveResult = { archived: 0, error: error instanceof Error ? error.message : "Falha no arquivamento UOL." };
+    console.error("UOL archive pending:", archiveResult.error);
+  }
+  if (body.action === "archive_sent_copies") return jsonResponse(200, archiveResult);
+
   const workerId = crypto.randomUUID();
   const { error: recoveryError } = await adminClient.rpc("recover_interrupted_email_deliveries");
   if (recoveryError) {
@@ -246,6 +273,7 @@ export const handler = async (request: Request) => {
   if (deliveries.length === 0) {
     return jsonResponse(200, {
       processed: 0,
+      uol_archive: archiveResult,
       message: "Nenhum lote de campanha esta pendente neste momento.",
     });
   }
@@ -272,9 +300,20 @@ export const handler = async (request: Request) => {
   try {
     const result = await processClaimedEmailBatch({
       deliveries,
+      budgetMs: Math.max(0, 60_000 - (Date.now() - requestStartedAt)),
       send: (delivery) => {
         const html = renderEmailHtml({ delivery, publicAppUrl: config.publicAppUrl });
-        return sendWithProvider({ delivery, html, config });
+        return sendWithProvider({ delivery, html, config, prepareCopy: async (message) => {
+          const { data, error } = await adminClient.rpc("prepare_uol_sent_copy", {
+            p_delivery_id: delivery.delivery_id, p_worker_id: workerId,
+            p_message_id: message.messageId, p_mime_message: message.message,
+          });
+          const prepared = (data || [])[0];
+          if (error || !prepared?.mime_message || !prepared?.message_id) {
+            throw new BeforeEmailSubmissionError("Nao foi possivel preparar a copia UOL. Nenhum email foi submetido.");
+          }
+          return { messageId: prepared.message_id, message: prepared.mime_message };
+        } });
       },
       persist: async (result) => {
         const { data, error } = await adminClient.rpc("finalize_email_campaign_batch", {
@@ -292,7 +331,7 @@ export const handler = async (request: Request) => {
         return data;
       },
     });
-    return jsonResponse(200, { ...result, campaign_id: campaignId });
+    return jsonResponse(200, { ...result, campaign_id: campaignId, uol_archive: archiveResult });
   } catch (error) {
     console.error("Error checkpointing email campaign batch:", error);
     return jsonResponse(500, {

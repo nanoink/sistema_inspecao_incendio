@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { processClaimedEmailBatch } from "../supabase/functions/process-email-campaigns/batch-processor.ts";
+import { BeforeEmailSubmissionError, processClaimedEmailBatch } from "../supabase/functions/process-email-campaigns/batch-processor.ts";
 import { SmtpCommandError, UncertainEmailDeliveryError } from "../supabase/functions/process-email-campaigns/uol-smtp.ts";
 
 const deliveries = Array.from({ length: 4 }, (_, index) => ({ delivery_id: String(index), campaign_id: "campaign" }));
@@ -72,4 +72,14 @@ test("administrator pause during a batch prevents starting the next message", as
   assert.equal(result.sent, 1);
   assert.equal(result.stopped, "paused");
   assert.deepEqual(events[1], ["halt", ["1", "2", "3"], null, false]);
+});
+
+test("archive preparation failure stops before SMTP without marking recipients failed or submitted", async () => {
+  const { events, options } = fixture();
+  options.send = async () => { throw new BeforeEmailSubmissionError("copy outbox unavailable"); };
+  const result = await processClaimedEmailBatch(options);
+  assert.equal(result.stopped, "preparation");
+  assert.equal(result.sent, 0);
+  assert.equal(result.failed, 0);
+  assert.deepEqual(events, [["halt", ["0", "1", "2", "3"], "copy outbox unavailable", true]]);
 });

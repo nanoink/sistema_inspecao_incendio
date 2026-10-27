@@ -14,6 +14,8 @@ const labels: Record<string, string> = {
 type Delivery = {
   id: string; recipient_email: string; status: string; last_error: string | null;
   sent_at: string | null; updated_at: string; provider_message_id: string | null;
+  uol_archive_status?: string; uol_archive_folder?: string | null;
+  uol_archived_at?: string | null; uol_archive_error?: string | null;
 };
 
 export function CampaignDeliveryDialog({ campaign, onClose }: {
@@ -36,7 +38,7 @@ export function CampaignDeliveryDialog({ campaign, onClose }: {
     setError(null);
     const load = async () => {
       let query = (supabase as unknown as SupabaseClient).from("email_campaign_deliveries")
-        .select("id, recipient_email, status, last_error, sent_at, updated_at, provider_message_id", { count: "exact" })
+        .select("id, recipient_email, status, last_error, sent_at, updated_at, provider_message_id, uol_archive_status, uol_archive_folder, uol_archived_at, uol_archive_error", { count: "exact" })
         .eq("campaign_id", campaignId).order("created_at").order("id");
       if (filter !== "all") query = query.eq("status", filter);
       const { data, count, error: queryError } = await query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
@@ -68,6 +70,12 @@ export function CampaignDeliveryDialog({ campaign, onClose }: {
           <div className="flex flex-wrap justify-between gap-2"><span className="break-all font-semibold">{row.recipient_email}</span><span>{labels[row.status] || row.status}</span></div>
           <p className="mt-1 text-xs text-muted-foreground">{new Date(row.sent_at || row.updated_at).toLocaleString("pt-BR")}</p>
           {row.last_error ? <p className="mt-2 break-words text-red-700">{row.last_error}</p> : null}
+          {row.status === "sent" ? <p className="mt-1 text-xs text-muted-foreground">
+            {row.uol_archive_status === "saved" ? `Cópia salva no UOL: ${row.uol_archive_folder || "Enviados"}`
+              : row.uol_archive_status === "error" ? `Cópia UOL pendente de nova tentativa: ${row.uol_archive_error || "falha de arquivamento"}`
+              : row.uol_archive_status === "pending" ? "Cópia UOL aguardando arquivamento. O e-mail não será reenviado."
+              : "Sem cópia UOL registrada: envio antigo ou arquivamento desativado."}
+          </p> : null}
           <p className="mt-1 break-all text-xs text-muted-foreground">Registro: {row.id}{row.provider_message_id ? ` | Message-ID: ${row.provider_message_id}` : ""}</p>
         </article>)}</div>}
       <div className="flex items-center justify-between gap-2 text-sm">

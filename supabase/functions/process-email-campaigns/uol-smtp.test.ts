@@ -1,4 +1,4 @@
-import { encodeMimeHeader, readSmtpResponse, sendWithUolSmtp, isSmtpAuthenticationError, SmtpCommandError, UncertainEmailDeliveryError } from "./uol-smtp.ts";
+import { buildUolSmtpMessage, encodeMimeHeader, readSmtpResponse, sendWithUolSmtp, isSmtpAuthenticationError, SmtpCommandError, UncertainEmailDeliveryError } from "./uol-smtp.ts";
 import { getProviderConfiguration } from "./email-config.ts";
 
 const assert = (condition: unknown, message: string) => {
@@ -127,3 +127,22 @@ for (const [name, lastResponse, expected] of [
     } finally { Deno.connectTls = original; }
   });
 }
+
+Deno.test("the prepared MIME archived in UOL is exactly the message submitted by SMTP", async () => {
+  const original = Deno.connectTls;
+  const responses = ["220 ready\r\n", "250 hello\r\n", "334 user\r\n", "334 password\r\n", "235 ok\r\n", "250 sender\r\n", "250 recipient\r\n", "354 data\r\n", "250 accepted\r\n", "221 bye\r\n"];
+  const writes: string[] = [];
+  Deno.connectTls = (() => Promise.resolve({
+    async read(buffer: Uint8Array) { const next = responses.shift(); if (!next) return null; const bytes = new TextEncoder().encode(next); buffer.set(bytes); return bytes.length; },
+    async write(bytes: Uint8Array) { writes.push(new TextDecoder().decode(bytes)); return bytes.length; }, close() {},
+  })) as unknown as typeof Deno.connectTls;
+  try {
+    const config = { ...getProviderConfiguration(), fromAddress: "sender@example.invalid", publicAppUrl: "https://example.invalid", uolSmtpUsername: "fixture", uolSmtpPassword: "fixture" };
+    const delivery = { delivery_id: "fixture", campaign_id: "fixture", recipient_email: "recipient@example.invalid", recipient_name: null, unsubscribe_token: "fixture", subject: "Sem envio real", preview_text: null, html_body: "", sender_name: "Fixture", reply_to: null };
+    const prepared = buildUolSmtpMessage({ config, delivery, html: "<p>Conteudo exato ç</p>", messageId: "stable@example.invalid", date: new Date("2026-10-27T12:00:00Z") });
+    const sentId = await sendWithUolSmtp({ config, delivery, html: "must not replace prepared content", prepared });
+    assert(sentId === prepared.messageId, "SMTP changed Message-ID.");
+    assert(writes.includes(prepared.message + ".\r\n"), "SMTP bytes differ from durable archive MIME.");
+    assert(prepared.message.includes("Date: Tue, 27 Oct 2026 12:00:00 GMT\r\n"), "Prepared date changed.");
+  } finally { Deno.connectTls = original; }
+});

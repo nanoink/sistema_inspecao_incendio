@@ -134,6 +134,39 @@ Em 14/10/2026, a conexão TLS e a autenticação dessa caixa foram confirmadas
 localmente após a habilitação do acesso externo na UOL. A execução dentro do
 Supabase deve ser verificada depois da publicação da função.
 
+## Cópias no UOL — 27/10/2026
+
+O SMTP não grava automaticamente os envios do sistema na caixa postal. A função
+agora prepara uma cópia MIME durável antes da submissão SMTP e a arquiva por IMAP
+somente depois que a entrega está registrada como `sent`, com o mesmo Message-ID.
+
+- Servidor IMAP: `imap.uhserver.com:993`, TLS. Usuário e senha usam por padrão as
+  secrets SMTP já existentes; nunca ficam no frontend.
+- A pasta é descoberta pela flag `\\Sent`. Nesta caixa, o servidor retornou
+  **Itens Enviados**. Nenhuma pasta paralela é criada.
+- `UOL_SAVE_SENT_COPIES` é habilitado por padrão; `false` desliga a preparação de
+  cópias para novos envios. Host, porta, credenciais e pasta aceitam sobrescrita
+  com `UOL_IMAP_*` e `UOL_SENT_FOLDER`; não é necessário repetir secrets.
+- `email_uol_sent_copies` guarda o MIME com RLS e acesso exclusivo de serviço.
+  O corpo duplicado é apagado do banco após confirmação da cópia no IMAP.
+- O cron existente processa até cinco cópias por chamada, independentemente do
+  status da campanha. O envio SMTP e seus contadores nunca são revertidos se
+  houver falha de arquivamento. Retentativas fazem primeiro busca de Message-ID
+  para não duplicar uma cópia cujo APPEND foi aceito antes de uma interrupção.
+- A tela “Ver resultados” informa se a cópia está pendente, salva ou em erro.
+- A migration não cria cópias retroativas. Mensagens `failed` e `uncertain`
+  nunca são arquivadas como enviadas. Importação do histórico confirmado exige
+  solicitação administrativa específica e deve identificar as cópias reconstruídas.
+
+`npm run emails:imap:check` só autentica e identifica a pasta, sem alterar mensagens.
+Adicionar `-- --append-test` grava uma única cópia de teste claramente identificada,
+verifica o UID e repete a busca para provar idempotência. Não há submissão SMTP.
+Na validação inicial, o UOL confirmou a pasta `Itens Enviados` e o UID `19`.
+
+As ações autenticadas `test_imap` e `archive_sent_copies` da Edge Function,
+respectivamente, verificam a pasta e processam apenas cópias pendentes. Nenhuma
+delas reserva destinatários ou chama o transporte SMTP.
+
 ## Transportes alternativos por API HTTPS
 
 O processador já aceita Resend ou uma API HTTPS genérica. Exemplo para Resend:
