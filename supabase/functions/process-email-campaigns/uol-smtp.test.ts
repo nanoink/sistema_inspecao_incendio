@@ -1,4 +1,4 @@
-import { encodeMimeHeader, readSmtpResponse } from "./uol-smtp.ts";
+import { encodeMimeHeader, readSmtpResponse, sendWithUolSmtp, isSmtpAuthenticationError, SmtpCommandError, UncertainEmailDeliveryError } from "./uol-smtp.ts";
 import { getProviderConfiguration } from "./email-config.ts";
 
 const assert = (condition: unknown, message: string) => {
@@ -90,3 +90,40 @@ Deno.test("Teste SMTP independe da URL pública e exige a porta TLS 465", () => 
     });
   }
 });
+
+for (const [name, lastResponse, expected] of [
+  ["conexao perdida depois de DATA fica sem confirmacao", null, "uncertain"],
+  ["rejeicao explicita depois de DATA continua sendo falha", "550 rejected\r\n", "failed"],
+  ["aceite 250 seguido de falha no QUIT continua enviado", "250 accepted\r\n", "sent"],
+] as const) {
+  Deno.test(name, async () => {
+    const original = Deno.connectTls;
+    const responses = ["220 ready\r\n", "250 hello\r\n", "334 user\r\n", "334 password\r\n", "235 ok\r\n", "250 sender\r\n", "250 recipient\r\n", "354 data\r\n", lastResponse];
+    Deno.connectTls = (() => Promise.resolve({
+      async read(buffer: Uint8Array) {
+        const response = responses.shift();
+        if (response == null) return null;
+        const bytes = new TextEncoder().encode(response); buffer.set(bytes); return bytes.length;
+      },
+      async write(bytes: Uint8Array) { return bytes.length; }, close() {},
+    })) as unknown as typeof Deno.connectTls;
+    try {
+      let caught: unknown;
+      let result: string | undefined;
+      try {
+        result = await sendWithUolSmtp({ delivery: {
+          delivery_id: "fixture", campaign_id: "fixture", recipient_email: "recipient@example.invalid", recipient_name: null,
+          unsubscribe_token: "fixture", subject: "No sending", preview_text: null, html_body: "<p>Fixture</p>", sender_name: "Fixture", reply_to: null,
+        }, html: "<p>Fixture</p>", config: {
+          ...getProviderConfiguration(), fromAddress: "sender@example.invalid", publicAppUrl: "https://example.invalid",
+          uolSmtpUsername: "fixture", uolSmtpPassword: "fixture",
+        } });
+      } catch (error) { caught = error; }
+      if (expected === "uncertain") assert(caught instanceof UncertainEmailDeliveryError, "Ambiguous send was not quarantined.");
+      if (expected === "failed") assert(caught instanceof SmtpCommandError && caught.code === 550, "Explicit rejection was misclassified.");
+      if (expected === "sent") assert(Boolean(result) && !caught, "Accepted message was marked failed.");
+      assert(isSmtpAuthenticationError(new SmtpCommandError(535, "senha")), "535 should halt authentication.");
+      assert(!isSmtpAuthenticationError(new SmtpCommandError(450, "destinatário")), "Recipient error incorrectly classified as authentication.");
+    } finally { Deno.connectTls = original; }
+  });
+}

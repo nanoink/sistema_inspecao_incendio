@@ -24,6 +24,7 @@ import {
 
 import { FirePageHeader, FirePageShell } from "@/components/branding/FirePageShell";
 import { RecipientListDialog } from "@/components/email/RecipientListDialog";
+import { CampaignDeliveryDialog } from "@/components/email/CampaignDeliveryDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -74,6 +75,7 @@ interface CampaignRow {
   sent_count: number;
   failed_count: number;
   skipped_count: number;
+  uncertain_count?: number;
   last_error: string | null;
   created_at: string;
   updated_at: string;
@@ -214,6 +216,7 @@ const BulkEmailAdminPage = () => {
   const [lists, setLists] = useState<RecipientListRow[]>([]);
   const [viewingList, setViewingList] = useState<RecipientListRow | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
+  const [viewingCampaign, setViewingCampaign] = useState<CampaignRow | null>(null);
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | null>(null);
   const [campaignForm, setCampaignForm] = useState<CampaignFormState>(emptyCampaignForm);
   const [editingCampaignId, setEditingCampaignId] = useState<string | null>(null);
@@ -516,11 +519,11 @@ const BulkEmailAdminPage = () => {
       if (error) {
         throw error;
       }
-      const result = data as { processed?: number; sent?: number; failed?: number; message?: string };
+      const result = data as { processed?: number; sent?: number; failed?: number; uncertain?: number; stopped?: string | null; message?: string };
       toast({
-        title: result.processed ? "Lote processado" : "Nenhum lote pendente",
-        description: result.processed
-          ? `${result.sent || 0} enviado(s) e ${result.failed || 0} com falha.`
+        title: result.stopped ? "Processamento interrompido com segurança" : result.processed ? "Lote processado" : "Nenhum lote pendente",
+        description: result.processed || result.stopped
+          ? `${result.sent || 0} aceito(s), ${result.failed || 0} com falha e ${result.uncertain || 0} sem confirmação. Consulte os resultados da campanha.`
           : result.message || "Nao ha campanhas vencidas neste momento.",
       });
       await loadData();
@@ -682,6 +685,7 @@ const BulkEmailAdminPage = () => {
                           <span>{campaign.sent_count} de {campaign.total_recipients} enviados</span>
                         </div>
                         <Progress value={progress} className="h-2" />
+                        <p className="mt-2 text-xs text-muted-foreground">Processado inclui falhas e ignorados. Enviado significa aceito pelo servidor SMTP, não confirmação de recebimento.</p>
                       </div>
                       <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                         <div className="rounded-xl bg-emerald-50 p-3"><div className="font-bold text-emerald-700">{campaign.sent_count}</div><div className="text-xs text-emerald-700/75">Enviados</div></div>
@@ -689,6 +693,9 @@ const BulkEmailAdminPage = () => {
                         <div className="rounded-xl bg-slate-100 p-3"><div className="font-bold text-slate-700">{campaign.skipped_count}</div><div className="text-xs text-slate-600">Ignorados</div></div>
                         <div className="rounded-xl bg-blue-50 p-3"><div className="font-bold text-blue-700">{campaign.batch_size}</div><div className="text-xs text-blue-700/75">Por lote</div></div>
                       </div>
+                      {(campaign.uncertain_count || 0) > 0 ? (
+                        <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertTitle>{campaign.uncertain_count} envio(s) sem confirmação</AlertTitle><AlertDescription>A execução foi interrompida antes de registrar todos os resultados. A campanha está bloqueada para evitar duplicidades. Confira esses destinatários no provedor antes de qualquer reenvio.</AlertDescription></Alert>
+                      ) : null}
                       <div className="grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
                         <div>Lista: <strong className="text-foreground">{campaign.email_recipient_lists?.name || "-"}</strong></div>
                         <div>Cadencia: <strong className="text-foreground">a cada {campaign.interval_minutes} min</strong></div>
@@ -699,9 +706,10 @@ const BulkEmailAdminPage = () => {
                         <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertDescription>{campaign.last_error}</AlertDescription></Alert>
                       ) : null}
                       <div className="flex flex-wrap justify-end gap-2">
+                        <Button variant="outline" onClick={() => setViewingCampaign(campaign)}><Eye className="mr-2 h-4 w-4" />Ver resultados</Button>
                         {campaign.status === "draft" ? <Button variant="outline" onClick={() => handleEditDraft(campaign)}><Code2 className="mr-2 h-4 w-4" />Editar</Button> : null}
                         {campaign.status === "scheduled" || campaign.status === "running" ? <Button variant="outline" onClick={() => void handleCampaignAction("pause_email_campaign", campaign.id)}><CirclePause className="mr-2 h-4 w-4" />Pausar</Button> : null}
-                        {campaign.status === "paused" || campaign.status === "blocked" ? <Button variant="outline" onClick={() => void handleCampaignAction("resume_email_campaign", campaign.id)}><CirclePlay className="mr-2 h-4 w-4" />Retomar</Button> : null}
+                        {campaign.status === "paused" || campaign.status === "blocked" ? <Button variant="outline" disabled={(campaign.uncertain_count || 0) > 0} onClick={() => void handleCampaignAction("resume_email_campaign", campaign.id)}><CirclePlay className="mr-2 h-4 w-4" />Retomar</Button> : null}
                         {!(["completed", "cancelled", "draft"] as CampaignStatus[]).includes(campaign.status) ? <Button variant="destructive" onClick={() => void handleCampaignAction("cancel_email_campaign", campaign.id)}><Square className="mr-2 h-4 w-4" />Cancelar</Button> : null}
                       </div>
                     </CardContent>
@@ -794,6 +802,7 @@ const BulkEmailAdminPage = () => {
           </div>
         </TabsContent>
       </Tabs>
+      <CampaignDeliveryDialog campaign={viewingCampaign} onClose={() => setViewingCampaign(null)} />
       <RecipientListDialog list={viewingList} onClose={() => setViewingList(null)} onCreated={loadData} />
     </FirePageShell>
   );

@@ -168,65 +168,80 @@ export const upsertCompanyReportForCycle = async (
   options?: {
     editableCycle?: boolean;
     select?: string;
+    attachmentChange?: { add: Json } | { removeId: string };
   },
 ) => {
   const cycleResolver = options?.editableCycle
     ? resolveEditableReportCycleId
     : resolveActiveReportCycleId;
   const resolvedCycleId = await cycleResolver(supabase, companyId);
-  const nextAdditionalData = isObjectRecord(payload.dados_adicionais)
-    ? {
-        ...payload.dados_adicionais,
-        report_cycle_id: resolvedCycleId,
-      }
-    : resolvedCycleId
-      ? ({ report_cycle_id: resolvedCycleId } satisfies Record<string, Json>)
-      : payload.dados_adicionais;
-
-  const nextPayload: ReportInsert = {
-    ...payload,
-    empresa_id: companyId,
-    relatorio_ciclo_id: resolvedCycleId ?? undefined,
-    dados_adicionais: nextAdditionalData,
-  };
-
   const select = options?.select || "*";
-  const { data, error } = await supabase
-    .from("empresa_relatorios")
-    .upsert(nextPayload, { onConflict: "empresa_id,relatorio_ciclo_id" })
-    .select(select)
-    .single();
+  let legacySchema = false;
 
-  if (error) {
-    if (isMissingColumnError(error, ["relatorio_ciclo_id"])) {
-      const legacyPayload = {
-        ...payload,
-        empresa_id: companyId,
-      };
-
-      const fallbackResult = await supabase
-        .from("empresa_relatorios")
-        .upsert(legacyPayload, { onConflict: "empresa_id" })
-        .select(select)
-        .single();
-
-      if (fallbackResult.error) {
-        throw fallbackResult.error;
+  // A checklist save is only a patch: it must never replace the report's JSON
+  // with { report_cycle_id }. Re-read and compare updated_at so another tab's
+  // attachments/ART cannot be overwritten between the read and the write.
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    let currentQuery = supabase
+      .from("empresa_relatorios")
+      .select("id, updated_at, dados_adicionais")
+      .eq("empresa_id", companyId);
+    if (resolvedCycleId && !legacySchema) {
+      currentQuery = currentQuery.eq("relatorio_ciclo_id", resolvedCycleId);
+    }
+    const currentResult = await currentQuery.maybeSingle();
+    if (currentResult.error) {
+      if (!legacySchema && isMissingColumnError(currentResult.error, ["relatorio_ciclo_id"])) {
+        legacySchema = true;
+        continue;
       }
-
-      return {
-        activeReportCycleId: resolvedCycleId,
-        report: fallbackResult.data,
-      };
+      throw currentResult.error;
     }
 
-    throw error;
-  }
+    const current = currentResult.data;
+    const additionalData: Record<string, Json> = {
+      ...(isObjectRecord(current?.dados_adicionais) ? current.dados_adicionais : {}),
+      ...(isObjectRecord(payload.dados_adicionais) ? payload.dados_adicionais : {}),
+      ...(resolvedCycleId ? { report_cycle_id: resolvedCycleId } : {}),
+    };
+    if (options?.attachmentChange) {
+      const stored = Array.isArray(additionalData.report_attachments)
+        ? additionalData.report_attachments : [];
+      const change = options.attachmentChange;
+      additionalData.report_attachments = "add" in change
+        ? [...stored.filter((entry) => !isObjectRecord(entry) ||
+            !isObjectRecord(change.add) || entry.id !== change.add.id), change.add]
+        : stored.filter((entry) => !isObjectRecord(entry) || entry.id !== change.removeId);
+    }
+    const nextPayload: ReportInsert = {
+      ...payload,
+      empresa_id: companyId,
+      ...(!legacySchema && resolvedCycleId ? { relatorio_ciclo_id: resolvedCycleId } : {}),
+      dados_adicionais: additionalData,
+    };
+    const result = current
+      ? await supabase.from("empresa_relatorios")
+          .update(nextPayload)
+          .eq("id", current.id)
+          .eq("updated_at", current.updated_at)
+          .select(select).maybeSingle()
+      : await supabase.from("empresa_relatorios")
+          .insert(nextPayload).select(select).single();
 
-  return {
-    activeReportCycleId: resolvedCycleId,
-    report: data as ReportRow,
-  };
+    if (result.error) {
+      if (!legacySchema && isMissingColumnError(result.error, ["relatorio_ciclo_id"])) {
+        legacySchema = true;
+        continue;
+      }
+      if (!current && result.error.code === "23505") continue;
+      throw result.error;
+    }
+    if (result.data) {
+      return { activeReportCycleId: resolvedCycleId, report: result.data as ReportRow };
+    }
+    // A concurrent update changed updated_at. Merge with the new version.
+  }
+  throw new Error("O relatorio foi alterado em outra sessao. Tente salvar novamente.");
 };
 
 export const startNewCompanyReportCycle = async (

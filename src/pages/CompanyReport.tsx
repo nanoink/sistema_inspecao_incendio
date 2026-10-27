@@ -562,7 +562,7 @@ const serializeReportAttachments = (attachments: ReportAttachmentMetadata[]) =>
     size_bytes: attachment.sizeBytes,
     uploaded_at: attachment.uploadedAt,
     uploaded_by: attachment.uploadedBy,
-  })) as Json;
+  }));
 
 const isAllowedReportAttachmentFile = (file: File) => {
   const normalizedMimeType = file.type.trim().toLowerCase();
@@ -4434,7 +4434,6 @@ const CompanyReport = () => {
         uploadedBy,
       };
       const nextAttachments = [...reportAttachments, nextAttachment];
-      const previousAdditionalData = getJsonRecord(report?.dados_adicionais) || {};
       const previewKind = getReportAttachmentPreviewKind(nextAttachment);
 
       optimisticAttachment = nextAttachment;
@@ -4457,14 +4456,14 @@ const CompanyReport = () => {
       setRecentReportAttachmentId(nextAttachment.id);
 
       const { activeReportCycleId: resolvedReportCycleId, report: data } =
-        await upsertCompanyReportForCycle(supabase, id, {
-          dados_adicionais: {
-            ...previousAdditionalData,
-            report_attachments: serializeReportAttachments(nextAttachments),
-          },
+        await upsertCompanyReportForCycle(supabase, id, {}, {
+          attachmentChange: { add: serializeReportAttachments([nextAttachment])[0] },
         });
 
       setReport(data);
+      const persistedAttachments = parseReportAttachments(getJsonRecord(data.dados_adicionais));
+      reportAttachmentsRef.current = persistedAttachments;
+      setReportAttachments(persistedAttachments);
       setActiveReportCycleId(resolvedReportCycleId);
       setReportAttachmentTitle("");
       setReportAttachmentFile(null);
@@ -4509,12 +4508,8 @@ const CompanyReport = () => {
         }
       }
 
-      if (uploadedFilePath) {
-        await supabase.storage
-          .from(REPORT_ATTACHMENT_STORAGE_BUCKET)
-          .remove([uploadedFilePath])
-          .catch(() => undefined);
-      }
+      // Keep the uploaded object if the metadata request failed: a timeout can
+      // happen after commit. Deleting here could erase an already linked file.
 
       console.error("Error uploading report attachment:", error);
       const errorMessage = getErrorMessage(error);
@@ -4558,22 +4553,16 @@ const CompanyReport = () => {
     try {
       setRemovingReportAttachmentId(attachmentId);
 
-      const nextAttachments = reportAttachments.filter(
-        (attachment) => attachment.id !== attachmentId,
-      );
-      const previousAdditionalData = getJsonRecord(report?.dados_adicionais) || {};
       const { activeReportCycleId: resolvedReportCycleId, report: data } =
-        await upsertCompanyReportForCycle(supabase, id, {
-          dados_adicionais: {
-            ...previousAdditionalData,
-            report_attachments: serializeReportAttachments(nextAttachments),
-          },
+        await upsertCompanyReportForCycle(supabase, id, {}, {
+          attachmentChange: { removeId: attachmentId },
         });
 
       setReport(data);
       setActiveReportCycleId(resolvedReportCycleId);
-      reportAttachmentsRef.current = nextAttachments;
-      setReportAttachments(nextAttachments);
+      const persistedAttachments = parseReportAttachments(getJsonRecord(data.dados_adicionais));
+      reportAttachmentsRef.current = persistedAttachments;
+      setReportAttachments(persistedAttachments);
       setRecentReportAttachmentId((current) =>
         current === attachmentId ? null : current,
       );
@@ -4726,20 +4715,11 @@ const CompanyReport = () => {
           .catch(() => undefined);
       }
 
-      const previousAdditionalData =
-        report?.dados_adicionais &&
-        typeof report.dados_adicionais === "object" &&
-        !Array.isArray(report.dados_adicionais)
-          ? (report.dados_adicionais as Record<string, Json>)
-          : {};
-
       const { report: data } = await upsertCompanyReportForCycle(
         supabase,
         id,
         {
           dados_adicionais: {
-            ...previousAdditionalData,
-            report_attachments: serializeReportAttachments(reportAttachments),
             art_file_bucket: ART_STORAGE_BUCKET,
             art_file_path: filePath,
             art_file_name: file.name,
@@ -5028,13 +5008,6 @@ const CompanyReport = () => {
         return;
       }
 
-      const previousAdditionalData =
-        report?.dados_adicionais &&
-        typeof report.dados_adicionais === "object" &&
-        !Array.isArray(report.dados_adicionais)
-          ? (report.dados_adicionais as Record<string, Json>)
-          : {};
-
       const payload: Omit<
         Database["public"]["Tables"]["empresa_relatorios"]["Insert"],
         "empresa_id" | "relatorio_ciclo_id"
@@ -5057,7 +5030,6 @@ const CompanyReport = () => {
         status: nextStatus,
         checklist_snapshot: latestSnapshot,
         dados_adicionais: {
-          ...previousAdditionalData,
           empresa_responsavel: company.responsavel,
           empresa_telefone: company.telefone,
           empresa_email: company.email,
@@ -5078,14 +5050,8 @@ const CompanyReport = () => {
               : null,
           report_validated_by:
             form.reportMode === "tecnico" ? normalizeNullable(email) : null,
-          report_attachments: serializeReportAttachments(reportAttachments),
-          art_file_bucket: artFilePath ? ART_STORAGE_BUCKET : null,
-          art_file_path: artFilePath,
-          art_file_name: artFileName,
-          art_uploaded_at: artUploadedAt,
-          art_uploaded_by: artUploadedBy,
           non_conformities_count: nonConformityRecords.length,
-          report_signatures: mergedReportSignatures,
+          report_signatures: JSON.parse(JSON.stringify(mergedReportSignatures)) as Json,
           report_signatures_generated_at: new Date().toISOString(),
         },
       };

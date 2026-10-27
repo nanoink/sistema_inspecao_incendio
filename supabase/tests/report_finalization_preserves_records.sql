@@ -25,6 +25,7 @@ BEGIN
   VALUES(company_id,'[TESTE TRANSACIONAL] Preservacao ao finalizar',company_id::text,
     'Teste','fixture@example.invalid','0000000000','00000-000','Rua de teste','0','Teste','Teste','PA',100,1);
   SELECT id INTO cycle_id FROM public.get_or_create_active_report_cycle(company_id);
+  additional_data := additional_data || jsonb_build_object('report_cycle_id', cycle_id);
   SELECT item.id INTO item_id FROM public.checklist_itens_modelo item
     JOIN public.checklist_grupos grupo ON grupo.id=item.grupo_id
     JOIN public.checklist_modelos modelo ON modelo.id=grupo.modelo_id

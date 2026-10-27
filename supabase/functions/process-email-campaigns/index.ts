@@ -3,6 +3,7 @@ import type { ClaimedDelivery } from "./email-types.ts";
 import { getProviderConfiguration } from "./email-config.ts";
 import { connectAuthenticatedUolSmtp, runSmtpCommand, sendWithUolSmtp } from "./uol-smtp.ts";
 import { renderEmailHtml } from "./email-content.ts";
+import { processClaimedEmailBatch } from "./batch-processor.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,13 +13,6 @@ const corsHeaders = {
 };
 
 const SYSTEM_ADMIN_EMAIL = "firetetraedro@gmail.com";
-
-type DeliveryResult = {
-  delivery_id: string;
-  status: "sent" | "failed";
-  provider_message_id: string | null;
-  error_message: string | null;
-};
 
 const jsonResponse = (status: number, payload: Record<string, unknown>) =>
   new Response(JSON.stringify(payload), {
@@ -232,6 +226,11 @@ export const handler = async (request: Request) => {
   }
 
   const workerId = crypto.randomUUID();
+  const { error: recoveryError } = await adminClient.rpc("recover_interrupted_email_deliveries");
+  if (recoveryError) {
+    console.error("Error recovering interrupted email deliveries:", recoveryError);
+    return jsonResponse(500, { error: "Nao foi possivel verificar entregas interrompidas. Nenhum envio iniciado." });
+  }
   const { data: claimedRows, error: claimError } = await adminClient.rpc(
     "claim_due_email_campaign_batch",
     { p_worker_id: workerId },
@@ -270,56 +269,37 @@ export const handler = async (request: Request) => {
     });
   }
 
-  const results: DeliveryResult[] = [];
-
-  for (const delivery of deliveries) {
-    try {
-      const html = renderEmailHtml({ delivery, publicAppUrl: config.publicAppUrl });
-      const providerMessageId = await sendWithProvider({ delivery, html, config });
-
-      results.push({
-        delivery_id: delivery.delivery_id,
-        status: "sent",
-        provider_message_id: providerMessageId,
-        error_message: null,
-      });
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Falha desconhecida no provedor.";
-      console.error("Email delivery failed:", delivery.delivery_id, errorMessage);
-      results.push({
-        delivery_id: delivery.delivery_id,
-        status: "failed",
-        provider_message_id: null,
-        error_message: errorMessage.slice(0, 2000),
-      });
-    }
-  }
-
-  const { data: campaign, error: finalizeError } = await adminClient.rpc(
-    "finalize_email_campaign_batch",
-    {
-      p_worker_id: workerId,
-      p_campaign_id: campaignId,
-      p_results: results,
-    },
-  );
-
-  if (finalizeError) {
-    console.error("Error finalizing email campaign batch:", finalizeError);
+  try {
+    const result = await processClaimedEmailBatch({
+      deliveries,
+      send: (delivery) => {
+        const html = renderEmailHtml({ delivery, publicAppUrl: config.publicAppUrl });
+        return sendWithProvider({ delivery, html, config });
+      },
+      persist: async (result) => {
+        const { data, error } = await adminClient.rpc("finalize_email_campaign_batch", {
+          p_worker_id: workerId, p_campaign_id: campaignId, p_results: [result],
+        });
+        if (error) throw error;
+        return data;
+      },
+      halt: async (unstartedIds, errorMessage, block) => {
+        const { data, error } = await adminClient.rpc("halt_email_campaign_batch", {
+          p_worker_id: workerId, p_campaign_id: campaignId,
+          p_unstarted_ids: unstartedIds, p_error: errorMessage, p_block: block,
+        });
+        if (error) throw error;
+        return data;
+      },
+    });
+    return jsonResponse(200, { ...result, campaign_id: campaignId });
+  } catch (error) {
+    console.error("Error checkpointing email campaign batch:", error);
     return jsonResponse(500, {
-      error: "O lote foi processado, mas nao foi possivel consolidar os resultados.",
+      error: "Processamento interrompido para preservar os resultados e evitar reenvios duplicados.",
       campaign_id: campaignId,
     });
   }
-
-  return jsonResponse(200, {
-    processed: results.length,
-    sent: results.filter((result) => result.status === "sent").length,
-    failed: results.filter((result) => result.status === "failed").length,
-    campaign_id: campaignId,
-    campaign,
-  });
 };
 
 Deno.serve(handler);

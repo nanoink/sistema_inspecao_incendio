@@ -7,6 +7,28 @@ type SmtpResponse = {
   code: number;
 };
 
+export class SmtpCommandError extends Error {
+  code: number;
+  stage: string;
+  constructor(code: number, stage: string) {
+    super(`SMTP ${stage} falhou (código ${code}).`);
+    this.name = "SmtpCommandError";
+    this.code = code;
+    this.stage = stage;
+  }
+}
+
+export class UncertainEmailDeliveryError extends Error {
+  constructor() {
+    super("A conexao SMTP foi interrompida durante a entrega. Resultado sem confirmacao; nao reenviar automaticamente.");
+    this.name = "UncertainEmailDeliveryError";
+  }
+}
+
+export const isSmtpAuthenticationError = (error: unknown) =>
+  error instanceof SmtpCommandError &&
+  ["autenticação", "usuário", "senha"].includes(error.stage);
+
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
@@ -119,7 +141,7 @@ const assertSmtpCode = (
   stage: string,
 ) => {
   if (!expectedCodes.includes(response.code)) {
-    throw new Error(`SMTP ${stage} falhou (código ${response.code}).`);
+    throw new SmtpCommandError(response.code, stage);
   }
 };
 
@@ -147,20 +169,16 @@ export const connectAuthenticatedUolSmtp = async (
   );
 
   try {
-    assertSmtpCode(await readSmtpResponse(connection), [220], "conexão");
-    await runSmtpCommand(connection, "EHLO fire360.local", [250], "EHLO");
-    await runSmtpCommand(connection, "AUTH LOGIN", [334], "autenticação");
-    await runSmtpCommand(
-      connection,
-      encodeBase64(config.uolSmtpUsername),
-      [334],
-      "usuário",
-    );
-    await runSmtpCommand(
-      connection,
-      encodeBase64(config.uolSmtpPassword),
-      [235],
-      "senha",
+    await withTimeout(
+      (async () => {
+        assertSmtpCode(await readSmtpResponse(connection), [220], "conexão");
+        await runSmtpCommand(connection, "EHLO fire360.local", [250], "EHLO");
+        await runSmtpCommand(connection, "AUTH LOGIN", [334], "autenticação");
+        await runSmtpCommand(connection, encodeBase64(config.uolSmtpUsername), [334], "usuário");
+        await runSmtpCommand(connection, encodeBase64(config.uolSmtpPassword), [235], "senha");
+      })(),
+      30_000,
+      "Tempo limite excedido na autenticacao SMTP.",
     );
     return connection;
   } catch (error) {
@@ -202,6 +220,11 @@ export const sendWithUolSmtp = async ({
     encodedHtml,
   ].join("\r\n");
   const connection = await connectAuthenticatedUolSmtp(config);
+  let submissionStarted = false;
+  let accepted = false;
+  const deadline = setTimeout(() => {
+    try { connection.close(); } catch { /* Connection may already be closed. */ }
+  }, 30_000);
 
   try {
     await runSmtpCommand(connection, `MAIL FROM:<${fromAddress}>`, [250], "remetente");
@@ -212,8 +235,10 @@ export const sendWithUolSmtp = async ({
       "destinatário",
     );
     await runSmtpCommand(connection, "DATA", [354], "conteúdo");
+    submissionStarted = true;
     await writeSmtp(connection, `${message.replace(/^\./gm, "..")}\r\n.\r\n`);
     assertSmtpCode(await readSmtpResponse(connection), [250], "entrega");
+    accepted = true;
 
     try {
       await runSmtpCommand(connection, "QUIT", [221], "encerramento");
@@ -222,7 +247,13 @@ export const sendWithUolSmtp = async ({
     }
 
     return messageId;
+  } catch (error) {
+    if (submissionStarted && !accepted && !(error instanceof SmtpCommandError)) {
+      throw new UncertainEmailDeliveryError();
+    }
+    throw error;
   } finally {
-    connection.close();
+    clearTimeout(deadline);
+    try { connection.close(); } catch { /* Overall deadline may have closed it. */ }
   }
 };
